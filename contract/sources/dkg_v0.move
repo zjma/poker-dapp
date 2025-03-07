@@ -5,31 +5,47 @@ module contract_owner::dkg_v0 {
     use std::string;
     use std::vector;
     use aptos_std::type_info;
+    use aptos_framework::timestamp;
+    use contract_owner::encryption::EncKey;
     use contract_owner::encryption;
     use contract_owner::group;
+
+    const STATE__IN_PROGRESS: u64 = 0;
+    const STATE__SUCCEEDED: u64 = 1;
+    const STATE__TIMED_OUT: u64 = 2;
 
     struct DKGSession has copy, drop, store {
         base_point: group::Element,
         expected_contributors: vector<address>,
+        deadline: u64,
+        state: u64,
         contributions: vector<Option<Contribution>>,
         contribution_still_needed: u64,
         agg_public_point: group::Element,
+        culprits: vector<address>,
     }
 
     struct Contribution has copy, drop, store {
         public_point: group::Element,
     }
 
+    struct SharedSecretPublicInfo has drop {
+        agg_ek: encryption::EncKey,
+        ek_shares: vector<encryption::EncKey>,
+    }
+
     public fun dummy_session(): DKGSession {
         DKGSession {
             base_point: group::group_identity(),
             expected_contributors: vector[],
+            deadline: 0,
+            state: STATE__IN_PROGRESS,
             contributions: vector[],
             contribution_still_needed: 0,
             agg_public_point: group::group_identity(),
+            culprits: vector[],
         }
     }
-
 
     public fun default_contribution(): Contribution {
         Contribution {
@@ -91,48 +107,81 @@ module contract_owner::dkg_v0 {
         DKGSession {
             base_point: group::rand_element(),
             expected_contributors,
+            deadline: timestamp::now_seconds() + 10,
+            state: STATE__IN_PROGRESS,
             contributions: vector::map(vector::range(0, num_players), |_|option::none()),
             contribution_still_needed: vector::length(&expected_contributors),
             agg_public_point: group::group_identity(),
+            culprits: vector[],
         }
     }
 
-    const DKG_STILL_IN_PROGRESS: u64 = 0;
-    const DKG_FINISHED: u64 = 1;
-    const DKG_ABORTED: u64 = 2;
+    public fun succeeded(dkg_session: &DKGSession): bool {
+        dkg_session.state == STATE__SUCCEEDED
+    }
 
-    public fun apply_contribution(contributor: &signer, session: &mut DKGSession, contribution: Contribution, proof: ContributionProof): (vector<u64>, u64) {
+    public fun failed(dkg_session: &DKGSession): bool {
+        dkg_session.state == STATE__TIMED_OUT
+    }
+
+    public fun get_culprits(dkg_session: &DKGSession): vector<address> {
+        dkg_session.culprits
+    }
+
+    public fun get_contributors(dkg_session: &DKGSession): vector<address> {
+        assert!(dkg_session.state == STATE__SUCCEEDED, 191253);
+        dkg_session.expected_contributors
+    }
+
+    /// Anyone can call this to trigger state transitions for the given DKG.
+    public fun state_update(dkg_session: &mut DKGSession) {
+        if (dkg_session.state == STATE__IN_PROGRESS) {
+            if (dkg_session.contribution_still_needed == 0) {
+                vector::for_each_ref(&dkg_session.contributions, |contri|{
+                    let contribution = *option::borrow(contri);
+                    group::element_add_assign(&mut dkg_session.agg_public_point, &contribution.public_point);
+                });
+                dkg_session.state = STATE__SUCCEEDED;
+            } else if (timestamp::now_seconds() >= dkg_session.deadline) {
+                let n = vector::length(&dkg_session.expected_contributors);
+                let culprit_idxs = vector::filter(vector::range(0, n), |idx|{
+                    let contribution_slot = vector::borrow(&dkg_session.contributions, *idx);
+                    option::is_none(contribution_slot)
+                });
+                let culprits = vector::map(culprit_idxs, |idx| *vector::borrow(&dkg_session.expected_contributors, idx));
+                dkg_session.state = STATE__TIMED_OUT;
+                dkg_session.culprits = culprits;
+            }
+        }
+    }
+
+    public fun apply_contribution(contributor: &signer, session: &mut DKGSession, contribution: Contribution, proof: ContributionProof) {
         //TODO: verify contribution
         let contributor_addr = address_of(contributor);
         let (found, contributor_idx) = vector::index_of(&session.expected_contributors, &contributor_addr);
-        if (!found) return (vector[124130], DKG_STILL_IN_PROGRESS);
-        {
-            let contribution_slot = vector::borrow_mut(&mut session.contributions, contributor_idx);
-            if (option::is_some(contribution_slot)) return (vector[124134], DKG_STILL_IN_PROGRESS);
-            option::fill(contribution_slot, contribution);
-        };
+        assert!(found, 124130);
         session.contribution_still_needed = session.contribution_still_needed - 1;
-        if (session.contribution_still_needed == 0) {
-            vector::for_each_ref(&session.contributions, |contri|{
-                let contribution = *option::borrow(contri);
-                group::element_add_assign(&mut session.agg_public_point, &contribution.public_point);
-            });
-            (vector[], 1)
-        } else {
-            (vector[], 0)
-        }
-
+        let contribution_slot = vector::borrow_mut(&mut session.contributions, contributor_idx);
+        option::fill(contribution_slot, contribution);
     }
 
-    public fun get_ek_and_shares(session: &DKGSession): (encryption::EncKey, vector<encryption::EncKey>) {
-        let ek = encryption::make_enc_key(session.base_point, session.agg_public_point);
+    public fun get_shared_secret_public_info(session: &DKGSession): SharedSecretPublicInfo {
+        assert!(session.state == STATE__SUCCEEDED, 193709);
+        let agg_ek = encryption::make_enc_key(session.base_point, session.agg_public_point);
         let ek_shares = vector::map_ref(&session.contributions, |contri|{
             let contribution = *option::borrow(contri);
             encryption::make_enc_key(session.base_point, contribution.public_point)
         });
-        (ek, ek_shares)
+        SharedSecretPublicInfo {
+            agg_ek,
+            ek_shares,
+        }
     }
 
+    public fun unpack_shared_secret_public_info(info: SharedSecretPublicInfo): (EncKey, vector<EncKey>) {
+        let SharedSecretPublicInfo { agg_ek, ek_shares } = info;
+        (agg_ek, ek_shares)
+    }
     #[lint::allow_unsafe_randomness]
     #[test_only]
     public fun generate_contribution(session: &DKGSession): (Contribution, ContributionProof) {
