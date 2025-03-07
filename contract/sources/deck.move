@@ -1,7 +1,12 @@
 module contract_owner::deck {
+    use std::bcs;
     use std::option;
     use std::option::Option;
+    use std::string;
+    use std::string::utf8;
     use std::vector;
+    use aptos_std::debug;
+    use aptos_std::type_info;
     use contract_owner::group;
     use contract_owner::encryption;
 
@@ -47,11 +52,16 @@ module contract_owner::deck {
         }
     }
 
+    public fun dummy_proof(): ShuffleProof {
+        ShuffleProof {}
+    }
+
+    #[lint::allow_unsafe_randomness]
     public fun new(card_ek: encryption::EncKey, ek_shares: vector<encryption::EncKey>): (vector<u64>, Deck) {
         let num_players = vector::length(&ek_shares);
         let all_cards = vector::range(0, 52);
         let original_cards = vector::map(vector::range(0, 52), |_|group::rand_element());
-        let draw_pile = vector::map(original_cards, |ptxt|encryption::enc(&card_ek, &group::zero_scalar(), &ptxt));
+        let draw_pile = vector::map(original_cards, |ptxt|encryption::enc(&card_ek, &group::scalar_from_u64(0), &ptxt));
         let deck = Deck {
             num_players,
             card_ek,
@@ -69,6 +79,7 @@ module contract_owner::deck {
         (vector[], deck)
     }
 
+    /// Client needs to implement this.
     #[lint::allow_unsafe_randomness]
     #[test_only]
     public fun shuffle(deck: &Deck): (vector<encryption::Ciphertext>, ShuffleProof) {
@@ -114,8 +125,54 @@ module contract_owner::deck {
         vector[]
     }
 
-    public native fun decode_shuffle_result(buf: vector<u8>): (vector<u64>, vector<encryption::Ciphertext>, vector<u8>);
-    public native fun encode_shuffle_result(result: &vector<encryption::Ciphertext>): vector<u8>;
-    public native fun decode_shuffle_proof(buf: vector<u8>): (vector<u64>, ShuffleProof, vector<u8>);
-    public native fun encode_shuffle_proof(proof: &ShuffleProof): vector<u8>;
+    public fun decode_shuffle_result(buf: vector<u8>): (vector<u64>, vector<encryption::Ciphertext>, vector<u8>) {
+        debug::print(&utf8(b"deck::decode_shuffle_result: BEGIN"));
+        let buf_len = vector::length(&buf);
+        if (buf_len < 8) return (vector[123739], vector[], buf);
+        let num_items = 0;
+        vector::for_each(vector::range(0, 8), |idx|{
+            let digit = (*vector::borrow(&buf, idx) as u64);
+            num_items = num_items + (digit << ((idx as u8) * 8));
+        });
+        let buf = vector::slice(&buf, 8, buf_len);
+        let ret = vector[];
+        let i = 0;
+        while (i < num_items) {
+            let (errors, ciphertext, remainder) = encryption::decode_ciphertext(buf);
+            if (!vector::is_empty(&errors)) {
+                vector::push_back(&mut errors, 123740 + i);
+                return (errors, vector[], remainder);
+            };
+            buf = remainder;
+            vector::push_back(&mut ret, ciphertext);
+            i = i + 1;
+        };
+        debug::print(&utf8(b"deck::decode_shuffle_result: END"));
+        (vector[], ret, buf)
+    }
+
+    public fun encode_shuffle_result(obj: &vector<encryption::Ciphertext>): vector<u8> {
+        let num_items = vector::length(obj);
+        let buf = vector::map(vector::range(0, 8), |idx| {
+            (((num_items >> ((8*idx) as u8)) & 0xff) as u8)
+        });
+        vector::for_each_ref(obj, |ciph|{
+            vector::append(&mut buf, encryption::encode_ciphertext(ciph));
+        });
+        buf
+    }
+
+    public fun decode_shuffle_proof(buf: vector<u8>): (vector<u64>, ShuffleProof, vector<u8>) {
+        let buf_len = vector::length(&buf);
+        let header = *string::bytes(&type_info::type_name<ShuffleProof>());
+        let header_len = vector::length(&header);
+        if (buf_len < header_len) return (vector[124629], dummy_proof(), buf);
+        if (header != vector::slice(&buf, 0, header_len)) return (vector[124630], dummy_proof(), buf);
+        let buf = vector::slice(&buf, header_len, buf_len);
+        (vector[], ShuffleProof {}, buf)
+    }
+    public fun encode_shuffle_proof(proof: &ShuffleProof): vector<u8> {
+        let buf = *string::bytes(&type_info::type_name<ShuffleProof>());
+        buf
+    }
 }

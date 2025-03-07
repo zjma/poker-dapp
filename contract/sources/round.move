@@ -1,6 +1,8 @@
 module contract_owner::round {
     use std::signer::address_of;
+    use std::string::utf8;
     use std::vector;
+    use aptos_std::debug;
     use aptos_framework::timestamp;
     use contract_owner::encryption;
     use contract_owner::deck;
@@ -45,6 +47,7 @@ module contract_owner::round {
         }
     }
 
+    #[lint::allow_unsafe_randomness]
     public fun new_session(players: vector<address>, chips: vector<u64>, card_ek: encryption::EncKey, player_ek_shares: vector<encryption::EncKey>): (vector<u64>, PokerRoundSession) {
         let (errors, deck) = deck::new(card_ek, player_ek_shares);
         if (!vector::is_empty(&errors)) {
@@ -77,6 +80,7 @@ module contract_owner::round {
     }
 
     public fun process_shuffle_contribution(player: &signer, round: &mut PokerRoundSession, new_draw_pile: vector<encryption::Ciphertext>, proof: deck::ShuffleProof): (vector<u64>, u64) {
+        debug::print(&utf8(b"round::process_shuffle_contribution: BEGIN"));
         if (round.state.main != ROUND_STATE__WAITING_SHUFFLE_CONTRIBUTION_FROM_PLAYER_X_BEFORE_Y) return (vector[171018], ROUND_STILL_IN_PROGRESS);
         let now = timestamp::now_seconds();
         if (now >= round.state.y) {
@@ -95,6 +99,7 @@ module contract_owner::round {
             vector::push_back(&mut errors, 171756);
             return (errors, ROUND_STILL_IN_PROGRESS);
         };
+        debug::print(&utf8(b"round::process_shuffle_contribution: END"));
         if (round.state.x < round.num_players - 1) {
             // Wait for the next shuffle contribution.
             round.state.x = round.state.x + 1;

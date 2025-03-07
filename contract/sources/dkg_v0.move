@@ -4,12 +4,8 @@ module contract_owner::dkg_v0 {
     use std::signer::address_of;
     use std::string;
     use std::vector;
-    use aptos_std::table;
-    use aptos_std::table::Table;
     use aptos_std::type_info;
-    use aptos_framework::validator_consensus_info::default;
     use contract_owner::encryption;
-    use contract_owner::group::group_identity;
     use contract_owner::group;
 
     struct DKGSession has copy, drop, store {
@@ -37,7 +33,7 @@ module contract_owner::dkg_v0 {
 
     public fun default_contribution(): Contribution {
         Contribution {
-            public_point: group::default_element(),
+            public_point: group::dummy_element(),
         }
     }
 
@@ -70,12 +66,17 @@ module contract_owner::dkg_v0 {
         //TODO
     }
 
-    public fun default_proof(): ContributionProof {
+    public fun dummy_proof(): ContributionProof {
         ContributionProof {}
     }
 
     public fun decode_proof(buf: vector<u8>): (vector<u64>, ContributionProof, vector<u8>) {
-        //TODO
+        let buf_len = vector::length(&buf);
+        let header = *string::bytes(&type_info::type_name<ContributionProof>());
+        let header_len = vector::length(&header);
+        if (buf_len < header_len) return (vector[121413], dummy_proof(), buf);
+        if (header != vector::slice(&buf, 0, header_len)) return (vector[121414], dummy_proof(), buf);
+        let buf = vector::slice(&buf, header_len, buf_len);
         (vector[], ContributionProof {}, buf)
     }
 
@@ -84,6 +85,7 @@ module contract_owner::dkg_v0 {
         buf
     }
 
+    #[lint::allow_unsafe_randomness]
     public fun new_session(expected_contributors: vector<address>): DKGSession {
         let num_players = vector::length(&expected_contributors);
         DKGSession {
@@ -131,6 +133,7 @@ module contract_owner::dkg_v0 {
         (ek, ek_shares)
     }
 
+    #[lint::allow_unsafe_randomness]
     #[test_only]
     public fun generate_contribution(session: &DKGSession): (Contribution, ContributionProof) {
         let private_scalar = group::rand_scalar();

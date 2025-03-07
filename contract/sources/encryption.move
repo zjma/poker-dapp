@@ -3,6 +3,8 @@ module contract_owner::encryption {
     use std::vector;
     use aptos_std::type_info;
     use contract_owner::group;
+    #[test_only]
+    use aptos_framework::randomness;
 
     struct Ciphertext has copy, drop, store {
         enc_base: group::Element,
@@ -71,6 +73,11 @@ module contract_owner::encryption {
         }
     }
 
+    public fun dec(dk: &DecKey, ciph: &Ciphertext): group::Element {
+        let unblinder = group::scalar_mul(&ciph.c_0, &dk.private_scalar);
+        group::element_sub(&ciph.c_1, &unblinder)
+    }
+
     public fun ciphertext_add(a: &Ciphertext, b: &Ciphertext): Ciphertext {
         Ciphertext {
             enc_base: a.enc_base,
@@ -83,6 +90,40 @@ module contract_owner::encryption {
         (ciphertext.enc_base, ciphertext.c_0, ciphertext.c_1)
     }
 
+    public fun dummy_ciphertext(): Ciphertext {
+        Ciphertext {
+            enc_base: group::dummy_element(),
+            c_0: group::dummy_element(),
+            c_1: group::dummy_element(),
+        }
+    }
+
+    public fun encode_ciphertext(obj: &Ciphertext): vector<u8> {
+        let buf = *string::bytes(&type_info::type_name<Ciphertext>());
+        vector::append(&mut buf, group::encode_element(&obj.enc_base));
+        vector::append(&mut buf, group::encode_element(&obj.c_0));
+        vector::append(&mut buf, group::encode_element(&obj.c_1));
+        buf
+    }
+
+    public fun decode_ciphertext(buf: vector<u8>): (vector<u64>, Ciphertext, vector<u8>) {
+        let buf_len = vector::length(&buf);
+        let header = *string::bytes(&type_info::type_name<Ciphertext>());
+        let header_len = vector::length(&header);
+        if (buf_len < header_len) return (vector[123127], dummy_ciphertext(), buf);
+        if (header != vector::slice(&buf, 0, header_len)) return (vector[123128], dummy_ciphertext(), buf);
+        let buf = vector::slice(&buf, header_len, buf_len);
+        let (errors, enc_base, buf) = group::decode_element(buf);
+        if (!vector::is_empty(&errors)) return (vector[123129], dummy_ciphertext(), buf);
+        let (errors, c_0, buf) = group::decode_element(buf);
+        if (!vector::is_empty(&errors)) return (vector[123129], dummy_ciphertext(), buf);
+        let (errors, c_1, buf) = group::decode_element(buf);
+        if (!vector::is_empty(&errors)) return (vector[123129], dummy_ciphertext(), buf);
+        let ret = Ciphertext { enc_base, c_0, c_1 };
+        (vector[], ret, buf)
+    }
+
+    #[lint::allow_unsafe_randomness]
     #[test_only]
     public fun key_gen(enc_base: group::Element): (DecKey, EncKey) {
         let dk = group::rand_scalar();
@@ -97,5 +138,22 @@ module contract_owner::encryption {
                 public_point: ek,
             },
         )
+    }
+
+    #[test(framework=@0x1)]
+    fun general(framework: signer) {
+        randomness::initialize_for_testing(&framework);
+        let enc_base = group::rand_element();
+        let (dk, ek) = key_gen(enc_base);
+        let plaintext = group::rand_element();
+        let r = group::rand_scalar();
+        let ciphertext = enc(&ek, &r, &plaintext);
+        let ciph_bytes = encode_ciphertext(&ciphertext);
+        let (errors, ciphertext_another, remainder) = decode_ciphertext(ciph_bytes);
+        assert!(vector::is_empty(&errors), 999);
+        assert!(vector::is_empty(&remainder), 999);
+        assert!(ciphertext_another == ciphertext, 999);
+        let plaintext_another = dec(&dk, &ciphertext);
+        assert!(plaintext_another == plaintext, 999);
     }
 }
