@@ -235,11 +235,11 @@ module contract_owner::poker_room {
     }
 
     #[randomness]
-    entry fun process_shuffle_contribution(player: &signer, room: address, session_id: u64, shuffle_result_bytes: vector<u8>, proof_bytes: vector<u8>) acquires PokerRoomState {
+    entry fun process_shuffle_contribution(player: &signer, room: address, hand_idx: u64, shuffle_result_bytes: vector<u8>, proof_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state.main == STATE__HAND_IN_PROGRESS, 180918);
-        assert!(room.state.x == session_id, 180919);
-        let hand = table::borrow_mut(&mut room.hands, session_id);
+        assert!(room.num_hands_done == hand_idx, 180919);
+        let hand = table::borrow_mut(&mut room.hands, hand_idx);
         let (errors, new_draw_pile, remainder) = deck::decode_shuffle_result(shuffle_result_bytes);
         assert!(vector::is_empty(&errors), 180920);
         assert!(vector::is_empty(&remainder), 180921);
@@ -247,6 +247,17 @@ module contract_owner::poker_room {
         assert!(vector::is_empty(&errors), 180922);
         assert!(vector::is_empty(&remainder), 180923);
         hand::process_shuffle_contribution(player, hand, new_draw_pile, proof);
+    }
+
+    entry fun process_card_decryption_share(player: &signer, room: address, hand_idx: u64, card_idx: u64, share_bytes: vector<u8>) acquires PokerRoomState {
+        let room = borrow_global_mut<PokerRoomState>(room);
+        assert!(room.state.main == STATE__HAND_IN_PROGRESS, 124642);
+        assert!(room.num_hands_done == hand_idx, 124643);
+        let hand = table::borrow_mut(&mut room.hands, hand_idx);
+        let (errors, share, remainder) = deck::decode_decryption_share(share_bytes);
+        assert!(vector::is_empty(&errors), 124644);
+        assert!(vector::is_empty(&remainder), 124645);
+        hand::process_card_decryption_share(player, hand, card_idx, share);
     }
 
     #[view]
@@ -368,7 +379,32 @@ module contract_owner::poker_room {
         state_update(host_addr);
 
         let room = get_room_brief(host_addr);
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.state.x == 0, 999);
+        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
         hand::is_dealing_hole_cards(&room.cur_hand);
+        let deck = hand::borrow_deck(&room.cur_hand);
+        // Alice does her dealing duty.
+        vector::for_each(vector[2,3,4,5], |card_idx|{
+            let share = deck::compute_card_decryption_share(deck, card_idx, &alice_dk);
+            process_card_decryption_share(&alice, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
+        });
+
+        // Eric does his dealing duty.
+        vector::for_each(vector[1,2,3,0], |card_idx|{
+            let share = deck::compute_card_decryption_share(deck, card_idx, &eric_dk);
+            process_card_decryption_share(&eric, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
+        });
+
+        // Bob does his dealing duty.
+        vector::for_each(vector[0,1,5,4], |card_idx|{
+            let share = deck::compute_card_decryption_share(deck, card_idx, &bob_dk);
+            process_card_decryption_share(&bob, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
+        });
+
+        state_update(host_addr);
+
+        let room = get_room_brief(host_addr);
+        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(hand::is_phase_1_betting(&room.cur_hand, option::some(alice_addr)), 999);
+
     }
 }

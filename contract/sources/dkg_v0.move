@@ -186,7 +186,7 @@ module contract_owner::dkg_v0 {
     #[test_only]
     public fun generate_contribution(session: &DKGSession): (Contribution, ContributionProof) {
         let private_scalar = group::rand_scalar();
-        let public_point = group::scalar_mul(&session.base_point, &private_scalar);
+        let public_point = group::scale_element(&session.base_point, &private_scalar);
         let contribution = Contribution { public_point };
         let proof = ContributionProof {};
         (contribution, proof)

@@ -13,7 +13,7 @@ module contract_owner::encryption {
     }
 
     struct Plaintext has drop, store {}
-    struct DecKey has drop, store {
+    struct DecKey has copy, drop, store {
         enc_base: group::Element,
         private_scalar: group::Scalar,
     }
@@ -68,13 +68,13 @@ module contract_owner::encryption {
     public fun enc(ek: &EncKey, randomizer: &group::Scalar, ptxt: &group::Element): Ciphertext {
         Ciphertext {
             enc_base: ek.enc_base,
-            c_0: group::scalar_mul(&ek.enc_base, randomizer),
-            c_1: group::element_add(ptxt, &group::scalar_mul(&ek.public_point, randomizer)),
+            c_0: group::scale_element(&ek.enc_base, randomizer),
+            c_1: group::element_add(ptxt, &group::scale_element(&ek.public_point, randomizer)),
         }
     }
 
     public fun dec(dk: &DecKey, ciph: &Ciphertext): group::Element {
-        let unblinder = group::scalar_mul(&ciph.c_0, &dk.private_scalar);
+        let unblinder = group::scale_element(&ciph.c_0, &dk.private_scalar);
         group::element_sub(&ciph.c_1, &unblinder)
     }
 
@@ -86,8 +86,9 @@ module contract_owner::encryption {
         }
     }
 
-    public fun unpack_ciphertext(ciphertext: &Ciphertext): (group::Element, group::Element, group::Element) {
-        (ciphertext.enc_base, ciphertext.c_0, ciphertext.c_1)
+    public fun unpack_ciphertext(ciphertext: Ciphertext): (group::Element, group::Element, group::Element) {
+        let Ciphertext { enc_base, c_0, c_1 } = ciphertext;
+        (enc_base, c_0, c_1)
     }
 
     public fun dummy_ciphertext(): Ciphertext {
@@ -123,11 +124,29 @@ module contract_owner::encryption {
         (vector[], ret, buf)
     }
 
+    public fun derive_ek_from_dk(dk: &DecKey): EncKey {
+        EncKey {
+            enc_base: dk.enc_base,
+            public_point: group::scale_element(&dk.enc_base, &dk.private_scalar)
+        }
+    }
+
+    public fun unpack_enc_key(ek: EncKey): (group::Element, group::Element) {
+        let EncKey { enc_base, public_point } = ek;
+        (enc_base, public_point)
+    }
+
+    #[test_only]
+    public fun unpack_dec_key(dk: DecKey): (group::Element, group::Scalar) {
+        let DecKey { enc_base, private_scalar } = dk;
+        (enc_base, private_scalar)
+    }
+
     #[lint::allow_unsafe_randomness]
     #[test_only]
     public fun key_gen(enc_base: group::Element): (DecKey, EncKey) {
         let dk = group::rand_scalar();
-        let ek = group::scalar_mul(&enc_base, &dk);
+        let ek = group::scale_element(&enc_base, &dk);
         (
             DecKey {
                 enc_base,

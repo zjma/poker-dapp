@@ -9,6 +9,9 @@ module contract_owner::deck {
     use aptos_std::crypto_algebra::add;
     use aptos_std::debug;
     use aptos_std::type_info;
+    use contract_owner::fiat_shamir_transform;
+    use contract_owner::encryption::Ciphertext;
+    use contract_owner::sigma_dlog_eq;
     use contract_owner::dkg_v0;
     use contract_owner::group;
     use contract_owner::encryption;
@@ -20,6 +23,7 @@ module contract_owner::deck {
 
     struct Deck has copy, drop, store {
         num_players: u64,
+        players: vector<address>,
         card_ek: encryption::EncKey,
         ek_shares: vector<encryption::EncKey>,
         /// The group elemnts that represents [SA, S2..., SK, HA, H2, ..., HK, C1, ..., CK, D1, ..., DK].
@@ -27,14 +31,14 @@ module contract_owner::deck {
         shuffle_contributors: vector<address>,
         draw_pile: vector<encryption::Ciphertext>,
         /// `unblinders[i][j]` stores the unblinder for card `i` from player `j`.
-        unblinders: vector<vector<Option<group::Element>>>,
-        unblinder_counts: vector<u64>,
+        decryption_shares: vector<vector<Option<group::Element>>>,
+        decryption_share_counts: vector<u64>,
         /// For a publicly opened card at position `p` in the deck, store its value in `unblinded_values[p]`.
         ///
         /// More formally, if `unblinded_values[p] == t` for a t in `[0,52)`,
         /// we guarantee that `unblinders[p]` has all `n` entries (where `n` is the number of players),
         /// and decrypting `draw_pile[p]` results in `original_cards[t]`.
-        unblinded_values: vector<u64>,
+        decrypted_values: vector<u64>,
     }
 
     struct ShuffleProof has drop, store {}
@@ -46,14 +50,15 @@ module contract_owner::deck {
     public fun dummy_deck(): Deck {
         Deck {
             num_players: 0,
+            players: vector[],
             card_ek: encryption::dummy_enc_key(),
             ek_shares: vector[],
             original_cards: vector[],
             shuffle_contributors: vector[],
             draw_pile: vector[],
-            unblinders: vector[],
-            unblinder_counts: vector[],
-            unblinded_values: vector[],
+            decryption_shares: vector[],
+            decryption_share_counts: vector[],
+            decrypted_values: vector[],
         }
     }
 
@@ -62,26 +67,28 @@ module contract_owner::deck {
     }
 
     #[lint::allow_unsafe_randomness]
-    public fun new(shared_secret_public_info: dkg_v0::SharedSecretPublicInfo): (vector<u64>, Deck) {
+    public fun new(players: vector<address>, shared_secret_public_info: dkg_v0::SharedSecretPublicInfo): (vector<u64>, Deck) {
+        let num_players = vector::length(&players);
         let (agg_ek, ek_shares) = dkg_v0::unpack_shared_secret_public_info(shared_secret_public_info);
-        let num_players = vector::length(&ek_shares);
+        assert!(num_players == vector::length(&ek_shares), 135421);
         let all_cards = vector::range(0, 52);
         let original_cards = vector::map(vector::range(0, 52), |_|group::rand_element());
         let draw_pile = vector::map(original_cards, |ptxt|encryption::enc(&agg_ek, &group::scalar_from_u64(0), &ptxt));
         let deck = Deck {
             num_players,
+            players,
             card_ek: agg_ek,
             ek_shares,
             original_cards,
             shuffle_contributors: vector[],
             draw_pile,
-            unblinders: vector::map(vector::range(0, 52), |_|{
+            decryption_shares: vector::map(vector::range(0, 52), |_|{
                 vector::map(vector::range(0, num_players), |_|{
                     option::none()
                 })
             }),
-            unblinder_counts: vector::map(all_cards, |_|0),
-            unblinded_values: vector::map(all_cards, |_|STILL_BLINDED),
+            decryption_share_counts: vector::map(all_cards, |_|0),
+            decrypted_values: vector::map(all_cards, |_|STILL_BLINDED),
         };
         (vector[], deck)
     }
@@ -89,6 +96,10 @@ module contract_owner::deck {
     public fun has_shuffle_contribution_from(deck: &Deck, addr: address): bool {
         let (found, idx) = vector::index_of(&deck.shuffle_contributors, &addr);
         found
+    }
+
+    public fun get_card_ciphertext(deck: &Deck, idx: u64): Ciphertext {
+        *vector::borrow(&deck.draw_pile, idx)
     }
 
     /// Client needs to implement this.
@@ -117,22 +128,22 @@ module contract_owner::deck {
     public fun add_unblinders(deck: &mut Deck, player_idx: u64, card_idx: u64, unblinder: group::Element, _proof: UnblinderProof): vector<u64> {
         //TODO: verify unblinder
         {
-            let card_unblinders = vector::borrow_mut(&mut deck.unblinders, card_idx);
+            let card_unblinders = vector::borrow_mut(&mut deck.decryption_shares, card_idx);
             let unblinder_slot = vector::borrow_mut(card_unblinders, player_idx);
             option::fill(unblinder_slot, unblinder);
         };
-        let counter = vector::borrow_mut(&mut deck.unblinder_counts, card_idx);
+        let counter = vector::borrow_mut(&mut deck.decryption_share_counts, card_idx);
         *counter = *counter + 1;
         if (*counter == deck.num_players) {
-            let (_, _, c1) = encryption::unpack_ciphertext(vector::borrow(&deck.draw_pile, card_idx));
-            let card_unblinders = vector::borrow(&mut deck.unblinders, card_idx);
+            let (_, _, c1) = encryption::unpack_ciphertext(*vector::borrow(&deck.draw_pile, card_idx));
+            let card_unblinders = vector::borrow(&mut deck.decryption_shares, card_idx);
             vector::for_each_ref(card_unblinders, |maybe_unblinder|{
                 let unblinder = *option::borrow(maybe_unblinder);
                 group::element_sub_assign(&mut c1, &unblinder);
             });
             let (found, card_value) = vector::index_of(&deck.original_cards, &c1);
             assert!(found, 164057);
-            *vector::borrow_mut(&mut deck.unblinded_values, card_idx) = card_value;
+            *vector::borrow_mut(&mut deck.decrypted_values, card_idx) = card_value;
         };
         vector[]
     }
@@ -181,8 +192,92 @@ module contract_owner::deck {
         let buf = vector::slice(&buf, header_len, buf_len);
         (vector[], ShuffleProof {}, buf)
     }
+
     public fun encode_shuffle_proof(proof: &ShuffleProof): vector<u8> {
         let buf = *string::bytes(&type_info::type_name<ShuffleProof>());
         buf
+    }
+
+    public fun dummy_decryption_share(): VerifiableDecryptionShare {
+        VerifiableDecryptionShare {
+            share: group::dummy_element(),
+            proof: sigma_dlog_eq::dummy_proof(),
+        }
+    }
+
+    public fun encode_decryption_share(share: &VerifiableDecryptionShare): vector<u8> {
+        let buf = *string::bytes(&type_info::type_name<VerifiableDecryptionShare>());
+        vector::append(&mut buf, group::encode_element(&share.share));
+        vector::append(&mut buf, sigma_dlog_eq::encode_proof(&share.proof));
+        buf
+    }
+
+    public fun decode_decryption_share(buf: vector<u8>): (vector<u64>, VerifiableDecryptionShare, vector<u8>) {
+        let buf_len = vector::length(&buf);
+        let header = *string::bytes(&type_info::type_name<VerifiableDecryptionShare>());
+        let header_len = vector::length(&header);
+        if (buf_len < header_len) return (vector[125105], dummy_decryption_share(), buf);
+        if (header != vector::slice(&buf, 0, header_len)) return (vector[125106], dummy_decryption_share(), buf);
+        let buf = vector::slice(&buf, header_len, buf_len);
+        let (errors, share, buf) = group::decode_element(buf);
+        if (!vector::is_empty(&errors)) {
+            vector::push_back(&mut errors, 125107);
+            return (errors, dummy_decryption_share(), buf);
+        };
+        let (errors, proof, buf) = sigma_dlog_eq::decode_proof(buf);
+        if (!vector::is_empty(&errors)) {
+            vector::push_back(&mut errors, 125108);
+            return (errors, dummy_decryption_share(), buf);
+        };
+        let ret = VerifiableDecryptionShare { share, proof };
+        (vector[], ret, buf)
+    }
+
+    public fun process_decryption_share(player: &signer, deck: &mut Deck, card_idx: u64, share: VerifiableDecryptionShare) {
+        let player_addr = address_of(player);
+        let (player_found, player_idx) = vector::index_of(&deck.players, &player_addr);
+        assert!(player_found, 133908);
+        let (enc_base, c_0, _) = encryption::unpack_ciphertext(*vector::borrow(&deck.draw_pile, card_idx));
+        let (_, ek_share) = encryption::unpack_enc_key(*vector::borrow(&deck.ek_shares, player_idx));
+        let VerifiableDecryptionShare { share: decryption_share, proof } = share;
+        let valid = sigma_dlog_eq::verify(&mut fiat_shamir_transform::new_transcript(), &enc_base, &ek_share, &c_0, &decryption_share, &proof);
+        assert!(valid, 133909);
+
+        // Save the share.
+        let share_holders = vector::borrow_mut(&mut deck.decryption_shares, card_idx);
+        let share_holder = vector::borrow_mut(share_holders, player_idx);
+        option::fill(share_holder, decryption_share);
+
+        // Update the dec share counter for the card.
+        let counter = vector::borrow_mut(&mut deck.decryption_share_counts, card_idx);
+        *counter = *counter + 1;
+    }
+
+    #[lint::allow_unsafe_randomness]
+    #[test_only]
+    public fun compute_card_decryption_share(deck: &Deck, card_idx: u64, dk_share: &encryption::DecKey): VerifiableDecryptionShare {
+        let card_ciph = *vector::borrow(&deck.draw_pile, card_idx);
+        let (base, c_0, c_1) = encryption::unpack_ciphertext(card_ciph);
+        let ek_share = encryption::derive_ek_from_dk(dk_share);
+        let (found, idx) = vector::index_of(&deck.ek_shares, &ek_share);
+        assert!(found, 123350);
+        let (_, public_point) = encryption::unpack_enc_key(ek_share);
+        let (_, secret_share) = encryption::unpack_dec_key(*dk_share);
+        let share = group::scale_element(&c_0, &secret_share);
+        let proof = sigma_dlog_eq::prove(&mut fiat_shamir_transform::new_transcript(), &base, &public_point, &c_0, &share, &secret_share
+        );
+        VerifiableDecryptionShare { share, proof }
+    }
+
+    public fun get_decryption_share(deck: &Deck, card_idx: u64, player: address): Option<group::Element> {
+        let (player_found, player_idx) = vector::index_of(&deck.players, &player);
+        assert!(player_found, 143107);
+        let share_holders = vector::borrow(&deck.decryption_shares, card_idx);
+        *vector::borrow(share_holders, player_idx)
+    }
+
+    struct VerifiableDecryptionShare has drop {
+        share: group::Element,
+        proof: sigma_dlog_eq::Proof,
     }
 }

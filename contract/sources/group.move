@@ -4,8 +4,11 @@ module contract_owner::group {
     use std::vector;
     use aptos_std::bls12381_algebra;
     use aptos_std::crypto_algebra;
+    use aptos_std::from_bcs::to_u256;
     use aptos_std::type_info;
     use aptos_framework::randomness;
+
+    const Q: u256 = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001;
 
     struct Element has copy, drop, store {
         bytes: vector<u8>,
@@ -42,8 +45,7 @@ module contract_owner::group {
 
     #[lint::allow_unsafe_randomness]
     public fun rand_scalar(): Scalar {
-        let q = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001;
-        let rand_scalar_val = randomness::u256_range(0, q);
+        let rand_scalar_val = randomness::u256_range(0, Q);
         let bytes = vector::map(vector::range(0, 32), |idx|{
             let idx = (idx as u8);
             (((rand_scalar_val >> (idx * 8)) & 0xff) as u8)
@@ -60,6 +62,40 @@ module contract_owner::group {
     public fun scalar_from_u64(v: u64): Scalar {
         let inner = crypto_algebra::from_u64<bls12381_algebra::Fr>(v);
         scalar_from_inner(&inner)
+    }
+
+    public fun scalar_from_little_endian_bytes_mod_q(bytes: vector<u8>): Scalar {
+        let ret = 0;
+        vector::for_each(bytes, |byte|{
+            vector::for_each(u8_to_little_endian_bits(byte), |bit|{
+                ret = safe_add_mod(ret, ret, Q);
+                if (bit) {
+                    ret = safe_add_mod(ret, 1, Q);
+                }
+            });
+        });
+        Scalar { bytes: u256_to_little_endian_bytes(ret) }
+    }
+
+    fun u8_to_little_endian_bits(x: u8): vector<bool> {
+        vector::map(vector::range(0, 8), |i|((x >> (i as u8)) & 1) > 0)
+    }
+
+    fun u256_to_little_endian_bytes(x: u256): vector<u8> {
+        vector::map(vector::range(0, 32), |i|{
+            let shift = ((8*i) as u8);
+            (((x >> shift) & 0xff) as u8)
+        })
+    }
+
+    fun safe_add_mod(a: u256, b: u256, m: u256): u256 {
+        let a_clone = a;
+        let neg_b = m - b;
+        if (a < neg_b) {
+            a + b
+        } else {
+            a_clone - neg_b
+        }
     }
 
     public fun group_identity(): Element {
@@ -89,11 +125,25 @@ module contract_owner::group {
         *accumulator = element_sub(accumulator, add_on);
     }
 
-    public fun scalar_mul(base: &Element, scalar: &Scalar): Element {
+    public fun scale_element(base: &Element, scalar: &Scalar): Element {
         let inner_b = element_to_inner(base);
         let inner_s = scalar_to_inner(scalar);
         let inner_res = crypto_algebra::scalar_mul(&inner_b, &inner_s);
         element_from_inner(&inner_res)
+    }
+
+    public fun scalar_add(a: &Scalar, b: &Scalar): Scalar {
+        let inner_a = scalar_to_inner(a);
+        let inner_b = scalar_to_inner(b);
+        let inner_res = crypto_algebra::add(&inner_a, &inner_b);
+        scalar_from_inner(&inner_res)
+    }
+
+    public fun scalar_mul(a: &Scalar, b: &Scalar): Scalar {
+        let inner_a = scalar_to_inner(a);
+        let inner_b = scalar_to_inner(b);
+        let inner_res = crypto_algebra::mul(&inner_a, &inner_b);
+        scalar_from_inner(&inner_res)
     }
 
     public fun decode_element(buf: vector<u8>): (vector<u64>, Element, vector<u8>) {
@@ -169,7 +219,7 @@ module contract_owner::group {
         assert!(e0_another == e0, 999);
 
         let s7 = scalar_from_u64(7);
-        assert!(scalar_mul(&e0, &s7) == element_sum(vector[e0, e0_doubled, e0_quadrupled]), 999);
+        assert!(scale_element(&e0, &s7) == element_sum(vector[e0, e0_doubled, e0_quadrupled]), 999);
         assert!(element_sub(&e0_quadrupled, &e0_doubled) == e0_doubled, 999);
         assert!(group_identity() == element_sub(&e0_doubled, &e0_doubled), 999);
 
