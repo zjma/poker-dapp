@@ -200,14 +200,14 @@ module contract_owner::deck {
 
     public fun dummy_decryption_share(): VerifiableDecryptionShare {
         VerifiableDecryptionShare {
-            share: group::dummy_element(),
+            decryption_share: group::dummy_element(),
             proof: sigma_dlog_eq::dummy_proof(),
         }
     }
 
     public fun encode_decryption_share(share: &VerifiableDecryptionShare): vector<u8> {
         let buf = *string::bytes(&type_info::type_name<VerifiableDecryptionShare>());
-        vector::append(&mut buf, group::encode_element(&share.share));
+        vector::append(&mut buf, group::encode_element(&share.decryption_share));
         vector::append(&mut buf, sigma_dlog_eq::encode_proof(&share.proof));
         buf
     }
@@ -229,7 +229,7 @@ module contract_owner::deck {
             vector::push_back(&mut errors, 125108);
             return (errors, dummy_decryption_share(), buf);
         };
-        let ret = VerifiableDecryptionShare { share, proof };
+        let ret = VerifiableDecryptionShare { decryption_share: share, proof };
         (vector[], ret, buf)
     }
 
@@ -239,7 +239,7 @@ module contract_owner::deck {
         assert!(player_found, 133908);
         let (enc_base, c_0, _) = encryption::unpack_ciphertext(*vector::borrow(&deck.draw_pile, card_idx));
         let (_, ek_share) = encryption::unpack_enc_key(*vector::borrow(&deck.ek_shares, player_idx));
-        let VerifiableDecryptionShare { share: decryption_share, proof } = share;
+        let VerifiableDecryptionShare { decryption_share: decryption_share, proof } = share;
         let valid = sigma_dlog_eq::verify(&mut fiat_shamir_transform::new_transcript(), &enc_base, &ek_share, &c_0, &decryption_share, &proof);
         assert!(valid, 133909);
 
@@ -255,18 +255,18 @@ module contract_owner::deck {
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
-    public fun compute_card_decryption_share(deck: &Deck, card_idx: u64, dk_share: &encryption::DecKey): VerifiableDecryptionShare {
+    public fun compute_card_decryption_share(player: &signer, deck: &Deck, card_idx: u64, dk_share: &dkg_v0::SecretShare): VerifiableDecryptionShare {
+        let player_addr = address_of(player);
+        let (player_found, player_idx) = vector::index_of(&deck.players, &player_addr);
+        assert!(player_found, 123349);
+
         let card_ciph = *vector::borrow(&deck.draw_pile, card_idx);
-        let (base, c_0, c_1) = encryption::unpack_ciphertext(card_ciph);
-        let ek_share = encryption::derive_ek_from_dk(dk_share);
-        let (found, idx) = vector::index_of(&deck.ek_shares, &ek_share);
-        assert!(found, 123350);
-        let (_, public_point) = encryption::unpack_enc_key(ek_share);
-        let (_, secret_share) = encryption::unpack_dec_key(*dk_share);
-        let share = group::scale_element(&c_0, &secret_share);
-        let proof = sigma_dlog_eq::prove(&mut fiat_shamir_transform::new_transcript(), &base, &public_point, &c_0, &share, &secret_share
-        );
-        VerifiableDecryptionShare { share, proof }
+        let (enc_base, c_0, _) = encryption::unpack_ciphertext(card_ciph);
+        let (_, ek_share) = encryption::unpack_enc_key(*vector::borrow(&deck.ek_shares, player_idx));
+        let secret_share = dkg_v0::unpack_secret_share(*dk_share);
+        let decryption_share = group::scale_element(&c_0, &secret_share);
+        let proof = sigma_dlog_eq::prove(&mut fiat_shamir_transform::new_transcript(), &enc_base, &ek_share, &c_0, &decryption_share, &secret_share);
+        VerifiableDecryptionShare { decryption_share, proof }
     }
 
     public fun get_decryption_share(deck: &Deck, card_idx: u64, player: address): Option<group::Element> {
@@ -277,7 +277,7 @@ module contract_owner::deck {
     }
 
     struct VerifiableDecryptionShare has drop {
-        share: group::Element,
+        decryption_share: group::Element,
         proof: sigma_dlog_eq::Proof,
     }
 }

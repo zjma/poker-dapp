@@ -13,6 +13,8 @@ module contract_owner::poker_room {
     use contract_owner::dkg_v0;
     use contract_owner::encryption;
     #[test_only]
+    use aptos_std::debug;
+    #[test_only]
     use aptos_framework::randomness;
     #[test_only]
     use aptos_framework::timestamp;
@@ -220,7 +222,7 @@ module contract_owner::poker_room {
     }
 
     #[randomness]
-    entry fun process_dkg_contribution(player: &signer, room: address, session_id: u64, contribution_bytes: vector<u8>, proof_bytes: vector<u8>) acquires PokerRoomState {
+    entry fun process_dkg_contribution(player: &signer, room: address, session_id: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state.main == STATE__DKG_IN_PROGRESS, 174737);
         assert!(room.num_dkgs_done == session_id, 174738);
@@ -228,10 +230,7 @@ module contract_owner::poker_room {
         let (errors, contribution, remainder) = dkg_v0::decode_contribution(contribution_bytes);
         assert!(vector::is_empty(&errors), 174739);
         assert!(vector::is_empty(&remainder), 174740);
-        let (errors, proof, remainder) = dkg_v0::decode_proof(proof_bytes);
-        assert!(vector::is_empty(&errors), 174741);
-        assert!(vector::is_empty(&remainder), 174742);
-        dkg_v0::apply_contribution(player, dkg_session, contribution, proof);
+        dkg_v0::process_contribution(player, dkg_session, contribution);
     }
 
     #[randomness]
@@ -329,20 +328,20 @@ module contract_owner::poker_room {
         state_update(host_addr);
 
         // Eric contributes to DKG 0.
-        let (dkg_0_eric_contri, dkg_0_eric_proof) = dkg_v0::generate_contribution(&room.cur_dkg_session);
-        process_dkg_contribution(&eric, host_addr, 0, dkg_v0::encode_contribution(&dkg_0_eric_contri), dkg_v0::encode_proof(&dkg_0_eric_proof));
+        let (dkg_0_eric_secret_share, dkg_0_eric_contribution) = dkg_v0::generate_contribution(&room.cur_dkg_session);
+        process_dkg_contribution(&eric, host_addr, 0, dkg_v0::encode_contribution(&dkg_0_eric_contribution));
 
         state_update(host_addr);
 
         // Alice contributes to DKG 0.
-        let (dkg_0_alice_contri, dkg_0_alice_proof) = dkg_v0::generate_contribution(&room.cur_dkg_session);
-        process_dkg_contribution(&alice, host_addr, 0, dkg_v0::encode_contribution(&dkg_0_alice_contri), dkg_v0::encode_proof(&dkg_0_alice_proof));
+        let (dkg_0_alice_secret_share, dkg_0_alice_contribution) = dkg_v0::generate_contribution(&room.cur_dkg_session);
+        process_dkg_contribution(&alice, host_addr, 0, dkg_v0::encode_contribution(&dkg_0_alice_contribution));
 
         state_update(host_addr);
 
         // Bob contributes to DKG 0.
-        let (dkg_0_bob_contri, dkg_0_bob_proof) = dkg_v0::generate_contribution(&room.cur_dkg_session);
-        process_dkg_contribution(&bob, host_addr, 0, dkg_v0::encode_contribution(&dkg_0_bob_contri), dkg_v0::encode_proof(&dkg_0_bob_proof));
+        let (dkg_0_bob_secret_share, dkg_0_bob_contribution) = dkg_v0::generate_contribution(&room.cur_dkg_session);
+        process_dkg_contribution(&bob, host_addr, 0, dkg_v0::encode_contribution(&dkg_0_bob_contribution));
 
         state_update(host_addr);
 
@@ -384,22 +383,23 @@ module contract_owner::poker_room {
         let deck = hand::borrow_deck(&room.cur_hand);
         // Alice does her dealing duty.
         vector::for_each(vector[2,3,4,5], |card_idx|{
-            let share = deck::compute_card_decryption_share(deck, card_idx, &alice_dk);
+            let share = deck::compute_card_decryption_share(&alice, deck, card_idx, &dkg_0_alice_secret_share);
             process_card_decryption_share(&alice, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
         });
 
         // Eric does his dealing duty.
         vector::for_each(vector[1,2,3,0], |card_idx|{
-            let share = deck::compute_card_decryption_share(deck, card_idx, &eric_dk);
+            let share = deck::compute_card_decryption_share(&eric, deck, card_idx, &dkg_0_eric_secret_share);
             process_card_decryption_share(&eric, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
         });
 
         // Bob does his dealing duty.
         vector::for_each(vector[0,1,5,4], |card_idx|{
-            let share = deck::compute_card_decryption_share(deck, card_idx, &bob_dk);
+            let share = deck::compute_card_decryption_share(&bob, deck, card_idx, &dkg_0_bob_secret_share);
             process_card_decryption_share(&bob, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
         });
 
+        timestamp::fast_forward_seconds(6);
         state_update(host_addr);
 
         let room = get_room_brief(host_addr);
