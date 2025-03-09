@@ -4,7 +4,7 @@ module contract_owner::deck {
     use std::option::Option;
     use std::signer::address_of;
     use std::string;
-    use std::string::utf8;
+    use std::string::{utf8, String};
     use std::vector;
     use aptos_std::crypto_algebra::add;
     use aptos_std::debug;
@@ -15,6 +15,8 @@ module contract_owner::deck {
     use contract_owner::dkg_v0;
     use contract_owner::group;
     use contract_owner::encryption;
+    #[test_only]
+    use contract_owner::group::element_sub_assign;
 
     struct UnblinderKey has copy, drop {
         draw_pile_idx: u64,
@@ -26,7 +28,7 @@ module contract_owner::deck {
         players: vector<address>,
         card_ek: encryption::EncKey,
         ek_shares: vector<encryption::EncKey>,
-        /// The group elemnts that represents [SA, S2..., SK, HA, H2, ..., HK, C1, ..., CK, D1, ..., DK].
+        /// The group elemnts that represents [SA, S2..., SK, HA, H2, ..., HK, DA, ..., DK, CA, ..., CK].
         original_cards: vector<group::Element>,
         shuffle_contributors: vector<address>,
         draw_pile: vector<encryption::Ciphertext>,
@@ -274,6 +276,40 @@ module contract_owner::deck {
         assert!(player_found, 143107);
         let share_holders = vector::borrow(&deck.decryption_shares, card_idx);
         *vector::borrow(share_holders, player_idx)
+    }
+
+    public fun unpack_decryption_share(share: VerifiableDecryptionShare): (group::Element, sigma_dlog_eq::Proof) {
+        let VerifiableDecryptionShare { decryption_share, proof } = share;
+        (decryption_share, proof)
+    }
+
+    #[test_only]
+    public fun reveal_card_privately(deck: &Deck, card_idx: u64, secret_share: &dkg_v0::SecretShare): u64 {
+        let card_ciph = *vector::borrow(&deck.draw_pile, card_idx);
+        let (_, c_0, c_1) = encryption::unpack_ciphertext(card_ciph);
+        let share_holders = vector::borrow(&deck.decryption_shares, card_idx);
+        vector::for_each_ref(share_holders, |share_holder|{
+            if (option::is_some(share_holder)) {
+                let dec_share = option::borrow(share_holder);
+                element_sub_assign(&mut c_1, dec_share);
+            }
+        });
+        let secret_share = dkg_v0::unpack_secret_share(*secret_share);
+        let last_dec_share = group::scale_element(&c_0, &secret_share);
+        group::element_sub_assign(&mut c_1, &last_dec_share);
+        let (found, card_val) = vector::index_of(&deck.original_cards, &c_1);
+        assert!(found, 113629);
+        card_val
+    }
+
+    const SUITE_TEXTS: vector<vector<u8>> = vector[b"S", b"H", b"D", b"C"];
+    const NUMBER_TEXTS: vector<vector<u8>> = vector[b"__A", b"__2", b"__3", b"__4", b"__5", b"__6", b"__7", b"__8", b"__9", b"_10", b"__J", b"__Q", b"__K"];
+    public fun get_card_text(card_val: u64): String {
+        let suite = card_val / 13;
+        let number = card_val % 13;
+        let ret = *vector::borrow(&SUITE_TEXTS, suite);
+        vector::append(&mut ret, *vector::borrow(&NUMBER_TEXTS, number));
+        utf8(ret)
     }
 
     struct VerifiableDecryptionShare has drop {

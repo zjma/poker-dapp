@@ -13,6 +13,8 @@ module contract_owner::poker_room {
     use contract_owner::dkg_v0;
     use contract_owner::encryption;
     #[test_only]
+    use std::string::utf8;
+    #[test_only]
     use aptos_std::debug;
     #[test_only]
     use aptos_framework::randomness;
@@ -293,6 +295,14 @@ module contract_owner::poker_room {
         *table::borrow(&room.dkg_sessions, session_id)
     }
 
+    public fun process_new_invest(player: &signer, room: address, hand_idx: u64, bet: u64) acquires PokerRoomState {
+        let room = borrow_global_mut<PokerRoomState>(room);
+        assert!(room.state.main == STATE__HAND_IN_PROGRESS, 120142);
+        assert!(room.num_hands_done == hand_idx, 120143);
+        let hand = table::borrow_mut(&mut room.hands, hand_idx);
+        hand::process_new_invest(player, hand, bet);
+    }
+
     #[test(framework=@0x1, host=@0xcafe, alice=@0xaaaa, bob=@0xbbbb, eric=@0xeeee)]
     fun end_to_end(framework: signer, host: signer, alice: signer, bob: signer, eric: signer) acquires PokerRoomState {
         randomness::initialize_for_testing(&framework);
@@ -404,7 +414,67 @@ module contract_owner::poker_room {
 
         let room = get_room_brief(host_addr);
         assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(vector[0, 125, 250] == hand::get_bets(&room.cur_hand), 999);
+        assert!(vector[false, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
         assert!(hand::is_phase_1_betting(&room.cur_hand, option::some(alice_addr)), 999);
+        let deck = hand::borrow_deck(&room.cur_hand);
+
+        // Alice takes a look at her private cards.
+        let hand_0_alice_card_0 = deck::reveal_card_privately(deck, 0, &dkg_0_alice_secret_share);
+        let hand_0_alice_card_1 = deck::reveal_card_privately(deck, 1, &dkg_0_alice_secret_share);
+        debug::print(&utf8(b"hand_0_alice_card_0:"));
+        debug::print(&deck::get_card_text(hand_0_alice_card_0));
+        debug::print(&utf8(b"hand_0_alice_card_1:"));
+        debug::print(&deck::get_card_text(hand_0_alice_card_1));
+
+        // Alice folds.
+        process_new_invest(&alice, host_addr, 0, 0);
+
+        state_update(host_addr);
+
+        let room = get_room_brief(host_addr);
+        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(vector[0, 125, 250] == hand::get_bets(&room.cur_hand), 999);
+        assert!(vector[true, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
+        assert!(hand::is_phase_1_betting(&room.cur_hand, option::some(bob_addr)), 999);
+
+        // Bob takes a look at his private cards.
+        let hand_0_bob_card_0 = deck::reveal_card_privately(deck, 2, &dkg_0_bob_secret_share);
+        let hand_0_bob_card_1 = deck::reveal_card_privately(deck, 3, &dkg_0_bob_secret_share);
+        debug::print(&utf8(b"hand_0_bob_card_0:"));
+        debug::print(&deck::get_card_text(hand_0_bob_card_0));
+        debug::print(&utf8(b"hand_0_bob_card_1:"));
+        debug::print(&deck::get_card_text(hand_0_bob_card_1));
+
+        // Bob raises.
+        process_new_invest(&bob, host_addr, 0, 500);
+
+        state_update(host_addr);
+
+        let room = get_room_brief(host_addr);
+        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(vector[0, 500, 250] == hand::get_bets(&room.cur_hand), 999);
+        assert!(vector[true, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
+        assert!(hand::is_phase_1_betting(&room.cur_hand, option::some(eric_addr)), 999);
+
+        // Eric takes a look at his private cards.
+        let hand_0_eric_card_0 = deck::reveal_card_privately(deck, 4, &dkg_0_eric_secret_share);
+        let hand_0_eric_card_1 = deck::reveal_card_privately(deck, 5, &dkg_0_eric_secret_share);
+        debug::print(&utf8(b"hand_0_eric_card_0:"));
+        debug::print(&deck::get_card_text(hand_0_eric_card_0));
+        debug::print(&utf8(b"hand_0_eric_card_1:"));
+        debug::print(&deck::get_card_text(hand_0_eric_card_1));
+
+        // Eric calls.
+        process_new_invest(&eric, host_addr, 0, 500);
+
+        state_update(host_addr);
+
+        let room = get_room_brief(host_addr);
+        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(vector[0, 500, 500] == hand::get_bets(&room.cur_hand), 999);
+        assert!(vector[true, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
+        assert!(hand::is_dealing_community_cards(&room.cur_hand), 999);
 
     }
 }
