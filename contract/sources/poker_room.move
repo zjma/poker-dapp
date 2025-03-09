@@ -3,6 +3,7 @@ module contract_owner::poker_room {
     use std::option::Option;
     use std::signer::address_of;
     use std::vector;
+    use aptos_std::debug;
     use aptos_std::math64::min;
     use aptos_std::table;
     use aptos_std::table::Table;
@@ -14,8 +15,6 @@ module contract_owner::poker_room {
     use contract_owner::encryption;
     #[test_only]
     use std::string::utf8;
-    #[test_only]
-    use aptos_std::debug;
     #[test_only]
     use aptos_framework::randomness;
     #[test_only]
@@ -474,7 +473,32 @@ module contract_owner::poker_room {
         assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
         assert!(vector[0, 500, 500] == hand::get_bets(&room.cur_hand), 999);
         assert!(vector[true, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
+
+        // Time to open 3 community cards.
         assert!(hand::is_dealing_community_cards(&room.cur_hand), 999);
 
+        // Eric does his card revealing duty.
+        vector::for_each(vector[6,7,8], |card_idx|{
+            let share = deck::compute_card_decryption_share(&eric, deck, card_idx, &dkg_0_eric_secret_share);
+            process_card_decryption_share(&eric, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
+        });
+
+        // Bob does his card revealing duty.
+        vector::for_each(vector[8,6,7], |card_idx|{
+            let share = deck::compute_card_decryption_share(&bob, deck, card_idx, &dkg_0_bob_secret_share);
+            process_card_decryption_share(&bob, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
+        });
+
+        // Alice does his card revealing duty.
+        vector::for_each(vector[7,8,6], |card_idx|{
+            let share = deck::compute_card_decryption_share(&alice, deck, card_idx, &dkg_0_alice_secret_share);
+            process_card_decryption_share(&alice, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
+        });
+
+        state_update(host_addr);
+
+        let room = get_room_brief(host_addr);
+        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(hand::is_phase_2_betting(&room.cur_hand, option::some(bob_addr)), 999);
     }
 }

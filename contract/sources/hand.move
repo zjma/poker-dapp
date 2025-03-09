@@ -16,7 +16,7 @@ module contract_owner::hand {
     friend contract_owner::poker_room;
 
     const STATE__WAITING_SHUFFLE_CONTRIBUTION_BEFORE_Y: u64 = 140333;
-    const STATE__DEALING_HOLE_CARDS_BEFORE_Y: u64 = 140658;
+    const STATE__DEALING_PRIVATE_CARDS_BEFORE_Y: u64 = 140658;
     const STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y: u64 = 140855;
     const STATE__OPENING_3_COMMUNITY_CARDS_BEFORE_Y: u64 = 141022;
     const STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y: u64 = 141103;
@@ -36,7 +36,7 @@ module contract_owner::hand {
         /// Only used with `STATE__PHASE_*_BET_BY_PLAYER_X_BEFORE_Y`.
         acted: bool,
         /// Only used with `STATE__FAILED`.
-        culprits: vector<address>,
+        blames: vector<bool>,
     }
 
     struct HandSession has copy, drop, store {
@@ -57,7 +57,6 @@ module contract_owner::hand {
         /// The remaining cards is referred to as having a void destination.
         deck: Deck,
         num_shuffle_contributions: u64,
-        culprits: vector<address>,
     }
 
     const CARD_DEST__COMMUNITY_0: u64 = 0xcccc00;
@@ -89,10 +88,9 @@ module contract_owner::hand {
             num_folded: 0,
             highest_invest: 0,
             min_raise_step: 0,
-            state: HandStateCode { main: 0, x: 0, y: 0, acted: false, culprits: vector[] },
+            state: HandStateCode { main: 0, x: 0, y: 0, acted: false, blames: vector[] },
             deck: deck::dummy_deck(),
             num_shuffle_contributions: 0,
-            culprits: vector[],
         }
     }
 
@@ -120,11 +118,10 @@ module contract_owner::hand {
                 x: 0,
                 y: timestamp::now_seconds() + 5,
                 acted: false,
-                culprits: vector[],
+                blames: vector[],
             },
             deck,
             num_shuffle_contributions: 0,
-            culprits: vector[],
         };
         (vector[], session)
     }
@@ -140,15 +137,7 @@ module contract_owner::hand {
     }
 
     public fun is_dealing_hole_cards(hand: &HandSession): bool {
-        hand.state.main == STATE__DEALING_HOLE_CARDS_BEFORE_Y
-    }
-
-    public fun is_phase_1_betting(hand: &HandSession, whose_turn: Option<address>): bool {
-        debug::print(&hand.state);
-        if (hand.state.main != STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y) return false;
-        if (option::is_none(&whose_turn)) return true;
-        let whose_turn = option::extract(&mut whose_turn);
-        whose_turn == *vector::borrow(&hand.players, hand.state.x)
+        hand.state.main == STATE__DEALING_PRIVATE_CARDS_BEFORE_Y
     }
 
     public fun succeeded(hand: &HandSession): bool {
@@ -167,8 +156,9 @@ module contract_owner::hand {
     }
 
     public fun get_culprits(hand: &HandSession): vector<address> {
-        assert!(failed(hand), 184545);
-        hand.culprits
+        assert!(hand.state.main == STATE__FAILED, 184545);
+        let culprit_idxs = vector::filter(vector::range(0, hand.num_players), |player_idx| *vector::borrow(&hand.state.blames, *player_idx));
+        vector::map(culprit_idxs, |idx|*vector::borrow(&hand.players, idx))
     }
 
     fun get_small_blind_player_idx(hand: &HandSession): u64 {
@@ -198,11 +188,11 @@ module contract_owner::hand {
 
                     // State transistion.
                     hand.state = HandStateCode {
-                        main: STATE__DEALING_HOLE_CARDS_BEFORE_Y,
+                        main: STATE__DEALING_PRIVATE_CARDS_BEFORE_Y,
                         x: 0,
                         y: now_secs + 5,
                         acted: false,
-                        culprits: vector[],
+                        blames: vector[],
                     };
                 } else {
                     hand.state.x = hand.state.x + 1;
@@ -210,35 +200,38 @@ module contract_owner::hand {
                 }
             } else if (now_secs >= hand.state.y) {
                 hand.state.main = STATE__FAILED;
-                hand.culprits = vector[addr];
+                let blames = vector::map(vector::range(0, hand.num_players), |_|false);
+                *vector::borrow_mut(&mut blames, hand.state.x) = true;
+                hand.state.blames = blames;
             }
-        } else if (hand.state.main == STATE__DEALING_HOLE_CARDS_BEFORE_Y) {
-            if (now_secs < hand.state.y) return;
-            let culprits = vector::filter(hand.players, |player|{
-                // For a player P, if the contribution of P is missing for any hole card that does not go to P, P is considered to have misbehaved.
-                let (player_found, player_idx) = vector::index_of(&hand.players, player);
-                assert!(player_found, 143341);
-                let hole_card_idxs = vector::range(0, hand.num_players * 2);
-                vector::any(&hole_card_idxs, |card_idx|{
-                    let dest = card_goes_to(hand, *card_idx);
-                    let maybe_contribution = deck::get_decryption_share(&hand.deck, *card_idx, *player);
-                    dest != player_idx && option::is_none(&maybe_contribution)
-                })
+        } else if (hand.state.main == STATE__DEALING_PRIVATE_CARDS_BEFORE_Y) {
+            let private_card_idxs = vector::range(0, hand.num_players * 2);
+            let all_succeeded = true;
+            let blames = vector::map(vector::range(0, hand.num_players), |_|false);
+            vector::for_each(private_card_idxs, |card_idx|{
+                let card_dest_idx = card_goes_to(hand, card_idx);
+                let card_dest = *vector::borrow(&hand.players, card_dest_idx);
+                let non_contributors = deck::get_threshold_decryption_non_contributors(&hand.deck, card_idx);
+                vector::remove_value(&mut non_contributors, &card_dest);
+                all_succeeded = all_succeeded && vector::is_empty(&non_contributors);
+                vector::for_each(non_contributors, |player|{
+                    let (player_found, player_idx) = vector::index_of(&hand.players, &player);
+                    assert!(player_found, 104553);
+                    *vector::borrow_mut(&mut blames, player_idx) = true;
+                });
             });
-            if (vector::is_empty(&culprits)) {
-                // Hole card dealing is done.
+
+            if (all_succeeded) {
+                // Private card dealing is done.
                 let bb_player_idx = (get_small_blind_player_idx(hand) + 1) % hand.num_players;
-                debug::print(&bb_player_idx);
-                let (actor_found, actor_idx) = try_get_next_actor(hand, bb_player_idx);
-                debug::print(&actor_found);
-                debug::print(&actor_idx);
+                let (actor_found, actor_idx) = try_get_next_actor(hand, bb_player_idx, option::some(hand.expected_big_blind));
                 if (actor_found) {
                     hand.state = HandStateCode {
                         main: STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y,
                         x: actor_idx,
                         y: now_secs + 5,
                         acted: false,
-                        culprits: vector[],
+                        blames: vector[],
                     };
                 } else {
                     // Can skip pre-flop.
@@ -247,16 +240,16 @@ module contract_owner::hand {
                         x: 0,
                         y: now_secs + 5,
                         acted: false,
-                        culprits: vector[],
+                        blames: vector[],
                     };
                 }
-            } else {
+            } else if (now_secs >= hand.state.y) {
                 hand.state = HandStateCode {
                     main: STATE__FAILED,
                     x: 0,
                     y: 0,
                     acted: false,
-                    culprits,
+                    blames,
                 };
             }
         } else if (hand.state.main == STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y) {
@@ -266,7 +259,7 @@ module contract_owner::hand {
             // Time-out ==> FOLD
             if (now_secs >= hand.state.y) mark_as_fold(hand, expected_actor);
 
-            let (next_actor_found, next_actor) = try_get_next_actor(hand, hand.state.x);
+            let (next_actor_found, next_actor) = try_get_next_actor(hand, hand.state.x, option::some(hand.highest_invest));
             if (next_actor_found) {
                 hand.state.x = next_actor;
                 hand.state.y = now_secs + 10;
@@ -277,7 +270,7 @@ module contract_owner::hand {
                         x: 0,
                         y: 0,
                         acted: false,
-                        culprits: vector[],
+                        blames: vector[],
                     };
                 } else {
                     hand.state = HandStateCode {
@@ -285,12 +278,41 @@ module contract_owner::hand {
                         x: 0,
                         y: now_secs + 5,
                         acted: false,
-                        culprits: vector[],
+                        blames: vector[],
                     };
                 }
             }
         } else if (hand.state.main == STATE__OPENING_3_COMMUNITY_CARDS_BEFORE_Y) {
-            //TODO
+            let community_cards_0_1_2_idxs = vector::range(hand.num_players * 2, hand.num_players * 2 + 3);
+            let (all_succeeded, blames) = threshold_decryptions_combined_report(hand, community_cards_0_1_2_idxs);
+            if (all_succeeded) {
+                let (actor_found, actor_idx) = try_get_next_actor(hand, 0, option::none());
+                if (actor_found) {
+                    hand.state = HandStateCode {
+                        main: STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y,
+                        x: actor_idx,
+                        y: now_secs + 10,
+                        acted: false,
+                        blames: vector[],
+                    };
+                } else {
+                    hand.state = HandStateCode {
+                        main: STATE__OPENING_4TH_COMMUNITY_CARD_BEFORE_Y,
+                        x: 0,
+                        y: now_secs + 5,
+                        acted: false,
+                        blames: vector[],
+                    };
+                };
+            } else if (now_secs >= hand.state.y) {
+                hand.state = HandStateCode {
+                    main: STATE__FAILED,
+                    x: 0,
+                    y: 0,
+                    acted: false,
+                    blames,
+                };
+            }
         } else if (hand.state.main == STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y) {
             //TODO
         } else if (hand.state.main == STATE__OPENING_4TH_COMMUNITY_CARD_BEFORE_Y) {
@@ -326,7 +348,7 @@ module contract_owner::hand {
         assert!(found, 130400);
 
         // Check target correctness.
-        if (hand.state.main == STATE__DEALING_HOLE_CARDS_BEFORE_Y) {
+        if (hand.state.main == STATE__DEALING_PRIVATE_CARDS_BEFORE_Y) {
             assert!(
                 card_destination != CARD_DEST__VOID
                     && card_destination != CARD_DEST__COMMUNITY_0
@@ -372,7 +394,7 @@ module contract_owner::hand {
         );
 
         // Should never abort here.
-        assert!(!player_has_all_in(hand, player_idx), 121116);
+        assert!(!player_is_all_in(hand, player_idx), 121116);
         assert!(!player_has_folded(hand, player_idx), 121117);
 
         let cur_invest = *vector::borrow(&hand.bets, player_idx);
@@ -434,20 +456,21 @@ module contract_owner::hand {
         *invested = *invested + amount;
     }
 
-    fun try_get_next_actor(hand: &HandSession, last_actor: u64): (bool, u64) {
+    fun try_get_next_actor(hand: &HandSession, last_actor: u64, bet_to_match: Option<u64>): (bool, u64) {
         let actor = last_actor;
         loop {
             actor = (actor + 1) % hand.num_players;
-            if (hand.highest_invest == *vector::borrow(&hand.bets, actor)) {
+            if (actor == last_actor) return (false, 0);
+            if (bet_to_match == option::some(*vector::borrow(&hand.bets, actor))) {
                 // This betting round is done.
                 return (false, 0);
             };
-            if (!player_has_all_in(hand, actor) && !player_has_folded(hand, actor)) break;
+            if (!player_is_all_in(hand, actor) && !player_has_folded(hand, actor)) break;
         };
         (true, actor)
     }
 
-    fun player_has_all_in(hand: &HandSession, player_idx: u64): bool {
+    fun player_is_all_in(hand: &HandSession, player_idx: u64): bool {
         0 == *vector::borrow(&hand.chips_in_hand, player_idx)
     }
 
@@ -472,5 +495,37 @@ module contract_owner::hand {
 
     public fun is_dealing_community_cards(hand: &HandSession): bool {
         hand.state.main == STATE__OPENING_3_COMMUNITY_CARDS_BEFORE_Y
+    }
+
+    public fun is_phase_1_betting(hand: &HandSession, whose_turn: Option<address>): bool {
+        if (hand.state.main != STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y) return false;
+        if (option::is_none(&whose_turn)) return true;
+        let whose_turn = option::extract(&mut whose_turn);
+        whose_turn == *vector::borrow(&hand.players, hand.state.x)
+    }
+
+    public fun is_phase_2_betting(hand: &HandSession, actor: Option<address>): bool {
+        if (hand.state.main != STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y) return false;
+        if (option::is_none(&actor)) return true;
+        let actor = option::extract(&mut actor);
+        actor == *vector::borrow(&hand.players, hand.state.x)
+    }
+
+    /// For some given cards, return:
+    /// - whether every card has enough decryption shares;
+    /// - a bit array `blames` where `blames[i]` is true if and only if at least 1 of the given cards are missing contributions from player `i`.
+    public fun threshold_decryptions_combined_report(hand: &HandSession, card_idxs: vector<u64>): (bool, vector<bool>) {
+        let all_succeeded = true;
+        let blames = vector::map(vector::range(0, hand.num_players), |_|false);
+        vector::for_each(card_idxs, |card_idx|{
+            let non_contributors = deck::get_threshold_decryption_non_contributors(&hand.deck, card_idx);
+            all_succeeded = all_succeeded && vector::is_empty(&non_contributors);
+            vector::for_each(non_contributors, |player|{
+                let (player_found, player_idx) = vector::index_of(&hand.players, &player);
+                assert!(player_found, 104553);
+                *vector::borrow_mut(&mut blames, player_idx) = true;
+            });
+        });
+        (all_succeeded, blames)
     }
 }

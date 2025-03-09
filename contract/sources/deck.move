@@ -316,4 +316,13 @@ module contract_owner::deck {
         decryption_share: group::Element,
         proof: sigma_dlog_eq::Proof,
     }
+
+    public fun get_threshold_decryption_non_contributors(deck: &Deck, card_idx: u64): vector<address> {
+        let share_holders = vector::borrow(&deck.decryption_shares, card_idx);
+        let non_contributor_idxs = vector::filter(vector::range(0, deck.num_players), |player_idx|{
+            let share_holder = vector::borrow(share_holders, *player_idx);
+            option::is_none(share_holder)
+        });
+        vector::map(non_contributor_idxs, |player_idx| *vector::borrow(&deck.players, player_idx))
+    }
 }
