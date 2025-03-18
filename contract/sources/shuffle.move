@@ -17,7 +17,7 @@ module contract_owner::shuffle {
     const STATE__SUCCEEDED: u64 = 2;
     const STATE__FAILED: u64 = 3;
 
-    struct VerifiableContribution has drop {
+    struct VerifiableContribution has copy, drop, store {
         new_ciphertexts: vector<encryption::Ciphertext>,
         //TODO: proof
     }
@@ -66,7 +66,7 @@ module contract_owner::shuffle {
         buf
     }
 
-    struct Session has drop {
+    struct Session has copy, drop, store {
         enc_key: encryption::EncKey,
         initial_ciphertexts: vector<encryption::Ciphertext>,
         allowed_contributors: vector<address>,
@@ -77,6 +77,20 @@ module contract_owner::shuffle {
         expected_contributor_idx: u64,
         contributions: vector<VerifiableContribution>,
         culprit: Option<address>,
+    }
+
+    public fun dummy_session(): Session {
+        Session {
+            enc_key: encryption::dummy_enc_key(),
+            initial_ciphertexts: vector[],
+            allowed_contributors: vector[],
+            num_contributions_expected: 0,
+            deadlines: vector[],
+            status: 0,
+            expected_contributor_idx: 0,
+            contributions: vector[],
+            culprit: option::none(),
+        }
     }
 
     public fun new_session(enc_key: encryption::EncKey, initial_ciphertexts: vector<encryption::Ciphertext>, allowed_contributors: vector<address>, deadlines: vector<u64>): Session {
