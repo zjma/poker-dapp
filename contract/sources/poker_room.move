@@ -1,11 +1,15 @@
 module contract_owner::poker_room {
     use std::option;
-    use std::option::Option;
     use std::signer::address_of;
+    use std::string;
     use std::vector;
+    use aptos_std::debug;
     use aptos_std::math64::min;
     use aptos_std::table;
     use aptos_std::table::Table;
+    use aptos_std::type_info;
+    use aptos_framework::timestamp;
+    use contract_owner::encryption;
     use contract_owner::shuffle;
     use contract_owner::private_card_dealing;
     use contract_owner::threshold_scalar_mul;
@@ -13,15 +17,10 @@ module contract_owner::poker_room {
     use contract_owner::hand;
     use contract_owner::hand::HandSession;
     use contract_owner::dkg_v0;
-    use contract_owner::encryption;
     #[test_only]
     use std::string::utf8;
     #[test_only]
-    use aptos_std::debug;
-    #[test_only]
     use aptos_framework::randomness;
-    #[test_only]
-    use aptos_framework::timestamp;
     #[test_only]
     use contract_owner::public_card_opening;
     #[test_only]
@@ -29,121 +28,153 @@ module contract_owner::poker_room {
 
     const STATE__WAITING_FOR_PLAYERS: u64 = 1;
     const STATE__DKG_IN_PROGRESS: u64 = 2;
-    const STATE__HAND_IN_PROGRESS: u64 = 3;
-    const STATE__CLOSED: u64 = 4;
+    const STATE__SHUFFLE_IN_PROGRESS: u64 = 3;
+    const STATE__HAND_AND_SHUFFLE_IN_PROGRESS: u64 = 4;
+    const STATE__CLOSED: u64 = 5;
 
-
-    struct StateCode has copy, drop, store {
-        main: u64,
-        x: u64,
-        y: u64,
-    }
 
     struct PokerRoomStateBrief has drop {
         num_players: u64,
         expected_player_addresses: vector<address>,
+        player_livenesses: vector<bool>,
         card_enc_base: group::Element,
-        player_enc_keys: vector<Option<encryption::EncKey>>,
         player_chips: vector<u64>,
         last_button_position: u64,
-        state: StateCode,
+        state: u64,
         cur_hand: hand::HandSession,
         num_hands_done: u64,
         num_dkgs_done: u64,
+        num_shuffles_done: u64,
         cur_dkg_session: dkg_v0::DKGSession,
+        cur_shuffle_session: shuffle::Session,
     }
 
     struct PokerRoomState has key {
         num_players: u64,
         expected_player_addresses: vector<address>,
+        player_livenesses: vector<bool>,
         misbehavior_penalty: u64,
         card_enc_base: group::Element,
-        player_enc_keys: vector<Option<encryption::EncKey>>,
         player_chips: vector<u64>,
         burned_chips: u64,
         last_button_position: u64,
-        state: StateCode,
+        state: u64,
         hands: Table<u64, HandSession>,
         num_hands_done: u64, // Including successes and failures.
         num_dkgs_done: u64, // Including successes and failures.
+        num_shuffles_done: u64, // Including successes and failures.
         dkg_sessions: Table<u64, dkg_v0::DKGSession>,
+        shuffle_sessions: Table<u64, shuffle::Session>,
     }
 
-    fun next_alive_player(room: &PokerRoomState, pos: u64): u64 {
-        let starting_pos = pos;
-        loop {
-            pos = (pos + 1) % room.num_players;
-            if (*vector::borrow(&room.player_chips, pos) > 0) return pos;
-            if (pos == starting_pos) abort(161310);
-        }
-    }
-
-    /// If no DKG was done or the last succeedful DKG does not match the currently alive player set, start a DKG.
-    /// Otherwise, start a hand.
-    fun start_dkg_or_hand(room: &mut PokerRoomState) {
-        let alive_player_idxs = vector::filter(vector::range(0, room.num_players), |idx|room.player_chips[*idx] > 0);
+    fun start_dkg(room: &mut PokerRoomState) {
+        let alive_player_idxs = vector::filter(vector::range(0, room.num_players), |idx| room.player_livenesses[*idx] && room.player_chips[*idx] > 0);
         let alive_players = vector::map(alive_player_idxs, |idx|*vector::borrow(&room.expected_player_addresses, idx));
-        let maybe_available_shared_secret = if (room.num_dkgs_done == 0) {
-            option::none()
-        } else {
+        if (room.num_dkgs_done >= 1) {
             let last_dkg = table::borrow(&room.dkg_sessions, room.num_dkgs_done - 1);
-            let contributors = dkg_v0::get_contributors(last_dkg);
-            if (contributors != alive_players) {
-                option::none()
-            } else {
-                option::some(dkg_v0::get_shared_secret_public_info(last_dkg))
-            }
+            let last_dkg_contributors = dkg_v0::get_contributors(last_dkg);
+            assert!(last_dkg_contributors != alive_players, 310223);
         };
+        let new_dkg_id = room.num_dkgs_done;
+        let new_dkg = dkg_v0::new_session(alive_players);
+        table::add(&mut room.dkg_sessions, new_dkg_id, new_dkg);
+        room.state = STATE__DKG_IN_PROGRESS;
+    }
 
-        if (option::is_none(&maybe_available_shared_secret)) {
-            let new_dkg_id = room.num_dkgs_done;
-            let dkg_session = dkg_v0::new_session(alive_players);
-            table::add(&mut room.dkg_sessions, new_dkg_id, dkg_session);
-            room.state = StateCode {
-                main: STATE__DKG_IN_PROGRESS,
-                x: 0,
-                y: 0,
-            };
-        } else {
-            let shared_secret_public_info = option::extract(&mut maybe_available_shared_secret);
-            let new_hand_id = room.num_hands_done;
-            let alive_player_chips = vector::filter(room.player_chips, |chip_amount|*chip_amount > 0);
-            let (errors, new_hand) = hand::new_session(alive_players, alive_player_chips, shared_secret_public_info);
-            assert!(vector::is_empty(&errors), 20250306182613);
-            table::add(&mut room.hands, new_hand_id, new_hand);
-            room.state = StateCode {
-                main: STATE__HAND_IN_PROGRESS,
-                x: 0,
-                y: 0,
-            };
+    fun start_shuffle(room: &mut PokerRoomState) {
+        let last_dkg = table::borrow(&room.dkg_sessions, room.num_dkgs_done - 1);
+        let last_dkg_contributors = dkg_v0::get_contributors(last_dkg);
+        let alive_player_idxs = vector::filter(vector::range(0, room.num_players), |idx| room.player_livenesses[*idx] && room.player_chips[*idx] > 0);
+        let alive_players = vector::map(alive_player_idxs, |idx|*vector::borrow(&room.expected_player_addresses, idx));
+        assert!(last_dkg_contributors == alive_players, 311540);
 
-        }
+        let now_secs = timestamp::now_seconds();
+        let secret_info = dkg_v0::get_shared_secret_public_info(last_dkg);
+        let (agg_ek, ek_shares) = dkg_v0::unpack_shared_secret_public_info(secret_info);
+        let card_reprs = vector::map(vector::range(0, 52), |_|group::rand_element());
+        let initial_ciphertexts = vector::map_ref(&card_reprs, |plain| encryption::enc(&agg_ek, &group::scalar_from_u64(0), plain));
+        let deadlines = vector::map(vector::range(0, room.num_players), |i| now_secs + 5 * i);
+        let new_shuffle = shuffle::new_session(agg_ek, initial_ciphertexts, alive_players, deadlines);
+        let new_shuffle_id = room.num_shuffles_done;
+        table::add(&mut room.shuffle_sessions, new_shuffle_id, new_shuffle);
+        room.state = STATE__SHUFFLE_IN_PROGRESS;
+    }
+
+    fun start_hand_and_shuffle(room: &mut PokerRoomState) {
+        let last_dkg = table::borrow(&room.dkg_sessions, room.num_dkgs_done - 1);
+        let last_dkg_contributors = dkg_v0::get_contributors(last_dkg);
+        let alive_player_idxs = vector::filter(vector::range(0, room.num_players), |idx| room.player_livenesses[*idx] && room.player_chips[*idx] > 0);
+        let alive_players = vector::map(alive_player_idxs, |idx|*vector::borrow(&room.expected_player_addresses, idx));
+        assert!(last_dkg_contributors == alive_players, 311540);
+
+        let secret_info = dkg_v0::get_shared_secret_public_info(last_dkg);
+        let last_shuffle = table::borrow(&room.shuffle_sessions, room.num_shuffles_done - 1);
+        let card_reprs = vector::map(shuffle::input_cloned(last_shuffle), |ciph|{
+            let (_, _, c_1) = encryption::unpack_ciphertext(ciph);
+            c_1 // The ciphertexts were initially generated with 0-randomizers, so c_1 is equal to the plaintext.
+        });
+        let shuffled_deck = shuffle::result_cloned(last_shuffle);
+        let alive_player_chips = vector::map(alive_player_idxs, |idx|room.player_chips[idx]);
+        let new_hand_id = room.num_hands_done;
+        let new_hand = hand::new_session(alive_players, alive_player_chips, secret_info, card_reprs, shuffled_deck);
+        table::add(&mut room.hands, new_hand_id, new_hand);
+
+        let now_secs = timestamp::now_seconds();
+        let (agg_ek, _) = dkg_v0::unpack_shared_secret_public_info(secret_info);
+        let card_reprs = vector::map(vector::range(0, 52), |_|group::rand_element());
+        let initial_ciphertexts = vector::map_ref(&card_reprs, |plain| encryption::enc(&agg_ek, &group::scalar_from_u64(0), plain));
+        let deadlines = vector::map(vector::range(0, room.num_players), |i| now_secs + 5 * i);
+        let new_shuffle_id = room.num_shuffles_done;
+        let new_shuffle = shuffle::new_session(agg_ek, initial_ciphertexts, alive_players, deadlines);
+        table::add(&mut room.shuffle_sessions, new_shuffle_id, new_shuffle);
+
+        room.state = STATE__HAND_AND_SHUFFLE_IN_PROGRESS;
+    }
+
+    fun apply_hand_result() {
+
     }
 
     /// Anyone can call this to trigger state transitions in the given poker room.
     #[randomness]
     entry fun state_update(room_addr: address) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room_addr);
-        if (room.state.main == STATE__WAITING_FOR_PLAYERS) {
-            if (vector::all(&room.player_enc_keys, |maybe_enc_key|option::is_some(maybe_enc_key))) {
+        if (room.state == STATE__WAITING_FOR_PLAYERS) {
+            if (vector::all(&room.player_livenesses, |liveness|*liveness)) {
                 //TODO: shuffle the seats?
-                start_dkg_or_hand(room);
+                start_dkg(room);
             }
-        } else if (room.state.main == STATE__DKG_IN_PROGRESS) {
-            let cur_dkg = table::borrow_mut(&mut room.dkg_sessions, room.state.x);
+        } else if (room.state == STATE__DKG_IN_PROGRESS) {
+            let cur_dkg = table::borrow_mut(&mut room.dkg_sessions, room.num_dkgs_done);
             dkg_v0::state_update(cur_dkg);
             if (dkg_v0::succeeded(cur_dkg)) {
                 room.num_dkgs_done = room.num_dkgs_done + 1;
-                start_dkg_or_hand(room);
+                start_shuffle(room);
             } else if (dkg_v0::failed(cur_dkg)) {
                 punish_culprits(room, dkg_v0::get_culprits(cur_dkg));
                 room.num_dkgs_done = room.num_dkgs_done + 1;
-                start_dkg_or_hand(room);
+                start_dkg(room);
             } else {
-                // DKG is still in progress.
+                // DKG is still in progress...
             }
-        } else if (room.state.main == STATE__HAND_IN_PROGRESS) {
-            let cur_hand = table::borrow_mut(&mut room.hands, room.state.x);
+        } else if (room.state == STATE__SHUFFLE_IN_PROGRESS) {
+            let cur_shuffle = table::borrow_mut(&mut room.shuffle_sessions, room.num_shuffles_done);
+            shuffle::state_update(cur_shuffle);
+            if (shuffle::succeeded(cur_shuffle)) {
+                room.num_shuffles_done = room.num_shuffles_done + 1;
+                start_hand_and_shuffle(room);
+            } else if (shuffle::failed(cur_shuffle)) {
+                let culprit = shuffle::get_culprit(cur_shuffle);
+                punish_culprits(room, vector[culprit]);
+                room.num_shuffles_done = room.num_shuffles_done + 1;
+                start_dkg(room);
+            } else {
+                // Shuffle still in progress...
+            }
+        } else if (room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS) {
+            let cur_hand = table::borrow_mut(&mut room.hands, room.num_hands_done);
+            let cur_shuffle = table::borrow_mut(&mut room.shuffle_sessions, room.num_shuffles_done);
+            shuffle::state_update(cur_shuffle);
             hand::state_update(cur_hand);
             if (hand::succeeded(cur_hand)) {
                 // Apply the hand result.
@@ -159,25 +190,26 @@ module contract_owner::poker_room {
                     *chip_amount = *chip_amount + gain - loss;
                 });
                 room.num_hands_done = room.num_hands_done + 1;
-
-                // Do the next thing.
-                start_dkg_or_hand(room);
+                room.state = STATE__SHUFFLE_IN_PROGRESS;
             } else if (hand::failed(cur_hand)) {
+                // Since we need a new DKG, we don't care about the x+1 shuffle any more, even if it has succeeded/failed.
+                room.num_shuffles_done = room.num_shuffles_done + 1;
                 punish_culprits(room, hand::get_culprits(cur_hand));
                 room.num_hands_done = room.num_hands_done + 1;
-
-                // Do the next thing.
-                start_dkg_or_hand(room);
+                start_dkg(room);
             } else {
-                // The hand is still in progress.
+                // Hand is in progress...
+                // We worry about the shuffle later, even if it is done.
             }
         }
     }
 
+    /// For every troublemaker, mark it offline and remove some of its chips.
     fun punish_culprits(room: &mut PokerRoomState, troublemakers: vector<address>) {
         vector::for_each(troublemakers, |player_addr|{
             let (found, player_idx) = vector::index_of(&room.expected_player_addresses, &player_addr);
             assert!(found, 192725);
+            *vector::borrow_mut(&mut room.player_livenesses, player_idx) = false;
             let player_chip_amount = vector::borrow_mut(&mut room.player_chips, player_idx);
             let chips_to_burn = min(*player_chip_amount, room.misbehavior_penalty);
             *player_chip_amount = *player_chip_amount - chips_to_burn;
@@ -188,7 +220,7 @@ module contract_owner::poker_room {
     /// A host calls this to create a room. Room state will be stored as a resource under the host's address.
     #[randomness]
     entry fun create(host: &signer, allowed_players: vector<address>) {
-        let player_enc_keys = vector::map_ref<address, Option<encryption::EncKey>>(&allowed_players, |_| option::none());
+        let player_livenesses = vector::map_ref(&allowed_players, |_| false);
         let player_chips = vector::map_ref<address, u64>(&allowed_players, |_| 100); //TODO: real implementation
         let num_players = vector::length(&allowed_players);
         let room = PokerRoomState {
@@ -197,34 +229,29 @@ module contract_owner::poker_room {
             expected_player_addresses: allowed_players,
             misbehavior_penalty: 8000,
             card_enc_base: group::rand_element(),
-            player_enc_keys,
+            player_livenesses,
             player_chips,
             burned_chips: 0,
-            state: StateCode {
-                main: STATE__WAITING_FOR_PLAYERS,
-                x: 0,
-                y: 0,
-            },
+            state: STATE__WAITING_FOR_PLAYERS,
             hands: table::new(),
             dkg_sessions: table::new(),
+            shuffle_sessions: table::new(),
             num_dkgs_done: 0,
             num_hands_done: 0,
+            num_shuffles_done: 0,
         };
         move_to(host, room)
     }
 
     /// A player calls this to join a poker room.
     #[randomness]
-    entry fun join(player: &signer, room: address, ek_bytes: vector<u8>) acquires PokerRoomState {
+    entry fun join(player: &signer, room: address) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state.main == STATE__WAITING_FOR_PLAYERS, 174045);
+        assert!(room.state == STATE__WAITING_FOR_PLAYERS, 174045);
         let player_addr = address_of(player);
         let (found, player_idx) = vector::index_of(&room.expected_player_addresses, &player_addr);
         assert!(found, 174046);
-        let (error, ek, remainder) = encryption::decode_enc_key(ek_bytes);
-        assert!(vector::is_empty(&error), 174047);
-        assert!(vector::is_empty(&remainder), 174048);
-        *vector::borrow_mut(&mut room.player_enc_keys, player_idx) = option::some(ek);
+        *vector::borrow_mut(&mut room.player_livenesses, player_idx) = true;
         *vector::borrow_mut(&mut room.player_chips, player_idx) = 25000; //TODO: what's the initial value to start the table with?
         // state_transition(room);
     }
@@ -232,7 +259,7 @@ module contract_owner::poker_room {
     #[randomness]
     entry fun process_dkg_contribution(player: &signer, room: address, session_id: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state.main == STATE__DKG_IN_PROGRESS, 174737);
+        assert!(room.state == STATE__DKG_IN_PROGRESS, 174737);
         assert!(room.num_dkgs_done == session_id, 174738);
         let dkg_session = table::borrow_mut(&mut room.dkg_sessions, session_id);
         let (errors, contribution, remainder) = dkg_v0::decode_contribution(contribution_bytes);
@@ -242,20 +269,20 @@ module contract_owner::poker_room {
     }
 
     #[randomness]
-    entry fun process_shuffle_contribution(player: &signer, room: address, hand_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
+    entry fun process_shuffle_contribution(player: &signer, room: address, shuffle_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS, 180918);
-        assert!(room.num_hands_done == hand_idx, 180919);
-        let hand = table::borrow_mut(&mut room.hands, hand_idx);
+        assert!(room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS || room.state == STATE__SHUFFLE_IN_PROGRESS, 180918);
+        assert!(room.num_shuffles_done == shuffle_idx, 180919);
+        let shuffle = table::borrow_mut(&mut room.shuffle_sessions, shuffle_idx);
         let (errors, contribution, remainder) = shuffle::decode_contribution(contribution_bytes);
         assert!(vector::is_empty(&errors), 180920);
         assert!(vector::is_empty(&remainder), 180921);
-        hand::process_shuffle_contribution(player, hand, contribution);
+        shuffle::process_contribution(player, shuffle, contribution);
     }
 
     entry fun process_private_dealing_reencryption(player: &signer, room: address, hand_idx: u64, dealing_idx: u64, reencyption_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS, 124642);
+        assert!(room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS, 124642);
         assert!(room.num_hands_done == hand_idx, 124643);
         let hand = table::borrow_mut(&mut room.hands, hand_idx);
         let (errors, contribution, remainder) = private_card_dealing::decode_reencyption(reencyption_bytes);
@@ -266,7 +293,7 @@ module contract_owner::poker_room {
 
     entry fun process_private_dealing_contribution(player: &signer, room: address, hand_idx: u64, dealing_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS, 124642);
+        assert!(room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS, 124642);
         assert!(room.num_hands_done == hand_idx, 124643);
         let hand = table::borrow_mut(&mut room.hands, hand_idx);
         let (errors, contribution, remainder) = threshold_scalar_mul::decode_contribution(contribution_bytes);
@@ -277,7 +304,7 @@ module contract_owner::poker_room {
 
     entry fun process_public_opening_contribution(player: &signer, room: address, hand_idx: u64, opening_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS, 124642);
+        assert!(room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS, 124642);
         assert!(room.num_hands_done == hand_idx, 124643);
         let hand = table::borrow_mut(&mut room.hands, hand_idx);
         let (errors, contribution, remainder) = threshold_scalar_mul::decode_contribution(contribution_bytes);
@@ -289,28 +316,35 @@ module contract_owner::poker_room {
     #[view]
     public fun get_room_brief(room: address): PokerRoomStateBrief acquires PokerRoomState {
         let room = borrow_global<PokerRoomState>(room);
-        let cur_hand = if (room.state.main == STATE__HAND_IN_PROGRESS) {
-            *table::borrow(&room.hands, room.state.x)
+        let cur_hand = if (room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS) {
+            *table::borrow(&room.hands, room.num_hands_done)
         } else {
             hand::dummy_session()
         };
-        let cur_dkg_session = if (room.state.main == STATE__DKG_IN_PROGRESS) {
-            *table::borrow(&room.dkg_sessions, room.state.x)
+        let cur_dkg_session = if (room.state == STATE__DKG_IN_PROGRESS) {
+            *table::borrow(&room.dkg_sessions, room.num_dkgs_done)
         } else {
             dkg_v0::dummy_session()
+        };
+        let cur_shuffle_session = if (room.state == STATE__SHUFFLE_IN_PROGRESS || room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS) {
+            *table::borrow(&room.shuffle_sessions, room.num_shuffles_done)
+        } else {
+            shuffle::dummy_session()
         };
         PokerRoomStateBrief {
             num_players: room.num_players,
             expected_player_addresses: room.expected_player_addresses,
+            player_livenesses: room.player_livenesses,
             card_enc_base: room.card_enc_base,
-            player_enc_keys: room.player_enc_keys,
             player_chips: room.player_chips,
             last_button_position: room.last_button_position,
             state: room.state,
             cur_hand: cur_hand,
             num_hands_done: room.num_hands_done,
             num_dkgs_done: room.num_dkgs_done,
+            num_shuffles_done: room.num_shuffles_done,
             cur_dkg_session,
+            cur_shuffle_session,
         }
     }
 
@@ -322,7 +356,7 @@ module contract_owner::poker_room {
 
     public fun process_new_invest(player: &signer, room: address, hand_idx: u64, bet: u64) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS, 120142);
+        assert!(room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS, 120142);
         assert!(room.num_hands_done == hand_idx, 120143);
         let hand = table::borrow_mut(&mut room.hands, hand_idx);
         hand::process_new_invest(player, hand, bet);
@@ -339,26 +373,17 @@ module contract_owner::poker_room {
         let host_addr = address_of(&host);
         create(&host, vector[alice_addr, bob_addr, eric_addr]);
 
-        // Anyone can see the initial room states, including the encryption base.
-        let room = get_room_brief(host_addr);
-
-        // Alice joins the room.
-        let (alice_dk, alice_ek) = encryption::key_gen(room.card_enc_base);
-        join(&alice, host_addr, encryption::encode_enc_key(&alice_ek));
-
-        // Bob joins the room.
-        let (bob_dk, bob_ek) = encryption::key_gen(room.card_enc_base);
-        join(&bob, host_addr, encryption::encode_enc_key(&bob_ek));
-
-        // Eric joins the room.
-        let (eric_dk, eric_ek) = encryption::key_gen(room.card_enc_base);
-        join(&eric, host_addr, encryption::encode_enc_key(&eric_ek));
+        // Alice, Bob, Eric join the room.
+        join(&alice, host_addr);
+        join(&bob, host_addr);
+        join(&eric, host_addr);
 
         state_update(host_addr);
 
         // Anyone sees we now need to do DKG 0.
         let room = get_room_brief(host_addr);
-        assert!(room.state == StateCode {main: STATE__DKG_IN_PROGRESS, x: 0, y: 0}, 999);
+        assert!(room.state == STATE__DKG_IN_PROGRESS, 999);
+        assert!(room.num_dkgs_done == 0, 999);
 
         state_update(host_addr);
 
@@ -380,38 +405,37 @@ module contract_owner::poker_room {
 
         state_update(host_addr);
 
-        // Anyone sees that DKG 0 finished and hand 0 started.
+        // Anyone sees that DKG 0 finished and shuffle 0 started.
         let room = get_room_brief(host_addr);
-        assert!(room.state == StateCode {main: STATE__HAND_IN_PROGRESS, x: 0, y: 0}, 999);
-        // Anyone sees that hand 0 shuffle needs to be done.
+        assert!(room.state == STATE__SHUFFLE_IN_PROGRESS, 999);
+        assert!(room.num_shuffles_done == 0, 999);
+        assert!(shuffle::is_waiting_for_contribution(&room.cur_shuffle_session, alice_addr), 999);
+
         // Alice shuffles first.
-        assert!(hand::is_waiting_for_shuffle_contribution_from(&room.cur_hand, alice_addr), 999);
-        let shuffle_session = hand::borrow_shuffle_session(&room.cur_hand);
-        let hand_0_alice_shuffle_contri = shuffle::generate_contribution_locally(&alice, shuffle_session);
+        let hand_0_alice_shuffle_contri = shuffle::generate_contribution_locally(&alice, &room.cur_shuffle_session);
         process_shuffle_contribution(&alice, host_addr, 0, shuffle::encode_contribution(&hand_0_alice_shuffle_contri));
 
         state_update(host_addr);
+        let room = get_room_brief(host_addr);
+        assert!(room.state == STATE__SHUFFLE_IN_PROGRESS, 999);
+        assert!(room.num_shuffles_done == 0, 999);
+        assert!(shuffle::is_waiting_for_contribution(&room.cur_shuffle_session, bob_addr), 999);
 
         // Bob follows.
-        let room = get_room_brief(host_addr);
-        assert!(hand::is_waiting_for_shuffle_contribution_from(&room.cur_hand, bob_addr), 999);
-        let shuffle_session = hand::borrow_shuffle_session(&room.cur_hand);
-        let hand_0_bob_shuffle_contri = shuffle::generate_contribution_locally(&bob, shuffle_session);
+        let hand_0_bob_shuffle_contri = shuffle::generate_contribution_locally(&bob, &room.cur_shuffle_session);
         process_shuffle_contribution(&bob, host_addr, 0, shuffle::encode_contribution(&hand_0_bob_shuffle_contri));
 
         state_update(host_addr);
+        let room = get_room_brief(host_addr);
 
         // Eric concludes shuffle 0.
-        let room = get_room_brief(host_addr);
-        assert!(hand::is_waiting_for_shuffle_contribution_from(&room.cur_hand, eric_addr), 999);
-        let shuffle_session = hand::borrow_shuffle_session(&room.cur_hand);
-        let hand_0_eric_shuffle_contri = shuffle::generate_contribution_locally(&eric, shuffle_session);
+        let hand_0_eric_shuffle_contri = shuffle::generate_contribution_locally(&eric, &room.cur_shuffle_session);
         process_shuffle_contribution(&eric, host_addr, 0, shuffle::encode_contribution(&hand_0_eric_shuffle_contri));
 
         state_update(host_addr);
-
         let room = get_room_brief(host_addr);
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS, 999);
+        assert!(room.num_hands_done == 0, 999);
         hand::is_dealing_private_cards(&room.cur_hand);
 
         // Initiate 6 private card dealings in parallel.
@@ -451,7 +475,8 @@ module contract_owner::poker_room {
 
         let room = get_room_brief(host_addr);
         // Assert: Hand 0 is still in progress, in phase 1 betting, Alice's turn.
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS, 999);
+        assert!(room.num_hands_done == 0, 999);
         assert!(vector[0, 125, 250] == hand::get_bets(&room.cur_hand), 999);
         assert!(vector[false, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
         assert!(hand::is_phase_1_betting(&room.cur_hand, option::some(alice_addr)), 999);
@@ -486,7 +511,7 @@ module contract_owner::poker_room {
         state_update(host_addr);
 
         let room = get_room_brief(host_addr);
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS && room.num_hands_done == 0, 999);
         assert!(vector[0, 125, 250] == hand::get_bets(&room.cur_hand), 999);
         assert!(vector[true, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
         assert!(hand::is_phase_1_betting(&room.cur_hand, option::some(bob_addr)), 999);
@@ -498,7 +523,7 @@ module contract_owner::poker_room {
         state_update(host_addr);
 
         let room = get_room_brief(host_addr);
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS && room.num_hands_done == 0, 999);
         assert!(vector[0, 500, 250] == hand::get_bets(&room.cur_hand), 999);
         assert!(vector[true, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
         assert!(hand::is_phase_1_betting(&room.cur_hand, option::some(eric_addr)), 999);
@@ -509,7 +534,7 @@ module contract_owner::poker_room {
         state_update(host_addr);
 
         let room = get_room_brief(host_addr);
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS && room.num_hands_done == 0, 999);
         assert!(vector[0, 500, 500] == hand::get_bets(&room.cur_hand), 999);
         assert!(vector[true, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
 
@@ -536,7 +561,7 @@ module contract_owner::poker_room {
         state_update(host_addr);
 
         let room = get_room_brief(host_addr);
-        assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
+        assert!(room.state == STATE__HAND_AND_SHUFFLE_IN_PROGRESS && room.num_hands_done == 0, 999);
         assert!(hand::is_phase_2_betting(&room.cur_hand, option::some(bob_addr)), 999);
         let public_card_0 = public_card_opening::get_result(hand::borrow_public_opening_session(&room.cur_hand, 0));
         let public_card_1 = public_card_opening::get_result(hand::borrow_public_opening_session(&room.cur_hand, 1));

@@ -4,14 +4,13 @@ module contract_owner::shuffle {
     use std::signer::address_of;
     use std::string;
     use std::vector;
+    use aptos_std::debug;
     use aptos_std::type_info;
     use aptos_framework::randomness;
     use aptos_framework::timestamp;
     use contract_owner::group;
     use contract_owner::utils;
     use contract_owner::encryption;
-    #[test_only]
-    use aptos_std::debug;
 
     const STATE__ACCEPTING_CONTRIBUTION: u64 = 1;
     const STATE__SUCCEEDED: u64 = 2;
@@ -32,7 +31,8 @@ module contract_owner::shuffle {
         let buf_len = vector::length(&buf);
         let header = *string::bytes(&type_info::type_name<VerifiableContribution>());
         let header_len = vector::length(&header);
-        if (buf_len < header_len) return (vector[], dummy_contribution(), buf);
+        if (buf_len < header_len) return (vector[182918], dummy_contribution(), buf);
+        if (header != vector::slice(&buf, 0, header_len)) return (vector[182919], dummy_contribution(), buf);
         let buf = vector::slice(&buf, header_len, buf_len);
         let (errors, num_items, buf) = utils::decode_u64(buf);
         if (!vector::is_empty(&errors)) {
@@ -148,7 +148,11 @@ module contract_owner::shuffle {
         *option::borrow(&session.culprit)
     }
 
-    public fun get_result(session: &Session): vector<encryption::Ciphertext> {
+    public fun input_cloned(session: &Session): vector<encryption::Ciphertext> {
+        session.initial_ciphertexts
+    }
+
+    public fun result_cloned(session: &Session): vector<encryption::Ciphertext> {
         assert!(session.status == STATE__SUCCEEDED, 175158);
         vector::borrow(&session.contributions, session.num_contributions_expected - 1).new_ciphertexts
     }
@@ -212,7 +216,7 @@ module contract_owner::shuffle {
         process_contribution(&eric, &mut session, eric_contribution);
         state_update(&mut session);
         assert!(succeeded(&session), 185958);
-        let shuffled_ciphs = get_result(&session);
+        let shuffled_ciphs = result_cloned(&session);
         let shuffled_plains = vector::map(shuffled_ciphs, |ciph| encryption::dec(&dk, &ciph));
         let permutation = vector::map(plaintexts, |plain| {
             let (found, new_pos) = vector::index_of(&shuffled_plains, &plain);

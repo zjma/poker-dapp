@@ -6,7 +6,6 @@ module contract_owner::hand {
     use aptos_std::math64::min;
     use aptos_framework::timestamp;
     use contract_owner::group;
-    use contract_owner::shuffle;
     use contract_owner::public_card_opening;
     use contract_owner::threshold_scalar_mul;
     use contract_owner::dkg_v0;
@@ -15,7 +14,6 @@ module contract_owner::hand {
     use contract_owner::encryption;
     friend contract_owner::poker_room;
 
-    const STATE__SHUFFLE_IN_PROGRESS: u64 = 140333;
     const STATE__DEALING_PRIVATE_CARDS: u64 = 140658;
     const STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y: u64 = 140855;
     const STATE__OPENING_3_COMMUNITY_CARDS: u64 = 141022;
@@ -28,16 +26,6 @@ module contract_owner::hand {
     const STATE__SUCCEEDED: u64 = 141628;
     const STATE__FAILED: u64 = 141629;
 
-
-    struct HandStateCode has copy, drop, store {
-        main: u64,
-        x: u64,
-        y: u64,
-        /// Only used with `STATE__PHASE_*_BET_BY_PLAYER_X_BEFORE_Y`.
-        acted: bool,
-        /// Only used with `STATE__FAILED`.
-        blames: vector<bool>,
-    }
 
     struct HandSession has copy, drop, store {
         num_players: u64,
@@ -52,12 +40,19 @@ module contract_owner::hand {
         highest_invest: u64,
         min_raise_step: u64,
         card_reprs: vector<group::Element>,
-        state: HandStateCode,
-
         /// Cards at position [2*i, 1+2*i] will be cards dealt to player i (referred to as "having destintation i").
         /// Cards at positions [2*n, 2*n+4] will be community cards (referred to as "having destintation community").
         /// The remaining cards is referred to as having a void destination.
-        shuffle_session: shuffle::Session,
+        shuffled_deck: vector<encryption::Ciphertext>,
+        state: u64,
+        /// When `state == STATE__PHASE_*_BET_BY_PLAYER_X_BEFORE_Y`, indicate `X`.
+        current_action_player_idx: u64,
+        /// When `state == STATE__PHASE_*_BET_BY_PLAYER_X_BEFORE_Y`, indicate `Y`.
+        current_action_deadline: u64,
+        /// When `state == STATE__PHASE_*_BET_BY_PLAYER_X_BEFORE_Y`, indicate whether player `X` has taken the expected action.
+        current_action_completed: bool,
+        /// When `state == STATE__FAILED`, indicates who misbehaved.
+        blames: vector<bool>,
         private_dealing_sessions: vector<Option<private_card_dealing::Session>>,
         public_opening_sessions: vector<Option<public_card_opening::Session>>,
     }
@@ -68,6 +63,7 @@ module contract_owner::hand {
     const CARD_DEST__COMMUNITY_3: u64 = 0xcccc03;
     const CARD_DEST__COMMUNITY_4: u64 = 0xcccc04;
     const CARD_DEST__VOID: u64 = 0xffffff;
+
     fun card_goes_to(hand: &HandSession, card_idx: u64): u64 {
         let comm_start = hand.num_players * 2;
         if (card_idx < comm_start) {
@@ -93,23 +89,22 @@ module contract_owner::hand {
             highest_invest: 0,
             min_raise_step: 0,
             card_reprs: vector[],
-            state: HandStateCode { main: 0, x: 0, y: 0, acted: false, blames: vector[] },
-            shuffle_session: shuffle::dummy_session(),
+            shuffled_deck: vector[],
+            state: 0,
+            current_action_player_idx: 0,
+            current_action_deadline: 0,
+            current_action_completed: false,
+            blames: vector[],
             private_dealing_sessions: vector[],
             public_opening_sessions: vector[],
         }
     }
 
     #[lint::allow_unsafe_randomness]
-    public fun new_session(players: vector<address>, chips: vector<u64>, secret_info: SharedSecretPublicInfo): (vector<u64>, HandSession) {
-        let now_secs = timestamp::now_seconds();
+    public fun new_session(players: vector<address>, chips: vector<u64>, secret_info: SharedSecretPublicInfo, card_reprs: vector<group::Element>, shuffled_deck: vector<encryption::Ciphertext>): HandSession {
         let num_players = vector::length(&players);
-        let (agg_ek, _) = dkg_v0::unpack_shared_secret_public_info(secret_info);
-        let card_reprs = vector::map(vector::range(0, 52), |_|group::rand_element());
-        let initial_ciphertexts = vector::map_ref(&card_reprs, |plain| encryption::enc(&agg_ek, &group::scalar_from_u64(0), plain));
-        let deadlines = vector::map(vector::range(0, num_players), |i|(now_secs + 5 * i));
-        let shuffle_session = shuffle::new_session(agg_ek, initial_ciphertexts, players, deadlines);
-        let session = HandSession {
+
+        let hand = HandSession {
             num_players,
             players,
             secret_info,
@@ -122,47 +117,61 @@ module contract_owner::hand {
             highest_invest: 0,
             min_raise_step: 0,
             card_reprs,
-            state: HandStateCode {
-                main: STATE__SHUFFLE_IN_PROGRESS,
-                x: 0,
-                y: 0,
-                acted: false,
-                blames: vector[],
-            },
-            shuffle_session,
+            shuffled_deck,
+            state: STATE__DEALING_PRIVATE_CARDS,
+            current_action_player_idx: 0,
+            current_action_deadline: 0,
+            current_action_completed: false,
+            blames: vector[],
             private_dealing_sessions: vector::map(vector::range(0, num_players * 2), |_|option::none()),
             public_opening_sessions: vector::map(vector::range(0, 5), |_|option::none()),
         };
-        (vector[], session)
-    }
 
-    public fun is_waiting_for_shuffle_contribution_from(hand: &HandSession, addr: address): bool {
-        if (hand.state.main != STATE__SHUFFLE_IN_PROGRESS) return false;
-        shuffle::is_waiting_for_contribution(&hand.shuffle_session, addr)
+
+        // Put blinds.
+        let sb_player_idx = get_small_blind_player_idx(&hand);
+        let actual_small_blind = min(hand.expected_small_blind, *vector::borrow(&hand.chips_in_hand, sb_player_idx));
+        move_chips_to_pot(&mut hand, sb_player_idx, actual_small_blind);
+        let bb_player_idx = (sb_player_idx + 1) % hand.num_players;
+        let actual_big_blind = min(hand.expected_big_blind, *vector::borrow(&hand.chips_in_hand, bb_player_idx));
+        move_chips_to_pot(&mut hand, bb_player_idx, actual_big_blind);
+        hand.highest_invest = hand.expected_big_blind;
+
+        let now_secs = timestamp::now_seconds();
+        vector::for_each(vector::range(0, hand.num_players * 2), |card_idx| {
+            let dest_player_idx = card_goes_to(&hand, card_idx);
+            let dest_addr = *vector::borrow(&hand.players, dest_player_idx);
+            let card = *vector::borrow(&hand.shuffled_deck, card_idx);
+            let deal_session = private_card_dealing::new_session(card, dest_addr, hand.players, hand.secret_info, now_secs + 5, now_secs + 10);
+            let deal_session_holder = vector::borrow_mut(&mut hand.private_dealing_sessions, card_idx);
+            option::fill(deal_session_holder, deal_session);
+        });
+
+        hand
     }
 
     public fun is_dealing_private_cards(hand: &HandSession): bool {
-        hand.state.main == STATE__DEALING_PRIVATE_CARDS
+        hand.state == STATE__DEALING_PRIVATE_CARDS
     }
 
     public fun succeeded(hand: &HandSession): bool {
-        hand.state.main == STATE__SUCCEEDED
+        hand.state == STATE__SUCCEEDED
     }
 
     public fun failed(hand: &HandSession): bool {
-        hand.state.main == STATE__FAILED
+        hand.state == STATE__FAILED
     }
 
     public fun get_gains_and_losses(hand: &HandSession): (vector<address>, vector<u64>, vector<u64>) {
-        assert!(hand.state.main == STATE__SUCCEEDED, 184544);
+        assert!(hand.state == STATE__SUCCEEDED, 184544);
         //TODO: real impl
         let zeros = vector::map(hand.players, |_|0);
         (hand.players, zeros, zeros)
     }
 
     public fun get_culprits(hand: &HandSession): vector<address> {
-        assert!(hand.state.main == STATE__FAILED, 184545);
-        let culprit_idxs = vector::filter(vector::range(0, hand.num_players), |player_idx| *vector::borrow(&hand.state.blames, *player_idx));
+        assert!(hand.state == STATE__FAILED, 184545);
+        let culprit_idxs = vector::filter(vector::range(0, hand.num_players), |player_idx| *vector::borrow(&hand.blames, *player_idx));
         vector::map(culprit_idxs, |idx|*vector::borrow(&hand.players, idx))
     }
 
@@ -178,42 +187,7 @@ module contract_owner::hand {
     /// Anyone can call this to trigger state transitions for the given hand.
     public fun state_update(hand: &mut HandSession) {
         let now_secs = timestamp::now_seconds();
-        if (hand.state.main == STATE__SHUFFLE_IN_PROGRESS) {
-            shuffle::state_update(&mut hand.shuffle_session);
-            if (shuffle::succeeded(&hand.shuffle_session)) {
-                // Put blinds.
-                let sb_player_idx = get_small_blind_player_idx(hand);
-                let actual_small_blind = min(hand.expected_small_blind, *vector::borrow(&hand.chips_in_hand, sb_player_idx));
-                move_chips_to_pot(hand, sb_player_idx, actual_small_blind);
-                let bb_player_idx = (sb_player_idx + 1) % hand.num_players;
-                let actual_big_blind = min(hand.expected_big_blind, *vector::borrow(&hand.chips_in_hand, bb_player_idx));
-                move_chips_to_pot(hand, bb_player_idx, actual_big_blind);
-                hand.highest_invest = hand.expected_big_blind;
-
-                vector::for_each(vector::range(0, hand.num_players * 2), |card_idx| {
-                    let dest_player_idx = card_goes_to(hand, card_idx);
-                    let dest_addr = *vector::borrow(&hand.players, dest_player_idx);
-                    let card = *vector::borrow(&shuffle::get_result(&hand.shuffle_session), card_idx);
-                    let deal_session = private_card_dealing::new_session(card, dest_addr, hand.players, hand.secret_info, now_secs + 5, now_secs + 10);
-                    let deal_session_holder = vector::borrow_mut(&mut hand.private_dealing_sessions, card_idx);
-                    option::fill(deal_session_holder, deal_session);
-                });
-
-                // State transistion.
-                hand.state = HandStateCode {
-                    main: STATE__DEALING_PRIVATE_CARDS,
-                    x: 0,
-                    y: 0,
-                    acted: false,
-                    blames: vector[],
-                };
-            } else if (shuffle::failed(&hand.shuffle_session)) {
-                hand.state.main = STATE__FAILED;
-                let blames = vector::map(vector::range(0, hand.num_players), |_|false);
-                *vector::borrow_mut(&mut blames, hand.state.x) = true;
-                hand.state.blames = blames;
-            };
-        } else if (hand.state.main == STATE__DEALING_PRIVATE_CARDS) {
+        if (hand.state == STATE__DEALING_PRIVATE_CARDS) {
             let num_dealings = hand.num_players * 2;
             let num_successes = 0;
             let num_failures = 0;
@@ -237,51 +211,37 @@ module contract_owner::hand {
                 let bb_player_idx = (get_small_blind_player_idx(hand) + 1) % hand.num_players;
                 let (actor_found, actor_idx) = try_get_next_actor(hand, bb_player_idx, option::some(hand.expected_big_blind));
                 if (actor_found) {
-                    hand.state = HandStateCode {
-                        main: STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y,
-                        x: actor_idx,
-                        y: now_secs + 5,
-                        acted: false,
-                        blames: vector[],
-                    };
+                    hand.state = STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y;
+                    hand.current_action_player_idx = actor_idx;
+                    hand.current_action_deadline = now_secs + 5;
+                    hand.current_action_completed = false;
                 } else {
                     // Can skip pre-flop.
                     set_state_to_community_card_opening_0_1_2(hand, now_secs + 5);
                 }
             } else if (num_failures == num_dealings) {
-                hand.state = HandStateCode {
-                    main: STATE__FAILED,
-                    x: 0,
-                    y: 0,
-                    acted: false,
-                    blames,
-                };
+                hand.state = STATE__FAILED;
+                hand.blames = blames;
             }
-        } else if (hand.state.main == STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y) {
-            let expected_actor = hand.state.x;
-            if (!hand.state.acted && now_secs < hand.state.y) return;
+        } else if (hand.state == STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y) {
+            if (!hand.current_action_completed && now_secs < hand.current_action_deadline) return;
 
             // Time-out ==> FOLD
-            if (now_secs >= hand.state.y) mark_as_fold(hand, expected_actor);
+            let idx = hand.current_action_player_idx;
+            if (now_secs >= hand.current_action_deadline) mark_as_fold(hand, idx);
 
-            let (next_actor_found, next_actor) = try_get_next_actor(hand, hand.state.x, option::some(hand.highest_invest));
+            let (next_actor_found, next_actor) = try_get_next_actor(hand, hand.current_action_player_idx, option::some(hand.highest_invest));
             if (next_actor_found) {
-                hand.state.x = next_actor;
-                hand.state.y = now_secs + 10;
+                hand.current_action_player_idx = next_actor;
+                hand.current_action_deadline = now_secs + 10;
             } else {
                 if (hand.num_folded == hand.num_players - 1) {
-                    hand.state = HandStateCode {
-                        main: STATE__SUCCEEDED,
-                        x: 0,
-                        y: 0,
-                        acted: false,
-                        blames: vector[],
-                    };
+                    hand.state = STATE__SUCCEEDED;
                 } else {
                     set_state_to_community_card_opening_0_1_2(hand, now_secs + 5);
                 }
             }
-        } else if (hand.state.main == STATE__OPENING_3_COMMUNITY_CARDS) {
+        } else if (hand.state == STATE__OPENING_3_COMMUNITY_CARDS) {
             let all_succeeded = true;
             let blames = vector::map(vector::range(0, hand.num_players), |_|false);
             vector::for_each(vector::range(0, 3), |i|{
@@ -303,34 +263,28 @@ module contract_owner::hand {
             if (all_succeeded) {
                 let (actor_found, actor_idx) = try_get_next_actor(hand, 0, option::none());
                 if (actor_found) {
-                    hand.state = HandStateCode {
-                        main: STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y,
-                        x: actor_idx,
-                        y: now_secs + 10,
-                        acted: false,
-                        blames: vector[],
-                    };
+                    hand.state = STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y;
+                    hand.current_action_player_idx = actor_idx;
+                    hand.current_action_deadline = now_secs + 10;
+                    hand.current_action_completed = false;
                 } else {
-                    hand.state = HandStateCode {
-                        main: STATE__OPENING_4TH_COMMUNITY_CARD,
-                        x: 0,
-                        y: now_secs + 5,
-                        acted: false,
-                        blames: vector[],
-                    };
+                    let card_to_open = *vector::borrow(&hand.shuffled_deck, hand.num_players * 2 + 3);
+                    let opening_session = public_card_opening::new_session(hand.card_reprs, card_to_open, hand.players, hand.secret_info, now_secs + 5);
+                    option::fill(vector::borrow_mut(&mut hand.public_opening_sessions, 3), opening_session);
+                    hand.state = STATE__OPENING_4TH_COMMUNITY_CARD;
                 };
             }
-        } else if (hand.state.main == STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y) {
+        } else if (hand.state == STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y) {
             //TODO
-        } else if (hand.state.main == STATE__OPENING_4TH_COMMUNITY_CARD) {
+        } else if (hand.state == STATE__OPENING_4TH_COMMUNITY_CARD) {
             //TODO
-        } else if (hand.state.main == STATE__PHASE_3_BET_BY_PLAYER_X_BEFORE_Y) {
+        } else if (hand.state == STATE__PHASE_3_BET_BY_PLAYER_X_BEFORE_Y) {
             //TODO
-        } else if (hand.state.main == STATE__OPENING_5TH_COMMUNITY_CARD) {
+        } else if (hand.state == STATE__OPENING_5TH_COMMUNITY_CARD) {
             //TODO
-        } else if (hand.state.main == STATE__PHASE_4_BET_BY_PLAYER_X_BEFORE_Y) {
+        } else if (hand.state == STATE__PHASE_4_BET_BY_PLAYER_X_BEFORE_Y) {
             //TODO
-        } else if (hand.state.main == STATE__SHOWDOWN_BEFORE_Y) {
+        } else if (hand.state == STATE__SHOWDOWN_BEFORE_Y) {
             //TODO
         }
     }
@@ -338,49 +292,33 @@ module contract_owner::hand {
     fun set_state_to_community_card_opening_0_1_2(hand: &mut HandSession, deadline: u64) {
         let public_card_starting_idx = hand.num_players * 2;
         vector::for_each(vector[0,1,2], |opening_idx|{
-            let card_to_open = *vector::borrow(&shuffle::get_result(&hand.shuffle_session), public_card_starting_idx + opening_idx);
+            let card_to_open = *vector::borrow(&hand.shuffled_deck, public_card_starting_idx + opening_idx);
             let opening_session = public_card_opening::new_session(hand.card_reprs, card_to_open, hand.players, hand.secret_info, deadline);
             option::fill(vector::borrow_mut(&mut hand.public_opening_sessions, opening_idx), opening_session);
         });
-        hand.state = HandStateCode {
-            main: STATE__OPENING_3_COMMUNITY_CARDS,
-            x: 0,
-            y: 0,
-            acted: false,
-            blames: vector[],
-        };
-    }
-
-    public fun process_shuffle_contribution(player: &signer, hand: &mut HandSession, contribution: shuffle::VerifiableContribution) {
-        let now = timestamp::now_seconds();
-        let player_addr = address_of(player);
-        let (found, player_idx) = vector::index_of(&hand.players, &player_addr);
-        assert!(found, 171019);
-        assert!(hand.state.main == STATE__SHUFFLE_IN_PROGRESS, 171018);
-        assert!(shuffle::is_waiting_for_contribution(&hand.shuffle_session, player_addr), 171019);
-        shuffle::process_contribution(player, &mut hand.shuffle_session, contribution);
+        hand.state = STATE__OPENING_3_COMMUNITY_CARDS;
     }
 
     public fun process_private_dealing_reencryption(player: &signer, hand: &mut HandSession, card_idx: u64, reencryption: private_card_dealing::VerifiableReencrpytion) {
-        assert!(hand.state.main == STATE__DEALING_PRIVATE_CARDS, 262030);
+        assert!(hand.state == STATE__DEALING_PRIVATE_CARDS, 262030);
         assert!(card_idx < hand.num_players * 2, 262031);
         let deal_session = option::borrow_mut(vector::borrow_mut(&mut hand.private_dealing_sessions, card_idx));
         private_card_dealing::process_reencryption(player, deal_session, reencryption);
     }
 
     public fun process_private_dealing_contribution(player: &signer, hand: &mut HandSession, dealing_idx: u64, contribution: threshold_scalar_mul::VerifiableContribution) {
-        assert!(hand.state.main == STATE__DEALING_PRIVATE_CARDS, 262030);
+        assert!(hand.state == STATE__DEALING_PRIVATE_CARDS, 262030);
         assert!(dealing_idx < hand.num_players * 2, 262031);
         let dealing_session = option::borrow_mut(vector::borrow_mut(&mut hand.private_dealing_sessions, dealing_idx));
         private_card_dealing::process_scalar_mul_share(player, dealing_session, contribution);
     }
 
     public fun process_public_opening_contribution(player: &signer, hand: &mut HandSession, opening_idx: u64, contribution: threshold_scalar_mul::VerifiableContribution) {
-        if (hand.state.main == STATE__OPENING_3_COMMUNITY_CARDS) {
+        if (hand.state == STATE__OPENING_3_COMMUNITY_CARDS) {
             assert!(opening_idx < 3, 264934);
-        } else if (hand.state.main == STATE__OPENING_4TH_COMMUNITY_CARD) {
+        } else if (hand.state == STATE__OPENING_4TH_COMMUNITY_CARD) {
             assert!(opening_idx == 3, 264935);
-        } else if (hand.state.main == STATE__OPENING_5TH_COMMUNITY_CARD) {
+        } else if (hand.state == STATE__OPENING_5TH_COMMUNITY_CARD) {
             assert!(opening_idx == 4, 264936);
         } else {
             abort(264937)
@@ -395,9 +333,9 @@ module contract_owner::hand {
         let (player_found, player_idx) = vector::index_of(&hand.players, &player_addr);
         assert!(player_found, 121114);
 
-        assert!(hand.state.main == STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y
-            && hand.state.x == player_idx
-            && now < hand.state.y,
+        assert!(hand.state == STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y
+            && hand.current_action_player_idx == player_idx
+            && now < hand.current_action_deadline,
             121115
         );
 
@@ -412,33 +350,33 @@ module contract_owner::hand {
 
         if (new_invest < cur_invest) {
             mark_as_fold(hand, player_idx);
-            hand.state.acted = true;
+            hand.current_action_completed = true;
         };
 
         let invest_delta = new_invest - cur_invest;
 
         if (invest_delta > cur_in_hand) {
             mark_as_fold(hand, player_idx);
-            hand.state.acted = true;
+            hand.current_action_completed = true;
         };
 
         if (invest_delta == cur_in_hand) {
             // This is an ALL-IN.
             move_chips_to_pot(hand, player_idx, invest_delta);
-            hand.state.acted = true;
+            hand.current_action_completed = true;
             return;
         };
 
         if (new_invest < hand.highest_invest) {
             mark_as_fold(hand, player_idx);
-            hand.state.acted = true;
+            hand.current_action_completed = true;
             return;
         };
 
         if (new_invest == hand.highest_invest) {
             // This is a CALL.
             move_chips_to_pot(hand, player_idx, invest_delta);
-            hand.state.acted = true;
+            hand.current_action_completed = true;
             return;
         };
 
@@ -447,14 +385,14 @@ module contract_owner::hand {
         if (new_invest - hand.highest_invest < hand.min_raise_step) {
             // Raise amount is invalid. Take it as a FOLD.
             mark_as_fold(hand, player_idx);
-            hand.state.acted = true;
+            hand.current_action_completed = true;
             return;
         };
 
         hand.min_raise_step = new_invest - hand.highest_invest;
         hand.highest_invest = new_invest;
         move_chips_to_pot(hand, player_idx, invest_delta);
-        hand.state.acted = true;
+        hand.current_action_completed = true;
     }
 
     fun move_chips_to_pot(hand: &mut HandSession, player_idx: u64, amount: u64) {
@@ -502,25 +440,21 @@ module contract_owner::hand {
     }
 
     public fun is_dealing_community_cards(hand: &HandSession): bool {
-        hand.state.main == STATE__OPENING_3_COMMUNITY_CARDS
+        hand.state == STATE__OPENING_3_COMMUNITY_CARDS
     }
 
     public fun is_phase_1_betting(hand: &HandSession, whose_turn: Option<address>): bool {
-        if (hand.state.main != STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y) return false;
+        if (hand.state != STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y) return false;
         if (option::is_none(&whose_turn)) return true;
         let whose_turn = option::extract(&mut whose_turn);
-        whose_turn == *vector::borrow(&hand.players, hand.state.x)
+        whose_turn == *vector::borrow(&hand.players, hand.current_action_player_idx)
     }
 
     public fun is_phase_2_betting(hand: &HandSession, actor: Option<address>): bool {
-        if (hand.state.main != STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y) return false;
+        if (hand.state != STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y) return false;
         if (option::is_none(&actor)) return true;
         let actor = option::extract(&mut actor);
-        actor == *vector::borrow(&hand.players, hand.state.x)
-    }
-
-    public fun borrow_shuffle_session(hand: &HandSession): &shuffle::Session {
-        &hand.shuffle_session
+        actor == *vector::borrow(&hand.players, hand.current_action_player_idx)
     }
 
     public fun borrow_private_dealing_session(hand: &HandSession, idx: u64): &private_card_dealing::Session {

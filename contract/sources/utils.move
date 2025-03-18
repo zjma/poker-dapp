@@ -20,7 +20,7 @@ module contract_owner::utils {
 
     public fun encode_u64(x: u64): vector<u8> {
         vector::map(vector::range(0, 8), |i|{
-            (((x >> (i as u8)) & 0xff) as u8)
+            (((x >> ((i*8) as u8)) & 0xff) as u8)
         })
     }
 
