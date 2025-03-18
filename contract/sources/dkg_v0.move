@@ -38,7 +38,7 @@ module contract_owner::dkg_v0 {
         private_scalar: group::Scalar,
     }
 
-    struct SharedSecretPublicInfo has drop {
+    struct SharedSecretPublicInfo has copy, drop, store {
         agg_ek: encryption::EncKey,
         ek_shares: vector<encryption::EncKey>,
     }
@@ -60,6 +60,13 @@ module contract_owner::dkg_v0 {
         VerifiableContribution {
             public_point: group::dummy_element(),
             proof: sigma_dlog::dummy_proof(),
+        }
+    }
+
+    public fun dummy_secret_info(): SharedSecretPublicInfo {
+        SharedSecretPublicInfo {
+            agg_ek: encryption::dummy_enc_key(),
+            ek_shares: vector[],
         }
     }
 
@@ -182,6 +189,20 @@ module contract_owner::dkg_v0 {
         private_scalar
     }
 
+    public fun get_threshold(secret_info: &SharedSecretPublicInfo): u64 {
+        vector::length(&secret_info.ek_shares)
+    }
+
+    /// Given the shares of a threshold scalar multiplication,compute the scalar-mul result.
+    /// Assume that any given share is valid and the number of shares given is greater than or equal to the threshold.
+    public fun aggregate_scalar_mul(_secret_info: &SharedSecretPublicInfo, shares: vector<Option<group::Element>>): group::Element {
+        let ret = group::group_identity();
+        vector::for_each(shares, |share|{
+            group::element_add_assign(&mut ret, &option::extract(&mut share));
+        });
+        ret
+    }
+
     #[lint::allow_unsafe_randomness]
     #[test_only]
     public fun generate_contribution(session: &DKGSession): (SecretShare, VerifiableContribution) {
@@ -191,5 +212,36 @@ module contract_owner::dkg_v0 {
         let proof = sigma_dlog::prove(&mut fiat_shamir_transform::new_transcript(), &session.base_point, &public_point, &private_scalar);
         let contribution = VerifiableContribution { public_point, proof };
         (secret_share, contribution)
+    }
+
+    #[lint::allow_unsafe_randomness]
+    #[test_only]
+    public fun run_example_session(alice: &signer, bob: &signer, eric: &signer): (SharedSecretPublicInfo, SecretShare, SecretShare, SecretShare) {
+        let alice_addr = address_of(alice);
+        let bob_addr = address_of(bob);
+        let eric_addr = address_of(eric);
+        let session = new_session(vector[alice_addr, bob_addr, eric_addr]);
+        let (alice_secret_share, alice_contribution) = generate_contribution(&session);
+        let (bob_secret_share, bob_contribution) = generate_contribution(&session);
+        let (eric_secret_share, eric_contribution) = generate_contribution(&session);
+        process_contribution(alice, &mut session, alice_contribution);
+        process_contribution(bob, &mut session, bob_contribution);
+        process_contribution(eric, &mut session, eric_contribution);
+        state_update(&mut session);
+        assert!(succeeded(&session), 999);
+        let public_info = get_shared_secret_public_info(&session);
+        (public_info, alice_secret_share, bob_secret_share, eric_secret_share)
+    }
+
+    public fun reconstruct_secret(public_info: &SharedSecretPublicInfo, shares: vector<Option<SecretShare>>): group::Scalar {
+        let n = vector::length(&public_info.ek_shares);
+        assert!(n == vector::length(&shares), 162205);
+        let agg = group::scalar_from_u64(0);
+        vector::for_each(shares, |share|{
+            let share = option::extract(&mut share);
+            let s = unpack_secret_share(share);
+            agg = group::scalar_add(&agg, &s);
+        });
+        agg
     }
 }

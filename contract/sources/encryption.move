@@ -65,6 +65,14 @@ module contract_owner::encryption {
         }
     }
 
+    public fun make_ciphertext(enc_base: group::Element, c_0: group::Element, c_1: group::Element): Ciphertext {
+        Ciphertext {
+            enc_base,
+            c_0,
+            c_1,
+        }
+    }
+
     public fun enc(ek: &EncKey, randomizer: &group::Scalar, ptxt: &group::Element): Ciphertext {
         Ciphertext {
             enc_base: ek.enc_base,

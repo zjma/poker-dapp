@@ -2,13 +2,14 @@ module contract_owner::hand {
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
-    use std::string::utf8;
     use std::vector;
-    use aptos_std::crypto_algebra::inv;
     use aptos_std::debug;
     use aptos_std::math64::min;
-    use aptos_framework::stake::cur_validator_consensus_infos;
     use aptos_framework::timestamp;
+    use contract_owner::public_card_opening;
+    use contract_owner::threshold_scalar_mul;
+    use contract_owner::dkg_v0;
+    use contract_owner::private_card_dealing;
     use contract_owner::dkg_v0::SharedSecretPublicInfo;
     use contract_owner::encryption;
     use contract_owner::deck;
@@ -16,13 +17,13 @@ module contract_owner::hand {
     friend contract_owner::poker_room;
 
     const STATE__WAITING_SHUFFLE_CONTRIBUTION_BEFORE_Y: u64 = 140333;
-    const STATE__DEALING_PRIVATE_CARDS_BEFORE_Y: u64 = 140658;
+    const STATE__DEALING_PRIVATE_CARDS: u64 = 140658;
     const STATE__PHASE_1_BET_BY_PLAYER_X_BEFORE_Y: u64 = 140855;
-    const STATE__OPENING_3_COMMUNITY_CARDS_BEFORE_Y: u64 = 141022;
+    const STATE__OPENING_3_COMMUNITY_CARDS: u64 = 141022;
     const STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y: u64 = 141103;
-    const STATE__OPENING_4TH_COMMUNITY_CARD_BEFORE_Y: u64 = 141131;
+    const STATE__OPENING_4TH_COMMUNITY_CARD: u64 = 141131;
     const STATE__PHASE_3_BET_BY_PLAYER_X_BEFORE_Y: u64 = 141245;
-    const STATE__OPENING_5TH_COMMUNITY_CARD_BEFORE_Y: u64 = 141256;
+    const STATE__OPENING_5TH_COMMUNITY_CARD: u64 = 141256;
     const STATE__PHASE_4_BET_BY_PLAYER_X_BEFORE_Y: u64 = 141414;
     const STATE__SHOWDOWN_BEFORE_Y: u64 = 141414;
     const STATE__SUCCEEDED: u64 = 141628;
@@ -42,6 +43,7 @@ module contract_owner::hand {
     struct HandSession has copy, drop, store {
         num_players: u64,
         players: vector<address>, // [btn, sb, bb, ...]
+        secret_info: dkg_v0::SharedSecretPublicInfo,
         expected_small_blind: u64,
         expected_big_blind: u64,
         chips_in_hand: vector<u64>,
@@ -56,6 +58,8 @@ module contract_owner::hand {
         /// Cards at positions [2*n, 2*n+4] will be community cards (referred to as "having destintation community").
         /// The remaining cards is referred to as having a void destination.
         deck: Deck,
+        private_dealing_sessions: vector<Option<private_card_dealing::Session>>,
+        public_opening_sessions: vector<Option<public_card_opening::Session>>,
         num_shuffle_contributions: u64,
     }
 
@@ -80,6 +84,7 @@ module contract_owner::hand {
         HandSession {
             num_players: 0,
             players: vector[],
+            secret_info: dkg_v0::dummy_secret_info(),
             expected_small_blind: 0,
             expected_big_blind: 0,
             chips_in_hand: vector[],
@@ -90,13 +95,15 @@ module contract_owner::hand {
             min_raise_step: 0,
             state: HandStateCode { main: 0, x: 0, y: 0, acted: false, blames: vector[] },
             deck: deck::dummy_deck(),
+            private_dealing_sessions: vector[],
+            public_opening_sessions: vector[],
             num_shuffle_contributions: 0,
         }
     }
 
     #[lint::allow_unsafe_randomness]
-    public fun new_session(players: vector<address>, chips: vector<u64>, shared_secret_public_info: SharedSecretPublicInfo): (vector<u64>, HandSession) {
-        let (errors, deck) = deck::new(players, shared_secret_public_info);
+    public fun new_session(players: vector<address>, chips: vector<u64>, secret_info: SharedSecretPublicInfo): (vector<u64>, HandSession) {
+        let (errors, deck) = deck::new(players, secret_info);
         if (!vector::is_empty(&errors)) {
             vector::push_back(&mut errors, 160248);
             return (errors, dummy_session());
@@ -105,6 +112,7 @@ module contract_owner::hand {
         let session = HandSession {
             num_players,
             players,
+            secret_info,
             expected_small_blind: 125,
             expected_big_blind: 250,
             chips_in_hand: chips,
@@ -121,6 +129,8 @@ module contract_owner::hand {
                 blames: vector[],
             },
             deck,
+            private_dealing_sessions: vector::map(vector::range(0, num_players * 2), |_|option::none()),
+            public_opening_sessions: vector::map(vector::range(0, 5), |_|option::none()),
             num_shuffle_contributions: 0,
         };
         (vector[], session)
@@ -136,8 +146,8 @@ module contract_owner::hand {
         true
     }
 
-    public fun is_dealing_hole_cards(hand: &HandSession): bool {
-        hand.state.main == STATE__DEALING_PRIVATE_CARDS_BEFORE_Y
+    public fun is_dealing_private_cards(hand: &HandSession): bool {
+        hand.state.main == STATE__DEALING_PRIVATE_CARDS
     }
 
     public fun succeeded(hand: &HandSession): bool {
@@ -186,11 +196,20 @@ module contract_owner::hand {
                     move_chips_to_pot(hand, bb_player_idx, actual_big_blind);
                     hand.highest_invest = hand.expected_big_blind;
 
+                    vector::for_each(vector::range(0, hand.num_players * 2), |card_idx| {
+                        let dest_player_idx = card_goes_to(hand, card_idx);
+                        let dest_addr = *vector::borrow(&hand.players, dest_player_idx);
+                        let card = deck::get_card_ciphertext(&hand.deck, card_idx);
+                        let deal_session = private_card_dealing::new_session(card, dest_addr, hand.players, hand.secret_info, now_secs + 5, now_secs + 10);
+                        let deal_session_holder = vector::borrow_mut(&mut hand.private_dealing_sessions, card_idx);
+                        option::fill(deal_session_holder, deal_session);
+                    });
+
                     // State transistion.
                     hand.state = HandStateCode {
-                        main: STATE__DEALING_PRIVATE_CARDS_BEFORE_Y,
+                        main: STATE__DEALING_PRIVATE_CARDS,
                         x: 0,
-                        y: now_secs + 5,
+                        y: 0,
                         acted: false,
                         blames: vector[],
                     };
@@ -204,24 +223,26 @@ module contract_owner::hand {
                 *vector::borrow_mut(&mut blames, hand.state.x) = true;
                 hand.state.blames = blames;
             }
-        } else if (hand.state.main == STATE__DEALING_PRIVATE_CARDS_BEFORE_Y) {
-            let private_card_idxs = vector::range(0, hand.num_players * 2);
-            let all_succeeded = true;
+        } else if (hand.state.main == STATE__DEALING_PRIVATE_CARDS) {
+            let num_dealings = hand.num_players * 2;
+            let num_successes = 0;
+            let num_failures = 0;
             let blames = vector::map(vector::range(0, hand.num_players), |_|false);
-            vector::for_each(private_card_idxs, |card_idx|{
-                let card_dest_idx = card_goes_to(hand, card_idx);
-                let card_dest = *vector::borrow(&hand.players, card_dest_idx);
-                let non_contributors = deck::get_threshold_decryption_non_contributors(&hand.deck, card_idx);
-                vector::remove_value(&mut non_contributors, &card_dest);
-                all_succeeded = all_succeeded && vector::is_empty(&non_contributors);
-                vector::for_each(non_contributors, |player|{
-                    let (player_found, player_idx) = vector::index_of(&hand.players, &player);
-                    assert!(player_found, 104553);
-                    *vector::borrow_mut(&mut blames, player_idx) = true;
-                });
+            vector::for_each(vector::range(0, num_dealings), |dealing_idx|{
+                let deal_session = option::borrow_mut(vector::borrow_mut(&mut hand.private_dealing_sessions, dealing_idx));
+                private_card_dealing::state_update(deal_session);
+                if (private_card_dealing::succeeded(deal_session)) {
+                    num_successes = num_successes + 1;
+                } else if (private_card_dealing::failed(deal_session)) {
+                    num_failures = num_failures + 1;
+                    vector::for_each_reverse(private_card_dealing::get_culprits(deal_session), |culprit| {
+                        let (player_found, player_idx) = vector::index_of(&hand.players, &culprit);
+                        assert!(player_found, 261052);
+                        *vector::borrow_mut(&mut blames, player_idx) = true;
+                    });
+                };
             });
-
-            if (all_succeeded) {
+            if (num_successes == num_dealings) {
                 // Private card dealing is done.
                 let bb_player_idx = (get_small_blind_player_idx(hand) + 1) % hand.num_players;
                 let (actor_found, actor_idx) = try_get_next_actor(hand, bb_player_idx, option::some(hand.expected_big_blind));
@@ -235,15 +256,9 @@ module contract_owner::hand {
                     };
                 } else {
                     // Can skip pre-flop.
-                    hand.state = HandStateCode {
-                        main: STATE__OPENING_3_COMMUNITY_CARDS_BEFORE_Y,
-                        x: 0,
-                        y: now_secs + 5,
-                        acted: false,
-                        blames: vector[],
-                    };
+                    set_state_to_community_card_opening_0_1_2(hand, now_secs + 5);
                 }
-            } else if (now_secs >= hand.state.y) {
+            } else if (num_failures == num_dealings) {
                 hand.state = HandStateCode {
                     main: STATE__FAILED,
                     x: 0,
@@ -273,18 +288,28 @@ module contract_owner::hand {
                         blames: vector[],
                     };
                 } else {
-                    hand.state = HandStateCode {
-                        main: STATE__OPENING_3_COMMUNITY_CARDS_BEFORE_Y,
-                        x: 0,
-                        y: now_secs + 5,
-                        acted: false,
-                        blames: vector[],
-                    };
+                    set_state_to_community_card_opening_0_1_2(hand, now_secs + 5);
                 }
             }
-        } else if (hand.state.main == STATE__OPENING_3_COMMUNITY_CARDS_BEFORE_Y) {
-            let community_cards_0_1_2_idxs = vector::range(hand.num_players * 2, hand.num_players * 2 + 3);
-            let (all_succeeded, blames) = threshold_decryptions_combined_report(hand, community_cards_0_1_2_idxs);
+        } else if (hand.state.main == STATE__OPENING_3_COMMUNITY_CARDS) {
+            let all_succeeded = true;
+            let blames = vector::map(vector::range(0, hand.num_players), |_|false);
+            vector::for_each(vector::range(0, 3), |i|{
+                let opening_session = option::borrow_mut(vector::borrow_mut(&mut hand.public_opening_sessions, i));
+                public_card_opening::state_update(opening_session);
+                if (public_card_opening::succeeded(opening_session)) {
+                    // Good.
+                } else if (public_card_opening::failed(opening_session)) {
+                    all_succeeded = false;
+                    vector::for_each(public_card_opening::get_culprits(opening_session), |culprit|{
+                        let (found, player_idx) = vector::index_of(&hand.players, &culprit);
+                        assert!(found, 272424);
+                        *vector::borrow_mut(&mut blames, player_idx) = true;
+                    });
+                } else {
+                    all_succeeded = false;
+                }
+            });
             if (all_succeeded) {
                 let (actor_found, actor_idx) = try_get_next_actor(hand, 0, option::none());
                 if (actor_found) {
@@ -297,35 +322,44 @@ module contract_owner::hand {
                     };
                 } else {
                     hand.state = HandStateCode {
-                        main: STATE__OPENING_4TH_COMMUNITY_CARD_BEFORE_Y,
+                        main: STATE__OPENING_4TH_COMMUNITY_CARD,
                         x: 0,
                         y: now_secs + 5,
                         acted: false,
                         blames: vector[],
                     };
                 };
-            } else if (now_secs >= hand.state.y) {
-                hand.state = HandStateCode {
-                    main: STATE__FAILED,
-                    x: 0,
-                    y: 0,
-                    acted: false,
-                    blames,
-                };
             }
         } else if (hand.state.main == STATE__PHASE_2_BET_BY_PLAYER_X_BEFORE_Y) {
             //TODO
-        } else if (hand.state.main == STATE__OPENING_4TH_COMMUNITY_CARD_BEFORE_Y) {
+        } else if (hand.state.main == STATE__OPENING_4TH_COMMUNITY_CARD) {
             //TODO
         } else if (hand.state.main == STATE__PHASE_3_BET_BY_PLAYER_X_BEFORE_Y) {
             //TODO
-        } else if (hand.state.main == STATE__OPENING_5TH_COMMUNITY_CARD_BEFORE_Y) {
+        } else if (hand.state.main == STATE__OPENING_5TH_COMMUNITY_CARD) {
             //TODO
         } else if (hand.state.main == STATE__PHASE_4_BET_BY_PLAYER_X_BEFORE_Y) {
             //TODO
         } else if (hand.state.main == STATE__SHOWDOWN_BEFORE_Y) {
             //TODO
         }
+    }
+
+    fun set_state_to_community_card_opening_0_1_2(hand: &mut HandSession, deadline: u64) {
+        let card_reprs = deck::card_reprs(&hand.deck);
+        let public_card_starting_idx = hand.num_players * 2;
+        vector::for_each(vector[0,1,2], |opening_idx|{
+            let card_to_open = deck::get_card_ciphertext(&hand.deck, public_card_starting_idx + opening_idx);
+            let opening_session = public_card_opening::new_session(card_reprs, card_to_open, hand.players, hand.secret_info, deadline);
+            option::fill(vector::borrow_mut(&mut hand.public_opening_sessions, opening_idx), opening_session);
+        });
+        hand.state = HandStateCode {
+            main: STATE__OPENING_3_COMMUNITY_CARDS,
+            x: 0,
+            y: 0,
+            acted: false,
+            blames: vector[],
+        };
     }
 
     public fun process_shuffle_contribution(player: &signer, hand: &mut HandSession, new_draw_pile: vector<encryption::Ciphertext>, proof: deck::ShuffleProof) {
@@ -340,45 +374,32 @@ module contract_owner::hand {
         deck::apply_shuffle(player, &mut hand.deck, new_draw_pile, proof);
     }
 
-    public fun process_card_decryption_share(player: &signer, hand: &mut HandSession, card_idx: u64, share: deck::VerifiableDecryptionShare) {
-        let now = timestamp::now_seconds();
-        let player_addr = address_of(player);
-        let (found, player_idx) = vector::index_of(&hand.players, &player_addr);
-        let card_destination = card_goes_to(hand, card_idx);
-        assert!(found, 130400);
+    public fun process_private_dealing_reencryption(player: &signer, hand: &mut HandSession, card_idx: u64, reencryption: private_card_dealing::VerifiableReencrpytion) {
+        assert!(hand.state.main == STATE__DEALING_PRIVATE_CARDS, 262030);
+        assert!(card_idx < hand.num_players * 2, 262031);
+        let deal_session = option::borrow_mut(vector::borrow_mut(&mut hand.private_dealing_sessions, card_idx));
+        private_card_dealing::process_reencryption(player, deal_session, reencryption);
+    }
 
-        // Check target correctness.
-        if (hand.state.main == STATE__DEALING_PRIVATE_CARDS_BEFORE_Y) {
-            assert!(
-                card_destination != CARD_DEST__VOID
-                    && card_destination != CARD_DEST__COMMUNITY_0
-                    && card_destination != CARD_DEST__COMMUNITY_1
-                    && card_destination != CARD_DEST__COMMUNITY_2
-                    && card_destination != CARD_DEST__COMMUNITY_3
-                    && card_destination != CARD_DEST__COMMUNITY_4
-                    && card_destination != player_idx,
-                130401
-            );
-        } else if (hand.state.main == STATE__OPENING_3_COMMUNITY_CARDS_BEFORE_Y) {
-            assert!(
-                    card_destination == CARD_DEST__COMMUNITY_0
-                    || card_destination == CARD_DEST__COMMUNITY_1
-                    || card_destination == CARD_DEST__COMMUNITY_2,
-                130402
-            );
-        } else if (hand.state.main == STATE__OPENING_4TH_COMMUNITY_CARD_BEFORE_Y) {
-            assert!(card_destination == CARD_DEST__COMMUNITY_3, 130403);
-        } else if (hand.state.main == STATE__OPENING_5TH_COMMUNITY_CARD_BEFORE_Y) {
-            assert!(card_destination == CARD_DEST__COMMUNITY_4, 130404);
+    public fun process_private_dealing_contribution(player: &signer, hand: &mut HandSession, dealing_idx: u64, contribution: threshold_scalar_mul::VerifiableContribution) {
+        assert!(hand.state.main == STATE__DEALING_PRIVATE_CARDS, 262030);
+        assert!(dealing_idx < hand.num_players * 2, 262031);
+        let dealing_session = option::borrow_mut(vector::borrow_mut(&mut hand.private_dealing_sessions, dealing_idx));
+        private_card_dealing::process_scalar_mul_share(player, dealing_session, contribution);
+    }
+
+    public fun process_public_opening_contribution(player: &signer, hand: &mut HandSession, opening_idx: u64, contribution: threshold_scalar_mul::VerifiableContribution) {
+        if (hand.state.main == STATE__OPENING_3_COMMUNITY_CARDS) {
+            assert!(opening_idx < 3, 264934);
+        } else if (hand.state.main == STATE__OPENING_4TH_COMMUNITY_CARD) {
+            assert!(opening_idx == 3, 264935);
+        } else if (hand.state.main == STATE__OPENING_5TH_COMMUNITY_CARD) {
+            assert!(opening_idx == 4, 264936);
         } else {
-            abort(130405);
+            abort(264937)
         };
-
-        // Check time.
-        assert!(now < hand.state.y, 130406);
-
-        // Pass the share into deck.
-        deck::process_decryption_share(player, &mut hand.deck, card_idx, share);
+        let opening_session = option::borrow_mut(vector::borrow_mut(&mut hand.public_opening_sessions, opening_idx));
+        public_card_opening::process_contribution(player, opening_session, contribution);
     }
 
     public fun process_new_invest(player: &signer, hand: &mut HandSession, new_invest: u64) {
@@ -494,7 +515,7 @@ module contract_owner::hand {
     }
 
     public fun is_dealing_community_cards(hand: &HandSession): bool {
-        hand.state.main == STATE__OPENING_3_COMMUNITY_CARDS_BEFORE_Y
+        hand.state.main == STATE__OPENING_3_COMMUNITY_CARDS
     }
 
     public fun is_phase_1_betting(hand: &HandSession, whose_turn: Option<address>): bool {
@@ -511,21 +532,20 @@ module contract_owner::hand {
         actor == *vector::borrow(&hand.players, hand.state.x)
     }
 
-    /// For some given cards, return:
-    /// - whether every card has enough decryption shares;
-    /// - a bit array `blames` where `blames[i]` is true if and only if at least 1 of the given cards are missing contributions from player `i`.
-    public fun threshold_decryptions_combined_report(hand: &HandSession, card_idxs: vector<u64>): (bool, vector<bool>) {
-        let all_succeeded = true;
-        let blames = vector::map(vector::range(0, hand.num_players), |_|false);
-        vector::for_each(card_idxs, |card_idx|{
-            let non_contributors = deck::get_threshold_decryption_non_contributors(&hand.deck, card_idx);
-            all_succeeded = all_succeeded && vector::is_empty(&non_contributors);
-            vector::for_each(non_contributors, |player|{
-                let (player_found, player_idx) = vector::index_of(&hand.players, &player);
-                assert!(player_found, 104553);
-                *vector::borrow_mut(&mut blames, player_idx) = true;
-            });
-        });
-        (all_succeeded, blames)
+    public fun borrow_private_dealing_session(hand: &HandSession, idx: u64): &private_card_dealing::Session {
+        option::borrow(vector::borrow(&hand.private_dealing_sessions, idx))
+    }
+
+    public fun borrow_public_opening_session(hand: &HandSession, idx: u64): &public_card_opening::Session {
+        option::borrow(vector::borrow(&hand.public_opening_sessions, idx))
+    }
+
+    #[test_only]
+    public fun reveal_dealed_card_locally(player: &signer, session: &HandSession, deal_idx: u64, player_private_state: private_card_dealing::RecipientPrivateState): u64 {
+        let deal_session = option::borrow(vector::borrow(&session.private_dealing_sessions, deal_idx));
+        let plaintext = private_card_dealing::unblind_locally(player, deal_session, player_private_state);
+        let (found, card_val) = deck::get_card_val(&session.deck, &plaintext);
+        assert!(found, 310350);
+        card_val
     }
 }

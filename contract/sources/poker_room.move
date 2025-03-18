@@ -3,10 +3,11 @@ module contract_owner::poker_room {
     use std::option::Option;
     use std::signer::address_of;
     use std::vector;
-    use aptos_std::debug;
     use aptos_std::math64::min;
     use aptos_std::table;
     use aptos_std::table::Table;
+    use contract_owner::private_card_dealing;
+    use contract_owner::threshold_scalar_mul;
     use contract_owner::deck;
     use contract_owner::group;
     use contract_owner::hand;
@@ -16,9 +17,13 @@ module contract_owner::poker_room {
     #[test_only]
     use std::string::utf8;
     #[test_only]
+    use aptos_std::debug;
+    #[test_only]
     use aptos_framework::randomness;
     #[test_only]
     use aptos_framework::timestamp;
+    #[test_only]
+    use contract_owner::public_card_opening;
 
     const STATE__WAITING_FOR_PLAYERS: u64 = 1;
     const STATE__DKG_IN_PROGRESS: u64 = 2;
@@ -249,15 +254,37 @@ module contract_owner::poker_room {
         hand::process_shuffle_contribution(player, hand, new_draw_pile, proof);
     }
 
-    entry fun process_card_decryption_share(player: &signer, room: address, hand_idx: u64, card_idx: u64, share_bytes: vector<u8>) acquires PokerRoomState {
+    entry fun process_private_dealing_reencryption(player: &signer, room: address, hand_idx: u64, dealing_idx: u64, reencyption_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state.main == STATE__HAND_IN_PROGRESS, 124642);
         assert!(room.num_hands_done == hand_idx, 124643);
         let hand = table::borrow_mut(&mut room.hands, hand_idx);
-        let (errors, share, remainder) = deck::decode_decryption_share(share_bytes);
+        let (errors, contribution, remainder) = private_card_dealing::decode_reencyption(reencyption_bytes);
         assert!(vector::is_empty(&errors), 124644);
         assert!(vector::is_empty(&remainder), 124645);
-        hand::process_card_decryption_share(player, hand, card_idx, share);
+        hand::process_private_dealing_reencryption(player, hand, dealing_idx, contribution);
+    }
+
+    entry fun process_private_dealing_contribution(player: &signer, room: address, hand_idx: u64, dealing_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
+        let room = borrow_global_mut<PokerRoomState>(room);
+        assert!(room.state.main == STATE__HAND_IN_PROGRESS, 124642);
+        assert!(room.num_hands_done == hand_idx, 124643);
+        let hand = table::borrow_mut(&mut room.hands, hand_idx);
+        let (errors, contribution, remainder) = threshold_scalar_mul::decode_contribution(contribution_bytes);
+        assert!(vector::is_empty(&errors), 124644);
+        assert!(vector::is_empty(&remainder), 124645);
+        hand::process_private_dealing_contribution(player, hand, dealing_idx, contribution);
+    }
+
+    entry fun process_public_opening_contribution(player: &signer, room: address, hand_idx: u64, opening_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
+        let room = borrow_global_mut<PokerRoomState>(room);
+        assert!(room.state.main == STATE__HAND_IN_PROGRESS, 124642);
+        assert!(room.num_hands_done == hand_idx, 124643);
+        let hand = table::borrow_mut(&mut room.hands, hand_idx);
+        let (errors, contribution, remainder) = threshold_scalar_mul::decode_contribution(contribution_bytes);
+        assert!(vector::is_empty(&errors), 124644);
+        assert!(vector::is_empty(&remainder), 124645);
+        hand::process_public_opening_contribution(player, hand, opening_idx, contribution);
     }
 
     #[view]
@@ -388,43 +415,73 @@ module contract_owner::poker_room {
 
         let room = get_room_brief(host_addr);
         assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
-        hand::is_dealing_hole_cards(&room.cur_hand);
-        let deck = hand::borrow_deck(&room.cur_hand);
-        // Alice does her dealing duty.
-        vector::for_each(vector[2,3,4,5], |card_idx|{
-            let share = deck::compute_card_decryption_share(&alice, deck, card_idx, &dkg_0_alice_secret_share);
-            process_card_decryption_share(&alice, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
+        hand::is_dealing_private_cards(&room.cur_hand);
+
+        // Initiate 6 private card dealings in parallel.
+        let (hand_0_deal_0_alice_secret, hand_0_deal_0_alice_reenc) = private_card_dealing::reencrypt(&alice, hand::borrow_private_dealing_session(&room.cur_hand, 0));
+        let (hand_0_deal_1_alice_secret, hand_0_deal_1_alice_reenc) = private_card_dealing::reencrypt(&alice, hand::borrow_private_dealing_session(&room.cur_hand, 1));
+        let (hand_0_deal_2_bob_secret, hand_0_deal_2_bob_reenc) = private_card_dealing::reencrypt(&bob, hand::borrow_private_dealing_session(&room.cur_hand, 2));
+        let (hand_0_deal_3_bob_secret, hand_0_deal_3_bob_reenc) = private_card_dealing::reencrypt(&bob, hand::borrow_private_dealing_session(&room.cur_hand, 3));
+        let (hand_0_deal_4_eric_secret, hand_0_deal_4_eric_reenc) = private_card_dealing::reencrypt(&eric, hand::borrow_private_dealing_session(&room.cur_hand, 4));
+        let (hand_0_deal_5_eric_secret, hand_0_deal_5_eric_reenc) = private_card_dealing::reencrypt(&eric, hand::borrow_private_dealing_session(&room.cur_hand, 5));
+        process_private_dealing_reencryption(&alice, host_addr, 0, 0, private_card_dealing::encode_reencryption(&hand_0_deal_0_alice_reenc));
+        process_private_dealing_reencryption(&alice, host_addr, 0, 1, private_card_dealing::encode_reencryption(&hand_0_deal_1_alice_reenc));
+        process_private_dealing_reencryption(&bob, host_addr, 0, 2, private_card_dealing::encode_reencryption(&hand_0_deal_2_bob_reenc));
+        process_private_dealing_reencryption(&bob, host_addr, 0, 3, private_card_dealing::encode_reencryption(&hand_0_deal_3_bob_reenc));
+        process_private_dealing_reencryption(&eric, host_addr, 0, 4, private_card_dealing::encode_reencryption(&hand_0_deal_4_eric_reenc));
+        process_private_dealing_reencryption(&eric, host_addr, 0, 5, private_card_dealing::encode_reencryption(&hand_0_deal_5_eric_reenc));
+        state_update(host_addr);
+        let room = get_room_brief(host_addr);
+        // Everyone does its card dealing duties.
+        vector::for_each(vector::range(0, 6), |i| {
+            let hand_0_deal_i_scalar_mul_session = private_card_dealing::borrow_scalar_mul_session(hand::borrow_private_dealing_session(&room.cur_hand, i));
+            let hand_0_deal_i_player_share = threshold_scalar_mul::generate_contribution(&alice, hand_0_deal_i_scalar_mul_session, &dkg_0_alice_secret_share);
+            process_private_dealing_contribution(&alice, host_addr, 0, i, threshold_scalar_mul::encode_contribution(&hand_0_deal_i_player_share));
+        });
+        vector::for_each(vector::range(0, 6), |i| {
+            let hand_0_deal_i_scalar_mul_session = private_card_dealing::borrow_scalar_mul_session(hand::borrow_private_dealing_session(&room.cur_hand, i));
+            let hand_0_deal_i_player_share = threshold_scalar_mul::generate_contribution(&bob, hand_0_deal_i_scalar_mul_session, &dkg_0_bob_secret_share);
+            process_private_dealing_contribution(&bob, host_addr, 0, i, threshold_scalar_mul::encode_contribution(&hand_0_deal_i_player_share));
+        });
+        vector::for_each(vector::range(0, 6), |i| {
+            let hand_0_deal_i_scalar_mul_session = private_card_dealing::borrow_scalar_mul_session(hand::borrow_private_dealing_session(&room.cur_hand, i));
+            let hand_0_deal_i_player_share = threshold_scalar_mul::generate_contribution(&eric, hand_0_deal_i_scalar_mul_session, &dkg_0_eric_secret_share);
+            process_private_dealing_contribution(&eric, host_addr, 0, i, threshold_scalar_mul::encode_contribution(&hand_0_deal_i_player_share));
         });
 
-        // Eric does his dealing duty.
-        vector::for_each(vector[1,2,3,0], |card_idx|{
-            let share = deck::compute_card_decryption_share(&eric, deck, card_idx, &dkg_0_eric_secret_share);
-            process_card_decryption_share(&eric, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
-        });
-
-        // Bob does his dealing duty.
-        vector::for_each(vector[0,1,5,4], |card_idx|{
-            let share = deck::compute_card_decryption_share(&bob, deck, card_idx, &dkg_0_bob_secret_share);
-            process_card_decryption_share(&bob, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
-        });
-
-        timestamp::fast_forward_seconds(6);
+        timestamp::fast_forward_seconds(10);
         state_update(host_addr);
 
         let room = get_room_brief(host_addr);
+        // Assert: Hand 0 is still in progress, in phase 1 betting, Alice's turn.
         assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
         assert!(vector[0, 125, 250] == hand::get_bets(&room.cur_hand), 999);
         assert!(vector[false, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
         assert!(hand::is_phase_1_betting(&room.cur_hand, option::some(alice_addr)), 999);
-        let deck = hand::borrow_deck(&room.cur_hand);
 
         // Alice takes a look at her private cards.
-        let hand_0_alice_card_0 = deck::reveal_card_privately(deck, 0, &dkg_0_alice_secret_share);
-        let hand_0_alice_card_1 = deck::reveal_card_privately(deck, 1, &dkg_0_alice_secret_share);
+        let hand_0_alice_card_0 = hand::reveal_dealed_card_locally(&alice, &room.cur_hand, 0, hand_0_deal_0_alice_secret);
+        let hand_0_alice_card_1 = hand::reveal_dealed_card_locally(&alice, &room.cur_hand, 1, hand_0_deal_1_alice_secret);
         debug::print(&utf8(b"hand_0_alice_card_0:"));
         debug::print(&deck::get_card_text(hand_0_alice_card_0));
         debug::print(&utf8(b"hand_0_alice_card_1:"));
         debug::print(&deck::get_card_text(hand_0_alice_card_1));
+
+        // Bob takes a look at his private cards.
+        let hand_0_bob_card_0 = hand::reveal_dealed_card_locally(&bob, &room.cur_hand, 2, hand_0_deal_2_bob_secret);
+        let hand_0_bob_card_1 = hand::reveal_dealed_card_locally(&bob, &room.cur_hand, 3, hand_0_deal_3_bob_secret);
+        debug::print(&utf8(b"hand_0_bob_card_0:"));
+        debug::print(&deck::get_card_text(hand_0_bob_card_0));
+        debug::print(&utf8(b"hand_0_bob_card_1:"));
+        debug::print(&deck::get_card_text(hand_0_bob_card_1));
+
+        // Eric takes a look at his private cards.
+        let hand_0_eric_card_0 = hand::reveal_dealed_card_locally(&eric, &room.cur_hand, 4, hand_0_deal_4_eric_secret);
+        let hand_0_eric_card_1 = hand::reveal_dealed_card_locally(&eric, &room.cur_hand, 5, hand_0_deal_5_eric_secret);
+        debug::print(&utf8(b"hand_0_eric_card_0:"));
+        debug::print(&deck::get_card_text(hand_0_eric_card_0));
+        debug::print(&utf8(b"hand_0_eric_card_1:"));
+        debug::print(&deck::get_card_text(hand_0_eric_card_1));
 
         // Alice folds.
         process_new_invest(&alice, host_addr, 0, 0);
@@ -437,13 +494,6 @@ module contract_owner::poker_room {
         assert!(vector[true, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
         assert!(hand::is_phase_1_betting(&room.cur_hand, option::some(bob_addr)), 999);
 
-        // Bob takes a look at his private cards.
-        let hand_0_bob_card_0 = deck::reveal_card_privately(deck, 2, &dkg_0_bob_secret_share);
-        let hand_0_bob_card_1 = deck::reveal_card_privately(deck, 3, &dkg_0_bob_secret_share);
-        debug::print(&utf8(b"hand_0_bob_card_0:"));
-        debug::print(&deck::get_card_text(hand_0_bob_card_0));
-        debug::print(&utf8(b"hand_0_bob_card_1:"));
-        debug::print(&deck::get_card_text(hand_0_bob_card_1));
 
         // Bob raises.
         process_new_invest(&bob, host_addr, 0, 500);
@@ -455,14 +505,6 @@ module contract_owner::poker_room {
         assert!(vector[0, 500, 250] == hand::get_bets(&room.cur_hand), 999);
         assert!(vector[true, false, false] == hand::get_fold_statuses(&room.cur_hand), 999);
         assert!(hand::is_phase_1_betting(&room.cur_hand, option::some(eric_addr)), 999);
-
-        // Eric takes a look at his private cards.
-        let hand_0_eric_card_0 = deck::reveal_card_privately(deck, 4, &dkg_0_eric_secret_share);
-        let hand_0_eric_card_1 = deck::reveal_card_privately(deck, 5, &dkg_0_eric_secret_share);
-        debug::print(&utf8(b"hand_0_eric_card_0:"));
-        debug::print(&deck::get_card_text(hand_0_eric_card_0));
-        debug::print(&utf8(b"hand_0_eric_card_1:"));
-        debug::print(&deck::get_card_text(hand_0_eric_card_1));
 
         // Eric calls.
         process_new_invest(&eric, host_addr, 0, 500);
@@ -477,22 +519,21 @@ module contract_owner::poker_room {
         // Time to open 3 community cards.
         assert!(hand::is_dealing_community_cards(&room.cur_hand), 999);
 
-        // Eric does his card revealing duty.
-        vector::for_each(vector[6,7,8], |card_idx|{
-            let share = deck::compute_card_decryption_share(&eric, deck, card_idx, &dkg_0_eric_secret_share);
-            process_card_decryption_share(&eric, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
+        // Everyone does his card opening duty.
+        vector::for_each(vector[0,1,2], |opening_idx|{
+            let scalar_mul_session = public_card_opening::borrow_scalar_mul_session(hand::borrow_public_opening_session(&room.cur_hand, opening_idx));
+            let share = threshold_scalar_mul::generate_contribution(&bob, scalar_mul_session, &dkg_0_bob_secret_share);
+            process_public_opening_contribution(&bob, host_addr, 0, opening_idx, threshold_scalar_mul::encode_contribution(&share));
         });
-
-        // Bob does his card revealing duty.
-        vector::for_each(vector[8,6,7], |card_idx|{
-            let share = deck::compute_card_decryption_share(&bob, deck, card_idx, &dkg_0_bob_secret_share);
-            process_card_decryption_share(&bob, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
+        vector::for_each(vector[0,1,2], |opening_idx|{
+            let scalar_mul_session = public_card_opening::borrow_scalar_mul_session(hand::borrow_public_opening_session(&room.cur_hand, opening_idx));
+            let share = threshold_scalar_mul::generate_contribution(&eric, scalar_mul_session, &dkg_0_eric_secret_share);
+            process_public_opening_contribution(&eric, host_addr, 0, opening_idx, threshold_scalar_mul::encode_contribution(&share));
         });
-
-        // Alice does his card revealing duty.
-        vector::for_each(vector[7,8,6], |card_idx|{
-            let share = deck::compute_card_decryption_share(&alice, deck, card_idx, &dkg_0_alice_secret_share);
-            process_card_decryption_share(&alice, host_addr, 0, card_idx, deck::encode_decryption_share(&share));
+        vector::for_each(vector[0,1,2], |opening_idx|{
+            let scalar_mul_session = public_card_opening::borrow_scalar_mul_session(hand::borrow_public_opening_session(&room.cur_hand, opening_idx));
+            let share = threshold_scalar_mul::generate_contribution(&alice, scalar_mul_session, &dkg_0_alice_secret_share);
+            process_public_opening_contribution(&alice, host_addr, 0, opening_idx, threshold_scalar_mul::encode_contribution(&share));
         });
 
         state_update(host_addr);
@@ -500,5 +541,15 @@ module contract_owner::poker_room {
         let room = get_room_brief(host_addr);
         assert!(room.state.main == STATE__HAND_IN_PROGRESS && room.num_hands_done == 0, 999);
         assert!(hand::is_phase_2_betting(&room.cur_hand, option::some(bob_addr)), 999);
+        let public_card_0 = public_card_opening::get_result(hand::borrow_public_opening_session(&room.cur_hand, 0));
+        let public_card_1 = public_card_opening::get_result(hand::borrow_public_opening_session(&room.cur_hand, 1));
+        let public_card_2 = public_card_opening::get_result(hand::borrow_public_opening_session(&room.cur_hand, 2));
+        // Everyone can look at the 3 public cards.
+        debug::print(&utf8(b"hand_0_public_card_0:"));
+        debug::print(&deck::get_card_text(public_card_0));
+        debug::print(&utf8(b"hand_0_public_card_1:"));
+        debug::print(&deck::get_card_text(public_card_1));
+        debug::print(&utf8(b"hand_0_public_card_2:"));
+        debug::print(&deck::get_card_text(public_card_2));
     }
 }

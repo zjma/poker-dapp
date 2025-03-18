@@ -8,7 +8,7 @@ module contract_owner::sigma_dlog_eq {
     #[test_only]
     use aptos_framework::randomness;
 
-    struct Proof has drop {
+    struct Proof has copy, drop, store {
         t0: group::Element,
         t1: group::Element,
         s: group::Scalar,
