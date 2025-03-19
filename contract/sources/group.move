@@ -4,7 +4,6 @@ module contract_owner::group {
     use std::vector;
     use aptos_std::bls12381_algebra;
     use aptos_std::crypto_algebra;
-    use aptos_std::from_bcs::to_u256;
     use aptos_std::type_info;
     use aptos_framework::randomness;
 

@@ -131,6 +131,10 @@ module contract_owner::private_card_dealing {
         }
     }
 
+    public fun borrow_reenc(session: &Session): &VerifiableReencrpytion {
+        option::borrow(&session.reenc)
+    }
+
     public fun succeeded(session: &Session): bool {
         session.state == STATE__SUCCEEDED
     }
@@ -147,11 +151,26 @@ module contract_owner::private_card_dealing {
         option::borrow(&session.thresh_scalar_mul_session)
     }
 
-    #[test_only]
-    struct RecipientPrivateState {
-        t: group::Scalar,
+    struct RecipientPrivateState has copy, drop {
         u: group::Scalar,
+    }
 
+    public fun dummy_private_state(): RecipientPrivateState {
+        RecipientPrivateState { u: group::dummy_scalar() }
+    }
+
+    public fun decode_private_state(buf: vector<u8>): (vector<u64>, RecipientPrivateState, vector<u8>) {
+        let (errors, u, buf) = group::decode_scalar(buf);
+        if (!vector::is_empty(&errors)) {
+            vector::push_back(&mut errors, 124147);
+            return (errors, dummy_private_state(), buf);
+        };
+        let ret = RecipientPrivateState { u };
+        (vector[], ret, buf)
+    }
+
+    public fun encode_private_state(obj: &RecipientPrivateState): vector<u8> {
+        group::encode_scalar(&obj.u)
     }
 
     #[lint::allow_unsafe_randomness]
@@ -170,17 +189,19 @@ module contract_owner::private_card_dealing {
         let new_ciph = encryption::make_ciphertext(enc_base, new_c0, new_c1);
         let new_ek = group::element_add(&old_ek, &group::scale_element(&enc_base, &u));
         let reenc = VerifiableReencrpytion { new_ciph, new_ek };
-        let private_state = RecipientPrivateState { t, u };
+        let private_state = RecipientPrivateState { u };
         (private_state, reenc)
     }
 
-    #[test_only]
-    public fun unblind_locally(target: &signer, session: &Session, private_state: RecipientPrivateState): group::Element {
+    public fun reveal(session: &Session, private_state: RecipientPrivateState): group::Element {
         assert!(session.state == STATE__SUCCEEDED, 285305);
-        let addr = address_of(target);
-        assert!(addr == session.deal_target, 285306);
-
-        let RecipientPrivateState { t, u } = private_state;
+        let RecipientPrivateState { u } = private_state;
+        let (enc_base, _, _) = encryption::unpack_ciphertext(session.card);
+        let (old_ek, _) = dkg_v0::unpack_shared_secret_public_info(session.secret_info);
+        let (_, old_ek_element) = encryption::unpack_enc_key(old_ek);
+        let rhs = group::element_add(&old_ek_element, &group::scale_element(&enc_base, &u));
+        let lhs = option::borrow(&session.reenc).new_ek;
+        assert!(lhs == rhs, 285307);
         let srtH = threshold_scalar_mul::get_result(option::borrow(&session.thresh_scalar_mul_session));
         let (_, new_c0, new_c1) = encryption::unpack_ciphertext(option::borrow(&session.reenc).new_ciph);
         let plaintext = group::element_sub(&new_c1, &group::element_add(&srtH, &group::scale_element(&new_c0, &u)));
@@ -212,7 +233,7 @@ module contract_owner::private_card_dealing {
         process_scalar_mul_share(&eric, &mut session, eric_contribution);
         state_update(&mut session);
         assert!(succeeded(&session), 170517);
-        let actual_result = unblind_locally(&eric, &session, eric_private_state);
+        let actual_result = reveal(&session, eric_private_state);
         assert!(target == actual_result, 170518);
     }
 }

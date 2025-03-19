@@ -95,8 +95,17 @@ module contract_owner::shuffle {
 
     public fun new_session(enc_key: encryption::EncKey, initial_ciphertexts: vector<encryption::Ciphertext>, allowed_contributors: vector<address>, deadlines: vector<u64>): Session {
         let num_contributions_expected = vector::length(&allowed_contributors);
-        assert!(num_contributions_expected >= 1, 180007);
+        assert!(num_contributions_expected >= 2, 180007);
         assert!(num_contributions_expected == vector::length(&deadlines), 180008);
+
+        // Ensure deadlines are valid.
+        assert!(timestamp::now_seconds() < deadlines[0], 180009);
+        let i = 1;
+        while (i < num_contributions_expected) {
+            assert!(deadlines[i-1] < deadlines[i], 180010);
+            i = i + 1;
+        };
+
         Session {
             enc_key,
             initial_ciphertexts,
