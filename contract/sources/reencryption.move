@@ -1,4 +1,9 @@
-module contract_owner::private_card_dealing {
+/// On-chain states and util functions of a re-encryption where:
+/// a group of users collaborate to transform a ciphertext without actually decrypting it,
+/// so only a targeted user can decrypt privately.
+/// The group has to have a shared ElGamal decrpyion key `s`.
+/// The ciphertext has to be generated with the ElGamal encryption key corresponding to `s`.
+module contract_owner::reencryption {
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
@@ -9,7 +14,7 @@ module contract_owner::private_card_dealing {
     use contract_owner::dkg_v0;
     use contract_owner::threshold_scalar_mul;
     use contract_owner::group;
-    use contract_owner::encryption;
+    use contract_owner::elgamal;
     #[test_only]
     use aptos_framework::randomness;
 
@@ -19,21 +24,21 @@ module contract_owner::private_card_dealing {
     const STATE__FAILED: u64 = 4;
 
     struct VerifiableReencrpytion has copy, drop, store {
-        new_ciph: encryption::Ciphertext,
+        new_ciph: elgamal::Ciphertext,
         new_ek: group::Element,
         // TODO: proof
     }
 
     public fun dummy_reencryption(): VerifiableReencrpytion {
         VerifiableReencrpytion {
-            new_ciph: encryption::dummy_ciphertext(),
+            new_ciph: elgamal::dummy_ciphertext(),
             new_ek: group::dummy_element(),
         }
     }
 
     public fun encode_reencryption(obj: &VerifiableReencrpytion): vector<u8> {
         let buf = *string::bytes(&type_info::type_name<VerifiableReencrpytion>());
-        vector::append(&mut buf, encryption::encode_ciphertext(&obj.new_ciph));
+        vector::append(&mut buf, elgamal::encode_ciphertext(&obj.new_ciph));
         vector::append(&mut buf, group::encode_element(&obj.new_ek));
         buf
     }
@@ -44,7 +49,7 @@ module contract_owner::private_card_dealing {
         let header_len = vector::length(&header);
         if (buf_len < header_len) return (vector[302034], dummy_reencryption(), buf);
         let buf = vector::slice(&buf, header_len, buf_len);
-        let (errors, new_ciph, buf) = encryption::decode_ciphertext(buf);
+        let (errors, new_ciph, buf) = elgamal::decode_ciphertext(buf);
         if (!vector::is_empty(&errors)) {
             vector::push_back(&mut errors, 302035);
             return (errors, dummy_reencryption(), buf);
@@ -61,7 +66,7 @@ module contract_owner::private_card_dealing {
     }
 
     struct Session has copy, drop, store {
-        card: encryption::Ciphertext,
+        card: elgamal::Ciphertext,
         deal_target: address,
         scalar_mul_party: vector<address>,
         secret_info: dkg_v0::SharedSecretPublicInfo,
@@ -74,7 +79,7 @@ module contract_owner::private_card_dealing {
     }
 
     public fun new_session(
-        card: encryption::Ciphertext, deal_target: address, scalar_mul_party: vector<address>, secret_info: dkg_v0::SharedSecretPublicInfo,
+        card: elgamal::Ciphertext, deal_target: address, scalar_mul_party: vector<address>, secret_info: dkg_v0::SharedSecretPublicInfo,
         reencryption_deadline: u64, scalar_mul_deadline: u64,
     ): Session {
         assert!(reencryption_deadline < scalar_mul_deadline, 304000);
@@ -111,7 +116,7 @@ module contract_owner::private_card_dealing {
         if (session.state == STATE__ACCEPTING_REENC) {
             if (option::is_some(&session.reenc)) {
                 let new_ciph = option::borrow(&session.reenc).new_ciph;
-                let (_, new_c0, _) = encryption::unpack_ciphertext(new_ciph);
+                let (_, new_c0, _) = elgamal::unpack_ciphertext(new_ciph);
                 let sub_session = threshold_scalar_mul::new_session(new_c0, session.secret_info, session.scalar_mul_party, session.scalar_mul_deadline);
                 session.state = STATE__THRESHOLD_SCALAR_MUL_IN_PROGRESS;
                 session.thresh_scalar_mul_session = option::some(sub_session);
@@ -180,13 +185,13 @@ module contract_owner::private_card_dealing {
         assert!(addr == session.deal_target, 285206);
 
         let (ek, _) = dkg_v0::unpack_shared_secret_public_info(session.secret_info);
-        let (_, old_ek) = encryption::unpack_enc_key(ek);
+        let (_, old_ek) = elgamal::unpack_enc_key(ek);
         let t = group::rand_scalar();
         let u = group::rand_scalar();
-        let (enc_base, c_0, c_1) = encryption::unpack_ciphertext(session.card);
+        let (enc_base, c_0, c_1) = elgamal::unpack_ciphertext(session.card);
         let new_c0 = group::element_add(&c_0, &group::scale_element(&enc_base, &t));
         let new_c1 = group::element_sum(vector[c_1, group::scale_element(&c_0, &u), group::scale_element(&old_ek, &t), group::scale_element(&enc_base, &group::scalar_mul(&t, &u))]);
-        let new_ciph = encryption::make_ciphertext(enc_base, new_c0, new_c1);
+        let new_ciph = elgamal::make_ciphertext(enc_base, new_c0, new_c1);
         let new_ek = group::element_add(&old_ek, &group::scale_element(&enc_base, &u));
         let reenc = VerifiableReencrpytion { new_ciph, new_ek };
         let private_state = RecipientPrivateState { u };
@@ -196,14 +201,14 @@ module contract_owner::private_card_dealing {
     public fun reveal(session: &Session, private_state: RecipientPrivateState): group::Element {
         assert!(session.state == STATE__SUCCEEDED, 285305);
         let RecipientPrivateState { u } = private_state;
-        let (enc_base, _, _) = encryption::unpack_ciphertext(session.card);
+        let (enc_base, _, _) = elgamal::unpack_ciphertext(session.card);
         let (old_ek, _) = dkg_v0::unpack_shared_secret_public_info(session.secret_info);
-        let (_, old_ek_element) = encryption::unpack_enc_key(old_ek);
+        let (_, old_ek_element) = elgamal::unpack_enc_key(old_ek);
         let rhs = group::element_add(&old_ek_element, &group::scale_element(&enc_base, &u));
         let lhs = option::borrow(&session.reenc).new_ek;
         assert!(lhs == rhs, 285307);
         let srtH = threshold_scalar_mul::get_result(option::borrow(&session.thresh_scalar_mul_session));
-        let (_, new_c0, new_c1) = encryption::unpack_ciphertext(option::borrow(&session.reenc).new_ciph);
+        let (_, new_c0, new_c1) = elgamal::unpack_ciphertext(option::borrow(&session.reenc).new_ciph);
         let plaintext = group::element_sub(&new_c1, &group::element_add(&srtH, &group::scale_element(&new_c0, &u)));
         plaintext
     }
@@ -219,7 +224,7 @@ module contract_owner::private_card_dealing {
         let (agg_ek, ek_shares) = dkg_v0::unpack_shared_secret_public_info(secret_info);
         let target = group::rand_element();
         let r = group::rand_scalar();
-        let target_ciph = encryption::enc(&agg_ek, &r, &target);
+        let target_ciph = elgamal::enc(&agg_ek, &r, &target);
         let now_secs = timestamp::now_seconds();
         let session = new_session(target_ciph, eric_addr, vector[alice_addr, bob_addr, eric_addr], secret_info, now_secs + 5, now_secs + 10);
         let (eric_private_state, eric_reenc) = reencrypt(&eric, &session);

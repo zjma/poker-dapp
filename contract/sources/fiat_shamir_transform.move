@@ -1,3 +1,4 @@
+/// Utils for Fiat-Shamir transformation.
 module contract_owner::fiat_shamir_transform {
     use std::vector;
     use aptos_std::aptos_hash::sha3_512;

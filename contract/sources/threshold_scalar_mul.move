@@ -1,3 +1,5 @@
+/// The on-chain states & util functions of threshold scalar multiplication, where:
+/// a group of users collaborate to scale a publicly on-chain group element `E` with a secret scalar shared between them.
 module contract_owner::threshold_scalar_mul {
     use std::option;
     use std::option::Option;
@@ -13,7 +15,7 @@ module contract_owner::threshold_scalar_mul {
     #[test_only]
     use aptos_framework::randomness;
     #[test_only]
-    use contract_owner::encryption;
+    use contract_owner::elgamal;
     #[test_only]
     use contract_owner::fiat_shamir_transform;
 
@@ -172,7 +174,7 @@ module contract_owner::threshold_scalar_mul {
         assert!(found, 310240);
         let (_agg_ek, ek_shares) = dkg_v0::unpack_shared_secret_public_info(session.secret_info);
         let ek_share = *vector::borrow(&ek_shares, contributor_idx);
-        let (enc_base, public_point) = encryption::unpack_enc_key(ek_share);
+        let (enc_base, public_point) = elgamal::unpack_enc_key(ek_share);
         let private_scalar = dkg_v0::unpack_secret_share(*secret_share);
         let payload = group::scale_element(&session.to_be_scaled, &private_scalar);
         let proof = sigma_dlog_eq::prove(&mut fiat_shamir_transform::new_transcript(), &enc_base, &public_point, &session.to_be_scaled, &payload, &private_scalar);

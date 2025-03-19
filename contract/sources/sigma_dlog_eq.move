@@ -1,4 +1,4 @@
-/// Protocol to prove knowledge of `s` such that s*B0==P0, s*B1==P1.
+/// Protocol to prove knowledge of scalar `s` such that `s*B0==P0, s*B1==P1` for public elements `B0, B1, P0, P1`.
 module contract_owner::sigma_dlog_eq {
     use std::string;
     use std::vector;

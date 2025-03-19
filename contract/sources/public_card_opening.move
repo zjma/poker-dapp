@@ -1,3 +1,4 @@
+//TODO: this extra layer is unnecessary.
 module contract_owner::public_card_opening {
     use std::option;
     use std::option::Option;
@@ -5,7 +6,7 @@ module contract_owner::public_card_opening {
     use contract_owner::group;
     use contract_owner::dkg_v0;
     use contract_owner::threshold_scalar_mul;
-    use contract_owner::encryption;
+    use contract_owner::elgamal;
 
     const STATE__THRESHOLD_SCALAR_MUL_IN_PROGRESS: u64 = 1;
     const STATE__SUCCEEDED: u64 = 2;
@@ -24,8 +25,8 @@ module contract_owner::public_card_opening {
         culprits: vector<address>,
     }
 
-    public fun new_session(card_reprs: vector<group::Element>, encrypted_card: encryption::Ciphertext, allowed_contributors: vector<address>, secret_info: dkg_v0::SharedSecretPublicInfo, deadline: u64): Session {
-        let (_, c0, blinded_card) = encryption::unpack_ciphertext(encrypted_card);
+    public fun new_session(card_reprs: vector<group::Element>, encrypted_card: elgamal::Ciphertext, allowed_contributors: vector<address>, secret_info: dkg_v0::SharedSecretPublicInfo, deadline: u64): Session {
+        let (_, c0, blinded_card) = elgamal::unpack_ciphertext(encrypted_card);
         let tsm_session = threshold_scalar_mul::new_session(c0, secret_info, allowed_contributors, deadline);
         Session {
             card_reprs,

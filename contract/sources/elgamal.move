@@ -1,4 +1,5 @@
-module contract_owner::encryption {
+/// ElGamal encryption instantiated with bls12-381 G1.
+module contract_owner::elgamal {
     use std::string;
     use std::vector;
     use aptos_std::type_info;

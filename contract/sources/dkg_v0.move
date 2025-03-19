@@ -1,4 +1,5 @@
-/// A native DKG. Everyone will hold a scalar as a secret share, and the aggregated secret is the sum of all secret shares.
+/// A native DKG. Everyone holds a scalar as a secret share. The aggregated secret is the sum of all secret shares.
+/// It is automatically a n-out-of-n sharing.
 module contract_owner::dkg_v0 {
     use std::option;
     use std::option::Option;
@@ -8,8 +9,8 @@ module contract_owner::dkg_v0 {
     use aptos_std::type_info;
     use aptos_framework::timestamp;
     use contract_owner::sigma_dlog;
-    use contract_owner::encryption::EncKey;
-    use contract_owner::encryption;
+    use contract_owner::elgamal::EncKey;
+    use contract_owner::elgamal;
     use contract_owner::group;
     #[test_only]
     use contract_owner::fiat_shamir_transform;
@@ -39,8 +40,8 @@ module contract_owner::dkg_v0 {
     }
 
     struct SharedSecretPublicInfo has copy, drop, store {
-        agg_ek: encryption::EncKey,
-        ek_shares: vector<encryption::EncKey>,
+        agg_ek: elgamal::EncKey,
+        ek_shares: vector<elgamal::EncKey>,
     }
 
     public fun dummy_session(): DKGSession {
@@ -65,7 +66,7 @@ module contract_owner::dkg_v0 {
 
     public fun dummy_secret_info(): SharedSecretPublicInfo {
         SharedSecretPublicInfo {
-            agg_ek: encryption::dummy_enc_key(),
+            agg_ek: elgamal::dummy_enc_key(),
             ek_shares: vector[],
         }
     }
@@ -168,10 +169,10 @@ module contract_owner::dkg_v0 {
 
     public fun get_shared_secret_public_info(session: &DKGSession): SharedSecretPublicInfo {
         assert!(session.state == STATE__SUCCEEDED, 193709);
-        let agg_ek = encryption::make_enc_key(session.base_point, session.agg_public_point);
+        let agg_ek = elgamal::make_enc_key(session.base_point, session.agg_public_point);
         let ek_shares = vector::map_ref(&session.contributions, |contri|{
             let contribution = *option::borrow(contri);
-            encryption::make_enc_key(session.base_point, contribution.public_point)
+            elgamal::make_enc_key(session.base_point, contribution.public_point)
         });
         SharedSecretPublicInfo {
             agg_ek,

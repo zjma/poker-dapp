@@ -1,3 +1,4 @@
+/// BLS12-381 G1 utils.
 module contract_owner::group {
     use std::option;
     use std::string;

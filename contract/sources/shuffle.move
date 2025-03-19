@@ -1,23 +1,26 @@
+/// The on-chain states/util functions of a shuffle process where:
+/// a list of users take turns to verifiably shuffle a list of ElGamal ciphertexts.
 module contract_owner::shuffle {
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
     use std::string;
     use std::vector;
-    use aptos_std::debug;
     use aptos_std::type_info;
     use aptos_framework::randomness;
     use aptos_framework::timestamp;
     use contract_owner::group;
     use contract_owner::utils;
-    use contract_owner::encryption;
+    use contract_owner::elgamal;
+    #[test_only]
+    use aptos_std::debug::print;
 
     const STATE__ACCEPTING_CONTRIBUTION: u64 = 1;
     const STATE__SUCCEEDED: u64 = 2;
     const STATE__FAILED: u64 = 3;
 
     struct VerifiableContribution has copy, drop, store {
-        new_ciphertexts: vector<encryption::Ciphertext>,
+        new_ciphertexts: vector<elgamal::Ciphertext>,
         //TODO: proof
     }
 
@@ -42,7 +45,7 @@ module contract_owner::shuffle {
         let new_ciphertexts = vector[];
         let i = 0;
         while (i < num_items) {
-            let (errors, ciphertext, remainder) = encryption::decode_ciphertext(buf);
+            let (errors, ciphertext, remainder) = elgamal::decode_ciphertext(buf);
             if (!vector::is_empty(&errors)) {
                 vector::push_back(&mut errors, i);
                 vector::push_back(&mut errors, 182921);
@@ -61,14 +64,14 @@ module contract_owner::shuffle {
         let num_ciphs = vector::length(&obj.new_ciphertexts);
         vector::append(&mut buf, utils::encode_u64(num_ciphs));
         vector::for_each_ref(&obj.new_ciphertexts, |ciph|{
-            vector::append(&mut buf, encryption::encode_ciphertext(ciph));
+            vector::append(&mut buf, elgamal::encode_ciphertext(ciph));
         });
         buf
     }
 
     struct Session has copy, drop, store {
-        enc_key: encryption::EncKey,
-        initial_ciphertexts: vector<encryption::Ciphertext>,
+        enc_key: elgamal::EncKey,
+        initial_ciphertexts: vector<elgamal::Ciphertext>,
         allowed_contributors: vector<address>,
         num_contributions_expected: u64,
         deadlines: vector<u64>,
@@ -81,7 +84,7 @@ module contract_owner::shuffle {
 
     public fun dummy_session(): Session {
         Session {
-            enc_key: encryption::dummy_enc_key(),
+            enc_key: elgamal::dummy_enc_key(),
             initial_ciphertexts: vector[],
             allowed_contributors: vector[],
             num_contributions_expected: 0,
@@ -93,7 +96,7 @@ module contract_owner::shuffle {
         }
     }
 
-    public fun new_session(enc_key: encryption::EncKey, initial_ciphertexts: vector<encryption::Ciphertext>, allowed_contributors: vector<address>, deadlines: vector<u64>): Session {
+    public fun new_session(enc_key: elgamal::EncKey, initial_ciphertexts: vector<elgamal::Ciphertext>, allowed_contributors: vector<address>, deadlines: vector<u64>): Session {
         let num_contributions_expected = vector::length(&allowed_contributors);
         assert!(num_contributions_expected >= 2, 180007);
         assert!(num_contributions_expected == vector::length(&deadlines), 180008);
@@ -157,11 +160,11 @@ module contract_owner::shuffle {
         *option::borrow(&session.culprit)
     }
 
-    public fun input_cloned(session: &Session): vector<encryption::Ciphertext> {
+    public fun input_cloned(session: &Session): vector<elgamal::Ciphertext> {
         session.initial_ciphertexts
     }
 
-    public fun result_cloned(session: &Session): vector<encryption::Ciphertext> {
+    public fun result_cloned(session: &Session): vector<elgamal::Ciphertext> {
         assert!(session.status == STATE__SUCCEEDED, 175158);
         vector::borrow(&session.contributions, session.num_contributions_expected - 1).new_ciphertexts
     }
@@ -190,8 +193,8 @@ module contract_owner::shuffle {
         let new_ciphertexts = vector::map(randomness::permutation(num_items), |old_idx|{
             let ciph = vector::borrow(&current_deck, old_idx);
             let rerandomizer = group::rand_scalar();
-            let blinder = encryption::enc(&session.enc_key, &rerandomizer, &group::group_identity());
-            let new_ciph = encryption::ciphertext_add(ciph, &blinder);
+            let blinder = elgamal::enc(&session.enc_key, &rerandomizer, &group::group_identity());
+            let new_ciph = elgamal::ciphertext_add(ciph, &blinder);
             new_ciph
         });
 
@@ -207,9 +210,9 @@ module contract_owner::shuffle {
         let eric_addr = address_of(&eric);
 
         let enc_base = group::rand_element();
-        let (dk, ek) = encryption::key_gen(enc_base);
+        let (dk, ek) = elgamal::key_gen(enc_base);
         let plaintexts = vector::map(vector::range(0, 52), |_|group::rand_element());
-        let ciphertexts = vector::map_ref(&plaintexts, |plain| encryption::enc(&ek, &group::rand_scalar(), plain));
+        let ciphertexts = vector::map_ref(&plaintexts, |plain| elgamal::enc(&ek, &group::rand_scalar(), plain));
         let now_secs = timestamp::now_seconds();
         let session = new_session(ek, ciphertexts, vector[alice_addr, bob_addr, eric_addr], vector[now_secs + 5, now_secs + 10, now_secs + 15]);
         assert!(is_waiting_for_contribution(&session, alice_addr), 185955);
@@ -226,12 +229,12 @@ module contract_owner::shuffle {
         state_update(&mut session);
         assert!(succeeded(&session), 185958);
         let shuffled_ciphs = result_cloned(&session);
-        let shuffled_plains = vector::map(shuffled_ciphs, |ciph| encryption::dec(&dk, &ciph));
+        let shuffled_plains = vector::map(shuffled_ciphs, |ciph| elgamal::dec(&dk, &ciph));
         let permutation = vector::map(plaintexts, |plain| {
             let (found, new_pos) = vector::index_of(&shuffled_plains, &plain);
             assert!(found, 185959);
             new_pos
         });
-        debug::print(&permutation);
+        print(&permutation);
     }
 }
