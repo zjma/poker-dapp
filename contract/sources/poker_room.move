@@ -326,6 +326,7 @@ module contract_owner::poker_room {
         game::process_showdown_reveal(player, game, dealing_idx, reenc_private_state);
     }
 
+    /// This is intended for the frontend to make 1 call and get all the states.
     #[view]
     public fun get_room_brief(room: address): PokerRoomStateBrief acquires PokerRoomState {
         let room = borrow_global<PokerRoomState>(room);
