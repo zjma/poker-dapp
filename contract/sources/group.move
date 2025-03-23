@@ -18,18 +18,10 @@ module contract_owner::group {
     }
 
     public fun encode_scalar(obj: &Scalar): vector<u8> {
-        let buf = *string::bytes(&type_info::type_name<Scalar>());
-        vector::append(&mut buf, obj.bytes);
-        buf
+        obj.bytes
     }
 
     public fun decode_scalar(buf: vector<u8>): (vector<u64>, Scalar, vector<u8>) {
-        let header = *string::bytes(&type_info::type_name<Scalar>());
-        let header_len = vector::length(&header);
-        let buf_len = vector::length(&buf);
-        if (buf_len < header_len) return (vector[115603], dummy_scalar(), buf);
-        if (header != vector::slice(&buf, 0, header_len)) return (vector[115604], dummy_scalar(), buf);
-        let buf = vector::slice(&buf, header_len, buf_len);
         let buf_len = vector::length(&buf);
         let payload = vector::slice(&buf, 0, 32);
         let maybe_inner = crypto_algebra::deserialize<bls12381_algebra::Fr, bls12381_algebra::FormatFrLsb>(&payload);
@@ -147,12 +139,6 @@ module contract_owner::group {
     }
 
     public fun decode_element(buf: vector<u8>): (vector<u64>, Element, vector<u8>) {
-        let header = *string::bytes(&type_info::type_name<Element>());
-        let header_len = vector::length(&header);
-        let buf_len = vector::length(&buf);
-        if (buf_len < header_len) return (vector[110507], dummy_element(), buf);
-        if (header != vector::slice(&buf, 0, header_len)) return (vector[110508], dummy_element(), buf);
-        let buf = vector::slice(&buf, header_len, buf_len);
         let buf_len = vector::length(&buf);
         if (buf_len < 48) return (vector[110509], dummy_element(), buf);
         let payload = vector::slice(&buf, 0, 48);
@@ -164,9 +150,7 @@ module contract_owner::group {
     }
 
     public fun encode_element(obj: &Element): vector<u8> {
-        let buf = *string::bytes(&type_info::type_name<Element>());
-        vector::append(&mut buf, obj.bytes);
-        buf
+        obj.bytes
     }
 
     public fun dummy_element(): Element {

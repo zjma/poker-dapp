@@ -37,18 +37,13 @@ module contract_owner::reencryption {
     }
 
     public fun encode_reencryption(obj: &VerifiableReencrpytion): vector<u8> {
-        let buf = *string::bytes(&type_info::type_name<VerifiableReencrpytion>());
+        let buf = vector[];
         vector::append(&mut buf, elgamal::encode_ciphertext(&obj.new_ciph));
         vector::append(&mut buf, group::encode_element(&obj.new_ek));
         buf
     }
 
     public fun decode_reencyption(buf: vector<u8>): (vector<u64>, VerifiableReencrpytion, vector<u8>) {
-        let buf_len = vector::length(&buf);
-        let header = *string::bytes(&type_info::type_name<VerifiableReencrpytion>());
-        let header_len = vector::length(&header);
-        if (buf_len < header_len) return (vector[302034], dummy_reencryption(), buf);
-        let buf = vector::slice(&buf, header_len, buf_len);
         let (errors, new_ciph, buf) = elgamal::decode_ciphertext(buf);
         if (!vector::is_empty(&errors)) {
             vector::push_back(&mut errors, 302035);

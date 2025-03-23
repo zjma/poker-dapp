@@ -21,19 +21,13 @@ module contract_owner::sigma_dlog {
     }
 
     public fun encode_proof(proof: &Proof): vector<u8> {
-        let buf = *string::bytes(&type_info::type_name<Proof>());
+        let buf = vector[];
         vector::append(&mut buf, group::encode_element(&proof.t));
         vector::append(&mut buf, group::encode_scalar(&proof.s));
         buf
     }
 
     public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
-        let buf_len = vector::length(&buf);
-        let header = *string::bytes(&type_info::type_name<Proof>());
-        let header_len = vector::length(&header);
-        if (buf_len < header_len) return (vector[155050], dummy_proof(), buf);
-        if (header != vector::slice(&buf, 0, header_len)) return (vector[155051], dummy_proof(), buf);
-        let buf = vector::slice(&buf, header_len, buf_len);
         let (errors, t, buf) = group::decode_element(buf);
         if (!vector::is_empty(&errors)) {
             vector::push_back(&mut errors, 155052);

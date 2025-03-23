@@ -72,16 +72,6 @@ module contract_owner::dkg_v0 {
     }
 
     public fun decode_contribution(buf: vector<u8>): (vector<u64>, VerifiableContribution, vector<u8>) {
-        let buf_len = vector::length(&buf);
-        let header = *string::bytes(&type_info::type_name<VerifiableContribution>());
-        let header_len = vector::length(&header);
-        if (buf_len < header_len) {
-            return (vector[134540], dummy_contribution(), buf);
-        };
-        if (header != vector::slice(&buf, 0, header_len)) {
-            return (vector[134716], dummy_contribution(), buf);
-        };
-        let buf = vector::slice(&buf, header_len, buf_len);
         let (errors, public_point, buf) = group::decode_element(buf);
         if (!vector::is_empty(&errors)) {
             vector::push_back(&mut errors, 132607);
@@ -97,7 +87,7 @@ module contract_owner::dkg_v0 {
     }
 
     public fun encode_contribution(obj: &VerifiableContribution): vector<u8> {
-        let buf = *string::bytes(&type_info::type_name<VerifiableContribution>());
+        let buf = vector[];
         vector::append(&mut buf, group::encode_element(&obj.public_point));
         vector::append(&mut buf, sigma_dlog::encode_proof(&obj.proof));
         buf

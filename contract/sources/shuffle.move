@@ -31,12 +31,6 @@ module contract_owner::shuffle {
     }
 
     public fun decode_contribution(buf: vector<u8>): (vector<u64>, VerifiableContribution, vector<u8>) {
-        let buf_len = vector::length(&buf);
-        let header = *string::bytes(&type_info::type_name<VerifiableContribution>());
-        let header_len = vector::length(&header);
-        if (buf_len < header_len) return (vector[182918], dummy_contribution(), buf);
-        if (header != vector::slice(&buf, 0, header_len)) return (vector[182919], dummy_contribution(), buf);
-        let buf = vector::slice(&buf, header_len, buf_len);
         let (errors, num_items, buf) = utils::decode_u64(buf);
         if (!vector::is_empty(&errors)) {
             vector::push_back(&mut errors, 182920);
@@ -60,7 +54,7 @@ module contract_owner::shuffle {
     }
 
     public fun encode_contribution(obj: &VerifiableContribution): vector<u8> {
-        let buf = *string::bytes(&type_info::type_name<VerifiableContribution>());
+        let buf = vector[];
         let num_ciphs = vector::length(&obj.new_ciphertexts);
         vector::append(&mut buf, utils::encode_u64(num_ciphs));
         vector::for_each_ref(&obj.new_ciphertexts, |ciph|{

@@ -4,7 +4,7 @@ This is an on-chain Poker implementation, where:
 - a **host** creates a **Poker room** and defines the **players** allowed to join and play;
 - players collaborate to shuffle/deal the cards in a decentralized manner (only using the chain as the broadcast channel).
 
-## Run example
+## Run the example
 
 A move unit test `poker_room::example` is built to demonstrate an end-to-end usage.
 
@@ -23,6 +23,9 @@ Now you can run the UT.
 ```bash
 /tmp/aptos-core/target/debug/aptos move test --filter poker_room --gas-limit 999999999
 ```
+
+We don't have a formal design doc yet.
+You are encouraged to go through the test case line by line to 
 
 ## TODOs
 - Decide the real DKG to use and implement it.

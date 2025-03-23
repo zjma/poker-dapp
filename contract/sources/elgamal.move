@@ -25,12 +25,6 @@ module contract_owner::elgamal {
     }
 
     public fun decode_enc_key(buf: vector<u8>): (vector<u64>, EncKey, vector<u8>) {
-        let buf_len = vector::length(&buf);
-        let header = *string::bytes(&type_info::type_name<EncKey>());
-        let header_len = vector::length(&header);
-        if (buf_len < header_len) return (vector[172706], dummy_enc_key(), buf);
-        if (vector::slice(&buf, 0, header_len) != header) return (vector[172707], dummy_enc_key(), buf);
-        let buf = vector::slice(&buf, header_len, buf_len);
         let (errors, enc_base, buf) = group::decode_element(buf);
         if (!vector::is_empty(&errors)) {
             vector::push_back(&mut errors, 172708);
@@ -46,7 +40,7 @@ module contract_owner::elgamal {
     }
 
     public fun encode_enc_key(ek: &EncKey): vector<u8> {
-        let buf = *string::bytes(&type_info::type_name<EncKey>());
+        let buf = vector[];
         vector::append(&mut buf, group::encode_element(&ek.enc_base));
         vector::append(&mut buf, group::encode_element(&ek.public_point));
         buf
@@ -109,7 +103,7 @@ module contract_owner::elgamal {
     }
 
     public fun encode_ciphertext(obj: &Ciphertext): vector<u8> {
-        let buf = *string::bytes(&type_info::type_name<Ciphertext>());
+        let buf = vector[];
         vector::append(&mut buf, group::encode_element(&obj.enc_base));
         vector::append(&mut buf, group::encode_element(&obj.c_0));
         vector::append(&mut buf, group::encode_element(&obj.c_1));
@@ -117,12 +111,6 @@ module contract_owner::elgamal {
     }
 
     public fun decode_ciphertext(buf: vector<u8>): (vector<u64>, Ciphertext, vector<u8>) {
-        let buf_len = vector::length(&buf);
-        let header = *string::bytes(&type_info::type_name<Ciphertext>());
-        let header_len = vector::length(&header);
-        if (buf_len < header_len) return (vector[123127], dummy_ciphertext(), buf);
-        if (header != vector::slice(&buf, 0, header_len)) return (vector[123128], dummy_ciphertext(), buf);
-        let buf = vector::slice(&buf, header_len, buf_len);
         let (errors, enc_base, buf) = group::decode_element(buf);
         if (!vector::is_empty(&errors)) return (vector[123129], dummy_ciphertext(), buf);
         let (errors, c_0, buf) = group::decode_element(buf);
