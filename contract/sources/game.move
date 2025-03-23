@@ -1,4 +1,28 @@
 /// Implementation of a single Poker game.
+///
+/// A game starts with:
+/// - an ordered list of players `P` (BUTTON, then SMALL BLIND, then BIG BLIEND, ...),
+/// - a secret scalar `S` shared between `P`,
+/// - a verifiably shuffled deck where every card is encrypted against `S`.
+///
+/// At any time, a game can be in the following status.
+/// - STATE__DEALING_PRIVATE_CARDS: players collaborate to deal private cards.
+///   The receiving player calls `process_private_dealing_reencryption()`.
+///   Then everyone else calls `process_private_dealing_contribution()`.
+///   If not enough player collaborates, the game fails.
+/// - STATE__PLAYER_BETTING: players take turns to check/raise/fold, etc.
+///   Whether it is a pre-flop/post-flop/post-turn/post-river betting can be determined by `public_opening_sessions`.
+///   The bet action is submitted via calling `process_bet_action()`.
+///   Time-out is considered a FOLD.
+/// - STATE__OPENING_COMMUNITY_CARDS: players collaborate to deal public cards.
+///   Each player calls `process_public_opening_contribution()`.
+///   If not enough player collaborates, the game fails.
+///   Whether it is a flop/turn/river dealing can be determined by `public_opening_sessions`.
+/// - STATE__SHOWDOWN: active players reveal their private cards so the winner can be determined.
+///   Failing to reveal is considered a FOLD.
+/// - STATE__SUCCEEDED: the game has finished normally with everyone's gains/losses decided.
+/// - STATE__FAILED: the game has failed.
+///   Culprits are available for querying.
 module contract_owner::game {
     use std::signer::address_of;
     use std::vector;
@@ -38,12 +62,12 @@ module contract_owner::game {
         /// The remaining cards is referred to as having a void destination.
         shuffled_deck: vector<elgamal::Ciphertext>,
 
-        /// Chips still available in game of player `i`.
-        /// For any `i`, `chips_in_hand[i] + bets[i]` is a constant before winner decision.
+        /// Chips still available in player `i`'s hand.
+        /// For any `i`, `chips_in_hand[i] + bets[i]` is a constant before the winner decision.
         chips_in_hand: vector<u64>,
 
-        /// Chips that player `i` has put in the pot.
-        /// For any `i`, `chips_in_hand[i] + bets[i]` is a constant before winner decision.
+        /// Chips that player `i` has put in all pots.
+        /// For any `i`, `chips_in_hand[i] + bets[i]` is a constant before the winner decision.
         bets: vector<u64>,
 
         /// Whether player `i` has folded.
@@ -88,6 +112,10 @@ module contract_owner::game {
     const CARD__UNREVEALED: u64 = 0xffffffff;
     const PLAYER__NULL: u64 = 0xffffffff;
 
+    /// Given a position in the shuffled deck, return:
+    /// - `i`, if the card will end up in player `i`'s hand;
+    /// - or `CARD_DEST__COMMUNITY_0 + x`, if the card will be the x-th community card,
+    /// - or `CARD_DEST__VOID` if the card will be unused.
     fun card_goes_to(game: &Session, card_idx: u64): u64 {
         let comm_start = game.num_players * 2;
         if (card_idx < comm_start) {
@@ -188,7 +216,7 @@ module contract_owner::game {
         game.state == STATE__FAILED
     }
 
-    public fun calc_powers_and_distribute_chips(game: &mut Session) {
+    fun calc_powers_and_distribute_chips(game: &mut Session) {
         let players_sorted_by_powers_desc = vector::range(0, game.num_players); //TODO: calc real power.
         vector::for_each(players_sorted_by_powers_desc, |winner_idx|{
             let winner_bet = game.bets[winner_idx];
@@ -420,7 +448,7 @@ module contract_owner::game {
         game.revealed_private_cards[dealing_idx] = card;
     }
 
-    public fun process_bet_action_internal(player_idx: u64, game: &mut Session, new_bet: u64) {
+    fun process_bet_action_internal(player_idx: u64, game: &mut Session, new_bet: u64) {
         let now = timestamp::now_seconds();
         assert!(
             game.state == STATE__PLAYER_BETTING
