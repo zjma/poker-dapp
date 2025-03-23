@@ -31,7 +31,6 @@ You are encouraged to go through the test case line by line to
 - Decide the real DKG to use and implement it.
   - Currently, it is a naive DKG that produces n-out-of-n sharing.
 - Design the penalty when the game is stuck.
-- Involve on-chain assets?
 - Implement the other cryptography TODOs.
 - Implement poker hand ranking.
 - Player/host action gas cost benchmarking and optimization.

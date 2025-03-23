@@ -8,6 +8,9 @@ module contract_owner::poker_room {
     use aptos_std::math64::min;
     use aptos_std::table;
     use aptos_std::table::Table;
+    use aptos_framework::aptos_coin::AptosCoin;
+    use aptos_framework::coin;
+    use aptos_framework::coin::Coin;
     use aptos_framework::timestamp;
     use contract_owner::elgamal;
     use contract_owner::shuffle;
@@ -18,6 +21,10 @@ module contract_owner::poker_room {
     use contract_owner::dkg_v0;
     #[test_only]
     use std::string::utf8;
+    #[test_only]
+    use aptos_framework::account;
+    #[test_only]
+    use aptos_framework::aptos_coin;
     #[test_only]
     use aptos_framework::randomness;
     #[test_only]
@@ -64,6 +71,7 @@ module contract_owner::poker_room {
         num_shuffles_done: u64, // Including successes and failures.
         dkg_sessions: Table<u64, dkg_v0::DKGSession>,
         shuffle_sessions: Table<u64, shuffle::Session>,
+        escrewed_funds: Coin<AptosCoin>,
     }
 
     fun start_dkg(room: &mut PokerRoomState) {
@@ -225,7 +233,7 @@ module contract_owner::poker_room {
     #[randomness]
     entry fun create(host: &signer, allowed_players: vector<address>) {
         let player_livenesses = vector::map_ref(&allowed_players, |_| false);
-        let player_chips = vector::map_ref<address, u64>(&allowed_players, |_| 100); //TODO: real implementation
+        let player_chips = vector::map_ref<address, u64>(&allowed_players, |_| 0);
         let num_players = vector::length(&allowed_players);
         let room = PokerRoomState {
             num_players,
@@ -243,6 +251,7 @@ module contract_owner::poker_room {
             num_dkgs_done: 0,
             num_games_done: 0,
             num_shuffles_done: 0,
+            escrewed_funds: coin::zero(),
         };
         move_to(host, room)
     }
@@ -256,8 +265,8 @@ module contract_owner::poker_room {
         let (found, player_idx) = vector::index_of(&room.expected_player_addresses, &player_addr);
         assert!(found, 174046);
         *vector::borrow_mut(&mut room.player_livenesses, player_idx) = true;
-        *vector::borrow_mut(&mut room.player_chips, player_idx) = 25000; //TODO: what's the initial value to start the table with?
-        // state_transition(room);
+        *vector::borrow_mut(&mut room.player_chips, player_idx) = 25000;
+        coin::merge(&mut room.escrewed_funds, coin::withdraw<AptosCoin>(player, 25000));
     }
 
     #[randomness]
@@ -370,16 +379,26 @@ module contract_owner::poker_room {
         game::process_bet_action(player, game, bet);
     }
 
-    #[test(framework=@0x1, host=@0xcafe, alice=@0xaaaa, bob=@0xbbbb, eric=@0xeeee)]
-    fun example(framework: signer, host: signer, alice: signer, bob: signer, eric: signer) acquires PokerRoomState {
+    #[test(framework=@0x1, host=@0xcafe)]
+    fun example(framework: signer, host: signer) acquires PokerRoomState {
         randomness::initialize_for_testing(&framework);
         timestamp::set_time_has_started_for_testing(&framework);
+        let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(&framework);
+        let alice = account::create_account_for_test(@0xaaaa);
+        let bob = account::create_account_for_test(@0xbbbb);
+        let eric = account::create_account_for_test(@0xeeee);
+        coin::register<AptosCoin>(&alice);
+        coin::register<AptosCoin>(&bob);
+        coin::register<AptosCoin>(&eric);
 
         print(&utf8(b"Host creates a room with a player allowlist."));
         let alice_addr = address_of(&alice);
         let bob_addr = address_of(&bob);
         let eric_addr = address_of(&eric);
         let host_addr = address_of(&host);
+        coin::deposit(alice_addr, coin::mint(25000, &mint_cap));
+        coin::deposit(bob_addr, coin::mint(25000, &mint_cap));
+        coin::deposit(eric_addr, coin::mint(25000, &mint_cap));
         create(&host, vector[alice_addr, bob_addr, eric_addr]);
 
         print(&utf8(b"Alice, Bob, Eric join the room."));
@@ -718,5 +737,8 @@ module contract_owner::poker_room {
         state_update(host_addr);
         let room = get_room_brief(host_addr);
         assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 1, 999);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_mint_cap(mint_cap);
     }
 }
