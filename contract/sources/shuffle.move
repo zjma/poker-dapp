@@ -119,15 +119,14 @@ module contract_owner::shuffle {
     public fun state_update(session: &mut Session) {
         let now_secs = timestamp::now_seconds();
         if (session.status == STATE__ACCEPTING_CONTRIBUTION) {
-            let deadline = *vector::borrow(&session.deadlines, session.expected_contributor_idx);
             if (vector::length(&session.contributions) > session.expected_contributor_idx) {
                 session.expected_contributor_idx = session.expected_contributor_idx + 1;
                 if (session.expected_contributor_idx == session.num_contributions_expected) {
                     session.status = STATE__SUCCEEDED;
                 }
-            } else if (now_secs >= deadline) {
+            } else if (now_secs >= session.deadlines[session.expected_contributor_idx]) {
                 session.status = STATE__FAILED;
-                session.culprit = option::some(*vector::borrow(&session.allowed_contributors, session.expected_contributor_idx));
+                session.culprit = option::some(session.allowed_contributors[session.expected_contributor_idx]);
             }
         }
     }
@@ -160,12 +159,12 @@ module contract_owner::shuffle {
 
     public fun result_cloned(session: &Session): vector<elgamal::Ciphertext> {
         assert!(session.status == STATE__SUCCEEDED, 175158);
-        vector::borrow(&session.contributions, session.num_contributions_expected - 1).new_ciphertexts
+        session.contributions[session.num_contributions_expected - 1].new_ciphertexts
     }
 
     public fun is_waiting_for_contribution(session: &Session, who: address): bool {
         if (session.status != STATE__ACCEPTING_CONTRIBUTION) return false;
-        who == *vector::borrow(&session.allowed_contributors, session.expected_contributor_idx)
+        who == session.allowed_contributors[session.expected_contributor_idx]
     }
 
     #[lint::allow_unsafe_randomness]
@@ -181,14 +180,13 @@ module contract_owner::shuffle {
         let current_deck = if (session.expected_contributor_idx == 0) {
             session.initial_ciphertexts
         } else {
-            vector::borrow(&session.contributions, session.expected_contributor_idx - 1).new_ciphertexts
+            session.contributions[session.expected_contributor_idx - 1].new_ciphertexts
         };
 
         let new_ciphertexts = vector::map(randomness::permutation(num_items), |old_idx|{
-            let ciph = vector::borrow(&current_deck, old_idx);
             let rerandomizer = group::rand_scalar();
             let blinder = elgamal::enc(&session.enc_key, &rerandomizer, &group::group_identity());
-            let new_ciph = elgamal::ciphertext_add(ciph, &blinder);
+            let new_ciph = elgamal::ciphertext_add(&current_deck[old_idx], &blinder);
             new_ciph
         });
 

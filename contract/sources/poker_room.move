@@ -28,8 +28,6 @@ module contract_owner::poker_room {
     #[test_only]
     use aptos_framework::randomness;
     #[test_only]
-    use contract_owner::public_card_opening;
-    #[test_only]
     use contract_owner::utils;
 
     const STATE__WAITING_FOR_PLAYERS: u64 = 1;
@@ -76,7 +74,7 @@ module contract_owner::poker_room {
 
     fun start_dkg(room: &mut PokerRoomState) {
         let alive_player_idxs = vector::filter(vector::range(0, room.num_players), |idx| room.player_livenesses[*idx] && room.player_chips[*idx] > 0);
-        let alive_players = vector::map(alive_player_idxs, |idx|*vector::borrow(&room.expected_player_addresses, idx));
+        let alive_players = vector::map(alive_player_idxs, |idx|room.expected_player_addresses[idx]);
         if (room.num_dkgs_done >= 1) {
             let last_dkg = table::borrow(&room.dkg_sessions, room.num_dkgs_done - 1);
             let last_dkg_contributors = dkg_v0::get_contributors(last_dkg);
@@ -92,7 +90,7 @@ module contract_owner::poker_room {
         let last_dkg = table::borrow(&room.dkg_sessions, room.num_dkgs_done - 1);
         let last_dkg_contributors = dkg_v0::get_contributors(last_dkg);
         let alive_player_idxs = vector::filter(vector::range(0, room.num_players), |idx| room.player_livenesses[*idx] && room.player_chips[*idx] > 0);
-        let alive_players = vector::map(alive_player_idxs, |idx|*vector::borrow(&room.expected_player_addresses, idx));
+        let alive_players = vector::map(alive_player_idxs, |idx|room.expected_player_addresses[idx]);
         assert!(last_dkg_contributors == alive_players, 311540);
 
         let now_secs = timestamp::now_seconds();
@@ -111,7 +109,7 @@ module contract_owner::poker_room {
         let last_dkg = table::borrow(&room.dkg_sessions, room.num_dkgs_done - 1);
         let last_dkg_contributors = dkg_v0::get_contributors(last_dkg);
         let alive_player_idxs = vector::filter(vector::range(0, room.num_players), |idx| room.player_livenesses[*idx] && room.player_chips[*idx] > 0);
-        let alive_players = vector::map(alive_player_idxs, |idx|*vector::borrow(&room.expected_player_addresses, idx));
+        let alive_players = vector::map(alive_player_idxs, |idx|room.expected_player_addresses[idx]);
         assert!(last_dkg_contributors == alive_players, 311540);
 
         let secret_info = dkg_v0::get_shared_secret_public_info(last_dkg);
@@ -185,11 +183,9 @@ module contract_owner::poker_room {
                 let (players, new_chip_amounts) = game::get_ending_chips(cur_game);
                 let n = vector::length(&players);
                 vector::for_each(vector::range(0, n), |i|{
-                    let player = *vector::borrow(&players, i);
-                    let new_chip_amount = *vector::borrow(&new_chip_amounts, i);
-                    let (found, player_idx) = vector::index_of(&room.expected_player_addresses, &player);
+                    let (found, player_idx) = vector::index_of(&room.expected_player_addresses, &players[i]);
                     assert!(found, 192724);
-                    room.player_chips[player_idx] = new_chip_amount;
+                    room.player_chips[player_idx] = new_chip_amounts[i];
                 });
                 room.num_games_done = room.num_games_done + 1;
                 if (shuffle::succeeded(cur_shuffle)) {
@@ -221,8 +217,8 @@ module contract_owner::poker_room {
         vector::for_each(troublemakers, |player_addr|{
             let (found, player_idx) = vector::index_of(&room.expected_player_addresses, &player_addr);
             assert!(found, 192725);
-            *vector::borrow_mut(&mut room.player_livenesses, player_idx) = false;
-            let player_chip_amount = vector::borrow_mut(&mut room.player_chips, player_idx);
+            room.player_livenesses[player_idx] = false;
+            let player_chip_amount = &mut room.player_chips[player_idx];
             let chips_to_burn = min(*player_chip_amount, room.misbehavior_penalty);
             *player_chip_amount = *player_chip_amount - chips_to_burn;
             room.burned_chips = room.burned_chips + chips_to_burn;
@@ -264,8 +260,8 @@ module contract_owner::poker_room {
         let player_addr = address_of(player);
         let (found, player_idx) = vector::index_of(&room.expected_player_addresses, &player_addr);
         assert!(found, 174046);
-        *vector::borrow_mut(&mut room.player_livenesses, player_idx) = true;
-        *vector::borrow_mut(&mut room.player_chips, player_idx) = 25000;
+        room.player_livenesses[player_idx] = true;
+        room.player_chips[player_idx] = 25000;
         coin::merge(&mut room.escrewed_funds, coin::withdraw<AptosCoin>(player, 25000));
     }
 
@@ -598,20 +594,17 @@ module contract_owner::poker_room {
 
         print(&utf8(b"Everyone does his card opening duty."));
         vector::for_each(vector[0,1,2], |opening_idx|{
-            let scalar_mul_session = public_card_opening::borrow_scalar_mul_session(
-                game::borrow_public_opening_session(&room.cur_game, opening_idx));
+            let scalar_mul_session = game::borrow_public_opening_session(&room.cur_game, opening_idx);
             let share = threshold_scalar_mul::generate_contribution(&bob, scalar_mul_session, &dkg_0_bob_secret_share);
             process_public_opening_contribution(&bob, host_addr, 0, opening_idx, threshold_scalar_mul::encode_contribution(&share));
         });
         vector::for_each(vector[0,1,2], |opening_idx|{
-            let scalar_mul_session = public_card_opening::borrow_scalar_mul_session(
-                game::borrow_public_opening_session(&room.cur_game, opening_idx));
+            let scalar_mul_session = game::borrow_public_opening_session(&room.cur_game, opening_idx);
             let share = threshold_scalar_mul::generate_contribution(&eric, scalar_mul_session, &dkg_0_eric_secret_share);
             process_public_opening_contribution(&eric, host_addr, 0, opening_idx, threshold_scalar_mul::encode_contribution(&share));
         });
         vector::for_each(vector[0,1,2], |opening_idx|{
-            let scalar_mul_session = public_card_opening::borrow_scalar_mul_session(
-                game::borrow_public_opening_session(&room.cur_game, opening_idx));
+            let scalar_mul_session = game::borrow_public_opening_session(&room.cur_game, opening_idx);
             let share = threshold_scalar_mul::generate_contribution(&alice, scalar_mul_session, &dkg_0_alice_secret_share);
             process_public_opening_contribution(&alice, host_addr, 0, opening_idx, threshold_scalar_mul::encode_contribution(&share));
         });
@@ -622,9 +615,9 @@ module contract_owner::poker_room {
         assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
         assert!(game::is_phase_2_betting(&room.cur_game, bob_addr), 999);
         print(&utf8(b"Everyone can see the 3 public cards."));
-        let public_card_0 = public_card_opening::get_result(game::borrow_public_opening_session(&room.cur_game, 0));
-        let public_card_1 = public_card_opening::get_result(game::borrow_public_opening_session(&room.cur_game, 1));
-        let public_card_2 = public_card_opening::get_result(game::borrow_public_opening_session(&room.cur_game, 2));
+        let public_card_0 = game::get_public_card(&room.cur_game, 0);
+        let public_card_1 = game::get_public_card(&room.cur_game, 1);
+        let public_card_2 = game::get_public_card(&room.cur_game, 2);
         print(&utf8(b"game_0_public_card_0:"));
         print(&utils::get_card_text(public_card_0));
         print(&utf8(b"game_0_public_card_1:"));
@@ -658,8 +651,7 @@ module contract_owner::poker_room {
         assert!(game::is_opening_4th_community_card(&room.cur_game), 999);
 
         print(&utf8(b"Opening the 4th public card."));
-        let game_0_opening_3 = public_card_opening::borrow_scalar_mul_session(
-            game::borrow_public_opening_session(&room.cur_game, 3));
+        let game_0_opening_3 = game::borrow_public_opening_session(&room.cur_game, 3);
 
         let game_0_opening_3_alice_share = threshold_scalar_mul::generate_contribution(&alice, game_0_opening_3, &dkg_0_alice_secret_share);
         process_public_opening_contribution(&alice, host_addr, 0, 3, threshold_scalar_mul::encode_contribution(&game_0_opening_3_alice_share));
@@ -674,7 +666,7 @@ module contract_owner::poker_room {
         assert!(game::is_phase_3_betting(&room.cur_game, bob_addr), 999);
 
         print(&utf8(b"Anyone can see the 4th public card."));
-        let public_card_3 = public_card_opening::get_result(game::borrow_public_opening_session(&room.cur_game, 3));
+        let public_card_3 = game::get_public_card(&room.cur_game, 3);
         print(&utf8(b"game_0_public_card_3:"));
         print(&utils::get_card_text(public_card_3));
 
@@ -696,8 +688,7 @@ module contract_owner::poker_room {
         assert!(game::is_opening_5th_community_card(&room.cur_game), 999);
 
         print(&utf8(b"Opening the 5th public card."));
-        let game_0_opening_4 = public_card_opening::borrow_scalar_mul_session(
-            game::borrow_public_opening_session(&room.cur_game, 4));
+        let game_0_opening_4 = game::borrow_public_opening_session(&room.cur_game, 4);
 
         let game_0_opening_4_eric_share = threshold_scalar_mul::generate_contribution(&eric, game_0_opening_4, &dkg_0_eric_secret_share);
         process_public_opening_contribution(&eric, host_addr, 0, 4, threshold_scalar_mul::encode_contribution(&game_0_opening_4_eric_share));
@@ -712,7 +703,8 @@ module contract_owner::poker_room {
         assert!(game::is_phase_4_betting(&room.cur_game, bob_addr), 999);
 
         print(&utf8(b"Anyone can see the 5th public card."));
-        let public_card_4 = public_card_opening::get_result(game::borrow_public_opening_session(&room.cur_game, 4));
+        let public_card_4 = game::get_public_card(&room.cur_game, 4);
+
         print(&utf8(b"game_0_public_card_4:"));
         print(&utils::get_card_text(public_card_4));
 

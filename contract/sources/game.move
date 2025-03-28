@@ -30,7 +30,6 @@ module contract_owner::game {
     use aptos_framework::timestamp;
     use contract_owner::reencryption::RecipientPrivateState;
     use contract_owner::group;
-    use contract_owner::public_card_opening;
     use contract_owner::threshold_scalar_mul;
     use contract_owner::dkg_v0;
     use contract_owner::reencryption;
@@ -99,7 +98,8 @@ module contract_owner::game {
         blames: vector<bool>,
 
         private_dealing_sessions: vector<reencryption::Session>,
-        public_opening_sessions: vector<public_card_opening::Session>,
+        public_opening_sessions: vector<threshold_scalar_mul::Session>,
+        publicly_opened_cards: vector<u64>,
     }
 
     const CARD_DEST__COMMUNITY_0: u64 = 0xcccc00;
@@ -150,6 +150,7 @@ module contract_owner::game {
             blames: vector[],
             private_dealing_sessions: vector[],
             public_opening_sessions: vector[],
+            publicly_opened_cards: vector[],
         }
     }
 
@@ -179,14 +180,13 @@ module contract_owner::game {
             blames: vector[],
             private_dealing_sessions: vector[],
             public_opening_sessions: vector[],
+            publicly_opened_cards: vector[],
         };
 
         let now_secs = timestamp::now_seconds();
         session.private_dealing_sessions = vector::map(vector::range(0, session.num_players * 2), |card_idx| {
             let dest_player_idx = card_goes_to(&session, card_idx);
-            let dest_addr = *vector::borrow(&session.players, dest_player_idx);
-            let card = *vector::borrow(&session.shuffled_deck, card_idx);
-            reencryption::new_session(card, dest_addr, session.players, session.secret_info, now_secs + 5, now_secs + 10)
+            reencryption::new_session(session.shuffled_deck[card_idx], session.players[dest_player_idx], session.players, session.secret_info, now_secs + 5, now_secs + 10)
         });
 
         session
@@ -235,8 +235,8 @@ module contract_owner::game {
 
     public fun get_culprits(game: &Session): vector<address> {
         assert!(game.state == STATE__FAILED, 184545);
-        let culprit_idxs = vector::filter(vector::range(0, game.num_players), |player_idx| *vector::borrow(&game.blames, *player_idx));
-        vector::map(culprit_idxs, |idx|*vector::borrow(&game.players, idx))
+        let culprit_idxs = vector::filter(vector::range(0, game.num_players), |player_idx| game.blames[*player_idx]);
+        vector::map(culprit_idxs, |idx|game.players[idx])
     }
 
     fun get_small_blind_player_idx(game: &Session): u64 {
@@ -257,7 +257,7 @@ module contract_owner::game {
             let num_failures = 0;
             let blames = vector::map(vector::range(0, game.num_players), |_|false);
             vector::for_each(vector::range(0, num_dealings), |dealing_idx|{
-                let deal_session = vector::borrow_mut(&mut game.private_dealing_sessions, dealing_idx);
+                let deal_session = &mut game.private_dealing_sessions[dealing_idx];
                 reencryption::state_update(deal_session);
                 if (reencryption::succeeded(deal_session)) {
                     num_successes = num_successes + 1;
@@ -266,7 +266,7 @@ module contract_owner::game {
                     vector::for_each_reverse(reencryption::get_culprits(deal_session), |culprit| {
                         let (player_found, player_idx) = vector::index_of(&game.players, &culprit);
                         assert!(player_found, 261052);
-                        *vector::borrow_mut(&mut blames, player_idx) = true;
+                        blames[player_idx] = true;
                     });
                 };
             });
@@ -353,22 +353,34 @@ module contract_owner::game {
             let num_failures = 0;
             let blames = vector::map(vector::range(0, game.num_players), |_|false);
             vector::for_each(vector::range(opening_idx_begin, opening_idx_end), |opening_idx|{
-                let cur_opening_session = vector::borrow_mut(&mut game.public_opening_sessions, opening_idx);
-                public_card_opening::state_update(cur_opening_session);
-                if (public_card_opening::succeeded(cur_opening_session)) {
+                let cur_opening_session = &mut game.public_opening_sessions[opening_idx];
+                threshold_scalar_mul::state_update(cur_opening_session);
+                if (threshold_scalar_mul::succeeded(cur_opening_session)) {
                     num_successes = num_successes + 1;
-                } else if (public_card_opening::failed(cur_opening_session)) {
+                } else if (threshold_scalar_mul::failed(cur_opening_session)) {
                     num_failures = num_failures + 1;
-                    vector::for_each(public_card_opening::get_culprits(cur_opening_session), |culprit|{
+                    vector::for_each(threshold_scalar_mul::get_culprits(cur_opening_session), |culprit|{
                         let (found, player_idx) = vector::index_of(&game.players, &culprit);
                         assert!(found, 272424);
-                        *vector::borrow_mut(&mut blames, player_idx) = true;
+                        blames[player_idx] = true;
                     });
                 }
             });
 
             if (num_successes == opening_idx_end - opening_idx_begin) {
                 // All succeeded.
+
+                // Compute the publicly revealed cards and store them.
+                vector::for_each(vector::range(opening_idx_begin, opening_idx_end), |opening_idx|{
+                    let scalar_mul_result = threshold_scalar_mul::get_result(&game.public_opening_sessions[opening_idx]);
+                    let (_, _, c_1) = elgamal::unpack_ciphertext(game.shuffled_deck[game.num_players * 2 + opening_idx]);
+                    let revealed_card_repr = group::element_sub(&c_1, &scalar_mul_result);
+                    let (found, card) = vector::index_of(&game.card_reprs, &revealed_card_repr);
+                    assert!(found, 143939);
+                    vector::push_back(&mut game.publicly_opened_cards, card);
+                });
+
+                // Figore out what to do next.
                 game.no_more_action_needed = vector::map(vector::range(0, game.num_players), |_|false);
                 let ideally_first_to_take_action = get_small_blind_player_idx(game);
                 let (actor_found, actor_idx) = find_next_action_needed(game, ideally_first_to_take_action);
@@ -383,9 +395,7 @@ module contract_owner::game {
                     game.state = STATE__SHOWDOWN;
                 } else {
                     // Another community card opening should follow.
-                    let card_idx = game.num_players * 2 + num_opening_sessions_created;
-                    let opening_session = public_card_opening::new_session(game.card_reprs, game.shuffled_deck[card_idx], game.players, game.secret_info, now_secs + 5);
-                    vector::push_back(&mut game.public_opening_sessions, opening_session);
+                    initiate_public_card_opening(game, now_secs + 5);
                 };
             } else if (num_successes + num_failures == opening_idx_end - opening_idx_begin) {
                 // All finished, some failed.
@@ -408,9 +418,9 @@ module contract_owner::game {
 
     fun initiate_public_card_opening(game: &mut Session, deadline: u64) {
         let card_idx = game.num_players * 2 + vector::length(&game.public_opening_sessions);
-        let card_to_open = *vector::borrow(&game.shuffled_deck, card_idx);
-        let opening_session = public_card_opening::new_session(
-            game.card_reprs, card_to_open, game.players, game.secret_info, deadline);
+        let card_to_open = game.shuffled_deck[card_idx];
+        let (enc_base, c_0, c_1) = elgamal::unpack_ciphertext(card_to_open);
+        let opening_session = threshold_scalar_mul::new_session(c_0, game.secret_info, game.players, deadline);
         vector::push_back(&mut game.public_opening_sessions, opening_session);
         game.state = STATE__OPENING_COMMUNITY_CARDS;
     }
@@ -418,20 +428,17 @@ module contract_owner::game {
     public fun process_private_dealing_reencryption(player: &signer, game: &mut Session, card_idx: u64, reencryption: reencryption::VerifiableReencrpytion) {
         assert!(game.state == STATE__DEALING_PRIVATE_CARDS, 262030);
         assert!(card_idx < game.num_players * 2, 262031);
-        let deal_session = vector::borrow_mut(&mut game.private_dealing_sessions, card_idx);
-        reencryption::process_reencryption(player, deal_session, reencryption);
+        reencryption::process_reencryption(player, &mut game.private_dealing_sessions[card_idx], reencryption);
     }
 
     public fun process_private_dealing_contribution(player: &signer, game: &mut Session, dealing_idx: u64, contribution: threshold_scalar_mul::VerifiableContribution) {
         assert!(game.state == STATE__DEALING_PRIVATE_CARDS, 262030);
         assert!(dealing_idx < game.num_players * 2, 262031);
-        let dealing_session = vector::borrow_mut(&mut game.private_dealing_sessions, dealing_idx);
-        reencryption::process_scalar_mul_share(player, dealing_session, contribution);
+        reencryption::process_scalar_mul_share(player, &mut game.private_dealing_sessions[dealing_idx], contribution);
     }
 
     public fun process_public_opening_contribution(player: &signer, game: &mut Session, opening_idx: u64, contribution: threshold_scalar_mul::VerifiableContribution) {
-        let opening_session = vector::borrow_mut(&mut game.public_opening_sessions, opening_idx);
-        public_card_opening::process_contribution(player, opening_session, contribution);
+        threshold_scalar_mul::process_contribution(player, &mut game.public_opening_sessions[opening_idx], contribution);
     }
 
     public fun process_bet_action(player: &signer, game: &mut Session, new_invest: u64) {
@@ -461,8 +468,8 @@ module contract_owner::game {
         assert!(!player_is_all_in(game, player_idx), 121116);
         assert!(!player_has_folded(game, player_idx), 121117);
 
-        let cur_invest = *vector::borrow(&game.bets, player_idx);
-        let cur_in_hand =  *vector::borrow(&game.chips_in_hand, player_idx);
+        let cur_invest = game.bets[player_idx];
+        let cur_in_hand =  game.chips_in_hand[player_idx];
 
         // Can tell whether it's a FOLD/CALL/CHECK/RAISE from `new_invest`.
 
@@ -515,9 +522,9 @@ module contract_owner::game {
     }
 
     fun move_chips_to_pot(game: &mut Session, player_idx: u64, amount: u64) {
-        let in_hand = vector::borrow_mut(&mut game.chips_in_hand, player_idx);
+        let in_hand = &mut game.chips_in_hand[player_idx];
         *in_hand = *in_hand - amount;
-        let invested = vector::borrow_mut(&mut game.bets, player_idx);
+        let invested = &mut game.bets[player_idx];
         *invested = *invested + amount;
     }
 
@@ -531,18 +538,22 @@ module contract_owner::game {
     }
 
     fun player_is_all_in(game: &Session, player_idx: u64): bool {
-        0 == *vector::borrow(&game.chips_in_hand, player_idx)
+        0 == game.chips_in_hand[player_idx]
     }
 
     fun player_has_folded(game: &Session, player_idx: u64): bool {
-        *vector::borrow(&game.fold_statuses, player_idx)
+        game.fold_statuses[player_idx]
     }
 
     fun mark_as_fold(game: &mut Session, player_idx: u64) {
-        let flag = vector::borrow_mut(&mut game.fold_statuses, player_idx);
+        let flag = &mut game.fold_statuses[player_idx];
         assert!(*flag == false, 152010);
         *flag = true;
         game.no_more_action_needed[player_idx] = false;
+    }
+
+    public fun get_public_card(game: &Session, public_card_idx: u64): u64 {
+        game.publicly_opened_cards[public_card_idx]
     }
 
     public fun get_bets(game: &Session): vector<u64> {
@@ -572,33 +583,33 @@ module contract_owner::game {
     public fun is_phase_1_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
             && 0 == vector::length(&game.public_opening_sessions)
-            && whose_turn == *vector::borrow(&game.players, game.current_action_player_idx)
+            && whose_turn == game.players[game.current_action_player_idx]
     }
 
     public fun is_phase_2_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
             && 3 == vector::length(&game.public_opening_sessions)
-            && whose_turn == *vector::borrow(&game.players, game.current_action_player_idx)
+            && whose_turn == game.players[game.current_action_player_idx]
     }
 
     public fun is_phase_3_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
             && 4 == vector::length(&game.public_opening_sessions)
-            && whose_turn == *vector::borrow(&game.players, game.current_action_player_idx)
+            && whose_turn == game.players[game.current_action_player_idx]
     }
 
     public fun is_phase_4_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
             && 5 == vector::length(&game.public_opening_sessions)
-            && whose_turn == *vector::borrow(&game.players, game.current_action_player_idx)
+            && whose_turn == game.players[game.current_action_player_idx]
     }
 
     public fun borrow_private_dealing_session(game: &Session, idx: u64): &reencryption::Session {
-        vector::borrow(&game.private_dealing_sessions, idx)
+        &game.private_dealing_sessions[idx]
     }
 
-    public fun borrow_public_opening_session(game: &Session, idx: u64): &public_card_opening::Session {
-        vector::borrow(&game.public_opening_sessions, idx)
+    public fun borrow_public_opening_session(game: &Session, idx: u64): &threshold_scalar_mul::Session {
+        &game.public_opening_sessions[idx]
     }
 
     fun get_player_idx_or_abort(game: &Session, player: &signer): u64 {
@@ -610,8 +621,7 @@ module contract_owner::game {
 
     #[test_only]
     public fun reveal_dealed_card_locally(player: &signer, session: &Session, deal_idx: u64, player_private_state: reencryption::RecipientPrivateState): u64 {
-        let deal_session = vector::borrow(&session.private_dealing_sessions, deal_idx);
-        let plaintext = reencryption::reveal(deal_session, player_private_state);
+        let plaintext = reencryption::reveal(&session.private_dealing_sessions[deal_idx], player_private_state);
         let (found, card_val) = vector::index_of(&session.card_reprs, &plaintext);
         assert!(found, 310350);
         card_val

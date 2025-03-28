@@ -9,8 +9,7 @@ module contract_owner::utils {
         let ret = 0;
         let i = 0;
         while (i < 8) {
-            let byte = *vector::borrow(&buf, i);
-            ret = ret + ((byte as u64) << (8 * (i as u8)));
+            ret = ret + ((buf[i] as u64) << (8 * (i as u8)));
             i = i + 1;
         };
 
@@ -29,8 +28,8 @@ module contract_owner::utils {
     public fun get_card_text(card_val: u64): String {
         let suite = card_val / 13;
         let number = card_val % 13;
-        let ret = *vector::borrow(&SUITE_TEXTS, suite);
-        vector::append(&mut ret, *vector::borrow(&NUMBER_TEXTS, number));
+        let ret = SUITE_TEXTS[suite];
+        vector::append(&mut ret, NUMBER_TEXTS[number]);
         utf8(ret)
     }
 }

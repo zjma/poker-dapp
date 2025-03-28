@@ -28,24 +28,19 @@ module contract_owner::threshold_scalar_mul {
         proof: sigma_dlog_eq::Proof,
     }
 
-    struct State has copy, drop, store {
-        /// Can be one of the following values.
-        /// - `STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE`
-        /// - `STATE__SUCCEEDED`
-        /// - `STATE__FAILED`
-        /// TODO: decide whether the result is aggregated on chain (cons: txn too expensive OR new native required) or off chain (cons: 1 extra RTT AND potential need of pairing needed by verifiability).
-        main: u64,
-        /// If `main == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE`, this field describes the deadline (in unix seconds).
-        deadline: u64,
-        /// When `main == STATE__FAILED`, this keeps track of who misbehaved.
-        culprits: vector<address>,
-    }
-
     struct Session has copy, drop, store {
         to_be_scaled: group::Element,
         secret_info: dkg_v0::SharedSecretPublicInfo,
         allowed_contributors: vector<address>,
-        state: State,
+        /// Can be one of the following values.
+        /// - `STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE`
+        /// - `STATE__SUCCEEDED`
+        /// - `STATE__FAILED`
+        state: u64,
+        /// If `state == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE`, this field describes the deadline (in unix seconds).
+        deadline: u64,
+        /// When `state == STATE__FAILED`, this keeps track of who misbehaved.
+        culprits: vector<address>,
         contributions: vector<Option<VerifiableContribution>>,
         /// Filled once `state` is changed to `STATE__SUCCEEDED`.
         result: Option<group::Element>,
@@ -69,25 +64,25 @@ module contract_owner::threshold_scalar_mul {
             to_be_scaled,
             secret_info,
             allowed_contributors,
-            state: State { main: STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE, deadline, culprits: vector[]},
+            state: STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE,
+            deadline,
+            culprits: vector[],
             contributions: vector::map(range(0, n), |_|option::none()),
             result: option::none(),
         }
     }
 
     public fun state_update(session: &mut Session) {
-        if (session.state.main == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE) {
+        if (session.state == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE) {
             let now_sec = timestamp::now_seconds();
             let n = vector::length(&session.allowed_contributors);
             let num_shares = 0;
             let missing_contributors = vector[];
             for_each(vector::range(0, n), |i|{
-                let contribution_holder = vector::borrow(&session.contributions, i);
-                if (option::is_some(contribution_holder)) {
+                if (option::is_some(&session.contributions[i])) {
                     num_shares = num_shares + 1;
                 } else {
-                    let player = *vector::borrow(&session.allowed_contributors, i);
-                    push_back(&mut missing_contributors, player);
+                    push_back(&mut missing_contributors, session.allowed_contributors[i]);
                 }
             });
             let threshold = dkg_v0::get_threshold(&session.secret_info);
@@ -100,39 +95,38 @@ module contract_owner::threshold_scalar_mul {
                     }
                 });
                 session.result = option::some(dkg_v0::aggregate_scalar_mul(&session.secret_info, scalar_mul_shares));
-                session.state.main = STATE__SUCCEEDED;
-            } else if (now_sec >= session.state.deadline && num_shares < threshold) {
-                session.state.main = STATE__FAILED;
-                session.state.culprits = missing_contributors;
+                session.state = STATE__SUCCEEDED;
+            } else if (now_sec >= session.deadline && num_shares < threshold) {
+                session.state = STATE__FAILED;
+                session.culprits = missing_contributors;
             }
         }
     }
 
     public fun process_contribution(contributor: &signer, session: &mut Session, contribution: VerifiableContribution) {
-        assert!(session.state.main == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE, 164507);
+        assert!(session.state == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE, 164507);
         let addr = address_of(contributor);
         let (found, idx) = vector::index_of(&session.allowed_contributors, &addr);
         assert!(found, 164508);
         //TODO: verify contribution
-        let contribution_holder = vector::borrow_mut(&mut session.contributions, idx);
-        option::fill(contribution_holder, contribution);
+        option::fill(&mut session.contributions[idx], contribution);
     }
 
     public fun succeeded(session: &Session): bool {
-        session.state.main == STATE__SUCCEEDED
+        session.state == STATE__SUCCEEDED
     }
 
     public fun failed(session: &Session): bool {
-        session.state.main == STATE__FAILED
+        session.state == STATE__FAILED
     }
 
     public fun get_culprits(session: &Session): vector<address> {
-        assert!(session.state.main == STATE__FAILED, 180858);
-        session.state.culprits
+        assert!(session.state == STATE__FAILED, 180858);
+        session.culprits
     }
 
     public fun get_result(session: &Session): group::Element {
-        assert!(session.state.main == STATE__SUCCEEDED, 165045);
+        assert!(session.state == STATE__SUCCEEDED, 165045);
         *option::borrow(&session.result)
     }
 
@@ -168,8 +162,7 @@ module contract_owner::threshold_scalar_mul {
         let (found, contributor_idx) = vector::index_of(&session.allowed_contributors, &contributor_addr);
         assert!(found, 310240);
         let (_agg_ek, ek_shares) = dkg_v0::unpack_shared_secret_public_info(session.secret_info);
-        let ek_share = *vector::borrow(&ek_shares, contributor_idx);
-        let (enc_base, public_point) = elgamal::unpack_enc_key(ek_share);
+        let (enc_base, public_point) = elgamal::unpack_enc_key(ek_shares[contributor_idx]);
         let private_scalar = dkg_v0::unpack_secret_share(*secret_share);
         let payload = group::scale_element(&session.to_be_scaled, &private_scalar);
         let proof = sigma_dlog_eq::prove(&mut fiat_shamir_transform::new_transcript(), &enc_base, &public_point, &session.to_be_scaled, &payload, &private_scalar);

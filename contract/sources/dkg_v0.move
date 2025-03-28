@@ -137,10 +137,9 @@ module contract_owner::dkg_v0 {
             } else if (timestamp::now_seconds() >= dkg_session.deadline) {
                 let n = vector::length(&dkg_session.expected_contributors);
                 let culprit_idxs = vector::filter(vector::range(0, n), |idx|{
-                    let contribution_slot = vector::borrow(&dkg_session.contributions, *idx);
-                    option::is_none(contribution_slot)
+                    option::is_none(&dkg_session.contributions[*idx])
                 });
-                let culprits = vector::map(culprit_idxs, |idx| *vector::borrow(&dkg_session.expected_contributors, idx));
+                let culprits = vector::map(culprit_idxs, |idx| dkg_session.expected_contributors[idx]);
                 dkg_session.state = STATE__TIMED_OUT;
                 dkg_session.culprits = culprits;
             }
@@ -153,8 +152,7 @@ module contract_owner::dkg_v0 {
         let (found, contributor_idx) = vector::index_of(&session.expected_contributors, &contributor_addr);
         assert!(found, 124130);
         session.contribution_still_needed = session.contribution_still_needed - 1;
-        let contribution_slot = vector::borrow_mut(&mut session.contributions, contributor_idx);
-        option::fill(contribution_slot, contribution);
+        option::fill(&mut session.contributions[contributor_idx], contribution);
     }
 
     public fun get_shared_secret_public_info(session: &DKGSession): SharedSecretPublicInfo {
