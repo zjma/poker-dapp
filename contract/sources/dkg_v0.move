@@ -1,5 +1,10 @@
-/// A native DKG. Everyone holds a scalar as a secret share. The aggregated secret is the sum of all secret shares.
-/// It is automatically a n-out-of-n sharing.
+/// A naive DKG.
+/// - A group of participants use the blockchain as the broadcast channel and collborate to generate a secret `s`.
+/// - No one knows `s`.
+/// - Every participant gets a secret share which they need to keep private.
+/// - If someone sees all the secret shares, they can reconstruct `s`.
+/// - For any group element `P`, the group can collaborate to reveal `s*P` without leaking any information about `s`.
+///   - See more details in `threshold_scalar_mul.move`.
 module contract_owner::dkg_v0 {
     use std::option;
     use std::option::Option;
@@ -192,6 +197,7 @@ module contract_owner::dkg_v0 {
         ret
     }
 
+    /// Client needs to implement this.
     #[lint::allow_unsafe_randomness]
     #[test_only]
     public fun generate_contribution(session: &DKGSession): (SecretShare, VerifiableContribution) {
@@ -203,6 +209,7 @@ module contract_owner::dkg_v0 {
         (secret_share, contribution)
     }
 
+    /// An example DKG done by Alice, Bob, Eric.
     #[lint::allow_unsafe_randomness]
     #[test_only]
     public fun run_example_session(alice: &signer, bob: &signer, eric: &signer): (SharedSecretPublicInfo, SecretShare, SecretShare, SecretShare) {
@@ -222,6 +229,8 @@ module contract_owner::dkg_v0 {
         (public_info, alice_secret_share, bob_secret_share, eric_secret_share)
     }
 
+    /// Given enough secret shares, reconstruct the secret.
+    #[test_only]
     public fun reconstruct_secret(public_info: &SharedSecretPublicInfo, shares: vector<Option<SecretShare>>): group::Scalar {
         let n = vector::length(&public_info.ek_shares);
         assert!(n == vector::length(&shares), 162205);

@@ -1,8 +1,6 @@
 /// ElGamal encryption instantiated with bls12-381 G1.
 module contract_owner::elgamal {
-    use std::string;
     use std::vector;
-    use aptos_std::type_info;
     use contract_owner::group;
     #[test_only]
     use aptos_framework::randomness;
@@ -87,6 +85,29 @@ module contract_owner::elgamal {
             c_0: group::element_add(&a.c_0, &b.c_0),
             c_1: group::element_add(&a.c_1, &b.c_1),
         }
+    }
+
+    public fun ciphertext_mul(a: &Ciphertext, s: &group::Scalar): Ciphertext {
+        Ciphertext {
+            enc_base: a.enc_base,
+            c_0: group::scale_element(&a.c_0, s),
+            c_1: group::scale_element(&a.c_1, s),
+        }
+    }
+
+    public fun weird_multi_exp(ciphs: &vector<Ciphertext>, scalars: &vector<group::Scalar>): Ciphertext {
+        let acc = Ciphertext {
+            enc_base: vector::borrow(ciphs, 0).enc_base,
+            c_0: group::group_identity(),
+            c_1: group::group_identity(),
+        };
+        vector::zip_ref(ciphs, scalars, |ciph, scalar|{
+            acc = ciphertext_add(
+                &acc,
+                &ciphertext_mul(ciph, scalar)
+            )
+        });
+        acc
     }
 
     public fun unpack_ciphertext(ciphertext: Ciphertext): (group::Element, group::Element, group::Element) {

@@ -131,6 +131,13 @@ module contract_owner::group {
         scalar_from_inner(&inner_res)
     }
 
+    public fun scalar_sub(a: &Scalar, b: &Scalar): Scalar {
+        let inner_a = scalar_to_inner(a);
+        let inner_b = scalar_to_inner(b);
+        let inner_res = crypto_algebra::sub(&inner_a, &inner_b);
+        scalar_from_inner(&inner_res)
+    }
+
     public fun scalar_mul(a: &Scalar, b: &Scalar): Scalar {
         let inner_a = scalar_to_inner(a);
         let inner_b = scalar_to_inner(b);
@@ -163,6 +170,19 @@ module contract_owner::group {
             element_add_assign(&mut acc, &element);
         });
         acc
+    }
+
+    public fun scalar_neg(s: &Scalar): Scalar {
+        let s_inner = scalar_to_inner(s);
+        let ret_inner = crypto_algebra::neg(&s_inner);
+        scalar_from_inner(&ret_inner)
+    }
+
+    public fun msm(elements: &vector<Element>, scalars: &vector<Scalar>): Element {
+        let inner_elements = vector::map_ref(elements, |e|element_to_inner(e));
+        let inner_scalars = vector::map_ref(scalars, |s|scalar_to_inner(s));
+        let inner_ret =  crypto_algebra::multi_scalar_mul(&inner_elements, &inner_scalars);
+        element_from_inner(&inner_ret)
     }
 
     fun scalar_to_inner(scalar: &Scalar): crypto_algebra::Element<bls12381_algebra::Fr> {

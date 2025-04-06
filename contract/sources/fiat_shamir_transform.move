@@ -4,7 +4,7 @@ module contract_owner::fiat_shamir_transform {
     use aptos_std::aptos_hash::sha3_512;
     use contract_owner::group;
 
-    struct Transcript has drop {
+    struct Transcript has copy, drop {
         recorded: vector<u8>,
     }
 
