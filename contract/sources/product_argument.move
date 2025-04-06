@@ -135,13 +135,13 @@ module contract_owner::product_argument {
     public fun prove(
         pederson_ctxt: &pederson_commitment::Context,
         trx: &mut fiat_shamir_transform::Transcript,
-        n: u64, vec_a_cmt: &group::Element, b: group::Scalar,
-        vec_a: vector<group::Scalar>, r: &group::Scalar,
+        n: u64, vec_a_cmt: &group::Element, b: &group::Scalar,
+        vec_a: &vector<group::Scalar>, r: &group::Scalar,
     ): Proof {
-        let vec_b = vector[vec_a[0]];
+        let vec_b = vector[*vector::borrow(vec_a, 0)];
         let i = 1;
         while (i < n) {
-            let new_item = group::scalar_mul(&vec_b[i-1], &vec_a[i]);
+            let new_item = group::scalar_mul(&vec_b[i-1], vector::borrow(vec_a, i));
             vector::push_back(&mut vec_b, new_item);
             i = i + 1;
         };
@@ -158,7 +158,7 @@ module contract_owner::product_argument {
         let cmt_2 = pederson_commitment::vec_commit(pederson_ctxt, &s_1, &vec_2);
         let vec_3 = vector::map(vector::range(0, n-1), |i|{
             let tmp = group::scalar_add(
-                &group::scalar_mul(&vec_a[i+1], &vec_delta[i]),
+                &group::scalar_mul(vector::borrow(vec_a, i+1), &vec_delta[i]),
                 &group::scalar_mul(&vec_b[i], &vec_d[i+1]),
             );
             group::scalar_sub(&vec_delta[i+1], &tmp)
@@ -171,7 +171,7 @@ module contract_owner::product_argument {
         let vec_a_tilde = vector::map(vector::range(0, n), |i|{
             group::scalar_add(
                 &vec_d[i],
-                &group::scalar_mul(&x, &vec_a[i]),
+                &group::scalar_mul(&x, vector::borrow(vec_a, i)),
             )
         });
         let vec_b_tilde = vector::map(vector::range(0, n), |i|{
@@ -203,7 +203,7 @@ module contract_owner::product_argument {
     public fun verify(
         pederson_ctxt: &pederson_commitment::Context,
         trx: &mut fiat_shamir_transform::Transcript,
-        n: u64, vec_a_cmt: &group::Element, b: group::Scalar,
+        n: u64, vec_a_cmt: &group::Element, b: &group::Scalar,
         proof: &Proof,
     ): bool {
         fiat_shamir_transform::append_group_element(trx, &proof.vec_d_cmt);
@@ -229,7 +229,7 @@ module contract_owner::product_argument {
         ) return false;
 
         if (proof.vec_a_tilde[0] != proof.vec_b_tilde[0]) return false;
-        if (proof.vec_b_tilde[n-1] != group::scalar_mul(&x, &b)) return false;
+        if (proof.vec_b_tilde[n-1] != group::scalar_mul(&x, b)) return false;
 
         true
     }
@@ -251,7 +251,7 @@ module contract_owner::product_argument {
         let trx_prover = fiat_shamir_transform::new_transcript();
         fiat_shamir_transform::append_raw_bytes(&mut trx_prover, b"SOME_ARBITRARY_PREFIX");
         let trx_verifier = trx_prover;
-        let proof = prove(&pedersen_ctxt, &mut trx_prover, n, &vec_a_cmt, b, vec_a, &r);
-        assert!(verify(&pedersen_ctxt, &mut trx_verifier, n, &vec_a_cmt, b, &proof), 999);
+        let proof = prove(&pedersen_ctxt, &mut trx_prover, n, &vec_a_cmt, &b, &vec_a, &r);
+        assert!(verify(&pedersen_ctxt, &mut trx_verifier, n, &vec_a_cmt, &b, &proof), 999);
     }
 }
