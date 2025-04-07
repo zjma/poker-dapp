@@ -7,7 +7,7 @@ module contract_owner::product_argument {
     #[test_only]
     use aptos_framework::randomness;
 
-    struct Proof has drop, store {
+    struct Proof has copy, drop, store {
         vec_d_cmt: group::Element,
         cmt_2: group::Element,
         cmt_3: group::Element,

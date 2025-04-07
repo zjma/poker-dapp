@@ -8,7 +8,7 @@ module contract_owner::multiexp_argument {
     #[test_only]
     use aptos_framework::randomness;
 
-    struct Proof has drop, store {
+    struct Proof has copy, drop, store {
         cmt_a0: group::Element,
         b_cmt_0: group::Element,
         b_cmt_1: group::Element,

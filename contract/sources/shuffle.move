@@ -4,16 +4,19 @@ module contract_owner::shuffle {
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
-    use std::string;
     use std::vector;
-    use aptos_std::type_info;
-    use aptos_framework::randomness;
     use aptos_framework::timestamp;
-    use contract_owner::group;
+    use contract_owner::fiat_shamir_transform;
+    use contract_owner::pederson_commitment;
+    use contract_owner::bg12;
     use contract_owner::utils;
     use contract_owner::elgamal;
     #[test_only]
     use aptos_std::debug::print;
+    #[test_only]
+    use aptos_framework::randomness;
+    #[test_only]
+    use contract_owner::group;
 
     const STATE__ACCEPTING_CONTRIBUTION: u64 = 1;
     const STATE__SUCCEEDED: u64 = 2;
@@ -21,12 +24,13 @@ module contract_owner::shuffle {
 
     struct VerifiableContribution has copy, drop, store {
         new_ciphertexts: vector<elgamal::Ciphertext>,
-        //TODO: proof
+        proof: bg12::Proof,
     }
 
     public fun dummy_contribution(): VerifiableContribution {
         VerifiableContribution {
-            new_ciphertexts: vector[]
+            new_ciphertexts: vector[],
+            proof: bg12::dummy_proof(),
         }
     }
 
@@ -49,7 +53,12 @@ module contract_owner::shuffle {
             vector::push_back(&mut new_ciphertexts, ciphertext);
             i = i + 1;
         };
-        let ret = VerifiableContribution { new_ciphertexts };
+        let (errors, proof, buf) = bg12::decode_proof(buf);
+        if (!vector::is_empty(&errors)) {
+            vector::push_back(&mut errors, 182922);
+            return (errors, dummy_contribution(), buf);
+        };
+        let ret = VerifiableContribution { new_ciphertexts, proof };
         (vector[], ret, buf)
     }
 
@@ -60,11 +69,13 @@ module contract_owner::shuffle {
         vector::for_each_ref(&obj.new_ciphertexts, |ciph|{
             vector::append(&mut buf, elgamal::encode_ciphertext(ciph));
         });
+        vector::append(&mut buf, bg12::encode_proof(&obj.proof));
         buf
     }
 
     struct Session has copy, drop, store {
         enc_key: elgamal::EncKey,
+        pedersen_ctxt: pederson_commitment::Context,
         initial_ciphertexts: vector<elgamal::Ciphertext>,
         allowed_contributors: vector<address>,
         num_contributions_expected: u64,
@@ -79,6 +90,7 @@ module contract_owner::shuffle {
     public fun dummy_session(): Session {
         Session {
             enc_key: elgamal::dummy_enc_key(),
+            pedersen_ctxt: pederson_commitment::dummy_context(),
             initial_ciphertexts: vector[],
             allowed_contributors: vector[],
             num_contributions_expected: 0,
@@ -90,6 +102,7 @@ module contract_owner::shuffle {
         }
     }
 
+    #[lint::allow_unsafe_randomness]
     public fun new_session(enc_key: elgamal::EncKey, initial_ciphertexts: vector<elgamal::Ciphertext>, allowed_contributors: vector<address>, deadlines: vector<u64>): Session {
         let num_contributions_expected = vector::length(&allowed_contributors);
         assert!(num_contributions_expected >= 2, 180007);
@@ -103,8 +116,10 @@ module contract_owner::shuffle {
             i = i + 1;
         };
 
+        let num_items = vector::length(&initial_ciphertexts);
         Session {
             enc_key,
+            pedersen_ctxt: pederson_commitment::rand_context(num_items),
             initial_ciphertexts,
             allowed_contributors,
             num_contributions_expected,
@@ -135,8 +150,15 @@ module contract_owner::shuffle {
         let addr = address_of(contributor);
         let (found, idx) = vector::index_of(&session.allowed_contributors, &addr);
         assert!(found, 180100);
-        assert!(idx == vector::length(&session.contributions), 180101);
-        //TODO: verify contribution
+        let num_contri_committed = vector::length(&session.contributions);
+        assert!(idx == num_contri_committed, 180101);
+        let trx = fiat_shamir_transform::new_transcript();
+        let original = if (idx == 0) {
+            &session.initial_ciphertexts
+        } else {
+            &session.contributions[idx-1].new_ciphertexts
+        };
+        assert!(bg12::verify(&session.enc_key, &session.pedersen_ctxt, &mut trx, original, &contribution.new_ciphertexts, &contribution.proof), 180102);
         vector::push_back(&mut session.contributions, contribution);
     }
 
@@ -168,6 +190,7 @@ module contract_owner::shuffle {
     }
 
     #[lint::allow_unsafe_randomness]
+    #[test_only]
     public fun generate_contribution_locally(contributor: &signer, session: &Session): VerifiableContribution {
         assert!(session.status == STATE__ACCEPTING_CONTRIBUTION, 183535);
         let contributor_addr = address_of(contributor);
@@ -182,15 +205,17 @@ module contract_owner::shuffle {
         } else {
             session.contributions[session.expected_contributor_idx - 1].new_ciphertexts
         };
+        let permutation = randomness::permutation(num_items);
+        let rerandomizers = vector::map(vector::range(0, num_items), |_|group::rand_scalar());
 
-        let new_ciphertexts = vector::map(randomness::permutation(num_items), |old_idx|{
-            let rerandomizer = group::rand_scalar();
-            let blinder = elgamal::enc(&session.enc_key, &rerandomizer, &group::group_identity());
-            let new_ciph = elgamal::ciphertext_add(&current_deck[old_idx], &blinder);
+        let new_ciphertexts = vector::map(vector::range(0, num_items), |i|{
+            let blinder = elgamal::enc(&session.enc_key, &rerandomizers[i], &group::group_identity());
+            let new_ciph = elgamal::ciphertext_add(&current_deck[permutation[i]], &blinder);
             new_ciph
         });
-
-        VerifiableContribution { new_ciphertexts }
+        let trx = fiat_shamir_transform::new_transcript();
+        let proof = bg12::prove(&session.enc_key, &session.pedersen_ctxt, &mut trx, &current_deck, &new_ciphertexts, permutation, &rerandomizers);
+        VerifiableContribution { new_ciphertexts, proof }
     }
 
     #[test(framework = @0x1, alice = @0xaaaa, bob = @0xbbbb, eric = @0xeeee)]

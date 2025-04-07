@@ -2,12 +2,15 @@ module contract_owner::pederson_commitment {
     use std::vector;
     use contract_owner::group;
 
-    struct Context has drop {
+    struct Context has copy, drop, store {
         bases: vector<group::Element>,
     }
 
+    public fun dummy_context(): Context {
+        Context { bases: vector[] }
+    }
+
     #[lint::allow_unsafe_randomness]
-    #[test_only]
     public fun rand_context(n: u64): Context {
         Context {
             bases: vector::map(vector::range(0, n+1), |idx|{ group::rand_element()}),

@@ -9,7 +9,7 @@ module contract_owner::bg12 {
     #[test_only]
     use aptos_framework::randomness;
 
-    struct Proof has drop, store {
+    struct Proof has copy, drop, store {
         vec_a_cmt: group::Element,
         vec_b_cmt: group::Element,
         multiexp_proof: multiexp_argument::Proof,
@@ -50,7 +50,7 @@ module contract_owner::bg12 {
         (vector[], ret, buf)
     }
 
-    public fun encode(proof: &Proof): vector<u8> {
+    public fun encode_proof(proof: &Proof): vector<u8> {
         let buf = group::encode_element(&proof.vec_a_cmt);
         vector::append(&mut buf, group::encode_element(&proof.vec_b_cmt));
         vector::append(&mut buf, multiexp_argument::encode_proof(&proof.multiexp_proof));
