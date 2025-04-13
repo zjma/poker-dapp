@@ -1,8 +1,6 @@
 /// Protocol to prove knowledge of scalar `s` such that `s*B == P` for public group element `B` and `P`.
 module contract_owner::sigma_dlog {
-    use std::string;
     use std::vector;
-    use aptos_std::type_info;
     use contract_owner::fiat_shamir_transform;
     use contract_owner::group;
     #[test_only]
@@ -10,13 +8,13 @@ module contract_owner::sigma_dlog {
 
     struct Proof has copy, drop, store {
         t: group::Element,
-        s: group::Scalar,
+        s: group::Scalar
     }
 
     public fun dummy_proof(): Proof {
         Proof {
             t: group::dummy_element(),
-            s: group::dummy_scalar(),
+            s: group::dummy_scalar()
         }
     }
 
@@ -38,7 +36,7 @@ module contract_owner::sigma_dlog {
             vector::push_back(&mut errors, 155053);
             return (errors, dummy_proof(), buf);
         };
-        let ret = Proof { t, s};
+        let ret = Proof { t, s };
         (vector[], ret, buf)
     }
 
@@ -46,7 +44,8 @@ module contract_owner::sigma_dlog {
     #[test_only]
     public fun prove(
         trx: &mut fiat_shamir_transform::Transcript,
-        b: &group::Element, p: &group::Element, // statement
+        b: &group::Element,
+        p: &group::Element, // statement
         s: &group::Scalar // witness
     ): Proof {
         fiat_shamir_transform::append_group_element(trx, b);
@@ -61,7 +60,8 @@ module contract_owner::sigma_dlog {
 
     public fun verify(
         trx: &mut fiat_shamir_transform::Transcript,
-        b: &group::Element, p: &group::Element, // statement
+        b: &group::Element,
+        p: &group::Element, // statement
         proof: &Proof
     ): bool {
         fiat_shamir_transform::append_group_element(trx, b);
@@ -69,7 +69,10 @@ module contract_owner::sigma_dlog {
         fiat_shamir_transform::append_group_element(trx, &proof.t);
         let c = fiat_shamir_transform::hash_to_scalar(trx);
         let ret = true;
-        ret = ret && group::scale_element(b, &proof.s) == group::element_add(&proof.t, &group::scale_element(p, &c));
+        ret =
+            ret
+                && group::scale_element(b, &proof.s)
+                    == group::element_add(&proof.t, &group::scale_element(p, &c));
         ret
     }
 

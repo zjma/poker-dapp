@@ -5,16 +5,16 @@ module contract_owner::fiat_shamir_transform {
     use contract_owner::group;
 
     struct Transcript has copy, drop {
-        recorded: vector<u8>,
+        recorded: vector<u8>
     }
 
     public fun new_transcript(): Transcript {
-        Transcript {
-            recorded: vector[]
-        }
+        Transcript { recorded: vector[] }
     }
 
-    public fun append_group_element(trx: &mut Transcript, element: &group::Element) {
+    public fun append_group_element(
+        trx: &mut Transcript, element: &group::Element
+    ) {
         append_raw_bytes(trx, group::encode_element(element))
     }
 

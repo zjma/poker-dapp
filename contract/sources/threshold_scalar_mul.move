@@ -4,10 +4,8 @@ module contract_owner::threshold_scalar_mul {
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
-    use std::string;
     use std::vector;
     use std::vector::{length, range, for_each, push_back};
-    use aptos_std::type_info;
     use aptos_framework::timestamp;
     use contract_owner::sigma_dlog_eq;
     use contract_owner::dkg_v0;
@@ -25,7 +23,7 @@ module contract_owner::threshold_scalar_mul {
 
     struct VerifiableContribution has copy, drop, store {
         payload: group::Element,
-        proof: sigma_dlog_eq::Proof,
+        proof: sigma_dlog_eq::Proof
     }
 
     struct Session has copy, drop, store {
@@ -43,13 +41,13 @@ module contract_owner::threshold_scalar_mul {
         culprits: vector<address>,
         contributions: vector<Option<VerifiableContribution>>,
         /// Filled once `state` is changed to `STATE__SUCCEEDED`.
-        result: Option<group::Element>,
+        result: Option<group::Element>
     }
 
     public fun dummy_contribution(): VerifiableContribution {
         VerifiableContribution {
             payload: group::dummy_element(),
-            proof: sigma_dlog_eq::dummy_proof(),
+            proof: sigma_dlog_eq::dummy_proof()
         }
     }
 
@@ -57,7 +55,7 @@ module contract_owner::threshold_scalar_mul {
         to_be_scaled: group::Element,
         secret_info: dkg_v0::SharedSecretPublicInfo,
         allowed_contributors: vector<address>,
-        deadline: u64,
+        deadline: u64
     ): Session {
         let n = length(&allowed_contributors);
         Session {
@@ -67,8 +65,8 @@ module contract_owner::threshold_scalar_mul {
             state: STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE,
             deadline,
             culprits: vector[],
-            contributions: vector::map(range(0, n), |_|option::none()),
-            result: option::none(),
+            contributions: vector::map(range(0, n), |_| option::none()),
+            result: option::none()
         }
     }
 
@@ -78,23 +76,35 @@ module contract_owner::threshold_scalar_mul {
             let n = vector::length(&session.allowed_contributors);
             let num_shares = 0;
             let missing_contributors = vector[];
-            for_each(vector::range(0, n), |i|{
-                if (option::is_some(&session.contributions[i])) {
-                    num_shares = num_shares + 1;
-                } else {
-                    push_back(&mut missing_contributors, session.allowed_contributors[i]);
+            for_each(
+                vector::range(0, n),
+                |i| {
+                    if (option::is_some(&session.contributions[i])) {
+                        num_shares = num_shares + 1;
+                    } else {
+                        push_back(
+                            &mut missing_contributors, session.allowed_contributors[i]
+                        );
+                    }
                 }
-            });
+            );
             let threshold = dkg_v0::get_threshold(&session.secret_info);
             if (num_shares >= threshold) {
-                let scalar_mul_shares = vector::map_ref(&session.contributions, |contri|{
-                    if (option::is_some(contri)) {
-                        option::some(option::borrow(contri).payload)
-                    } else {
-                        option::none()
+                let scalar_mul_shares = vector::map_ref(
+                    &session.contributions,
+                    |contri| {
+                        if (option::is_some(contri)) {
+                            option::some(option::borrow(contri).payload)
+                        } else {
+                            option::none()
+                        }
                     }
-                });
-                session.result = option::some(dkg_v0::aggregate_scalar_mul(&session.secret_info, scalar_mul_shares));
+                );
+                session.result = option::some(
+                    dkg_v0::aggregate_scalar_mul(
+                        &session.secret_info, scalar_mul_shares
+                    )
+                );
                 session.state = STATE__SUCCEEDED;
             } else if (now_sec >= session.deadline && num_shares < threshold) {
                 session.state = STATE__FAILED;
@@ -103,7 +113,9 @@ module contract_owner::threshold_scalar_mul {
         }
     }
 
-    public fun process_contribution(contributor: &signer, session: &mut Session, contribution: VerifiableContribution) {
+    public fun process_contribution(
+        contributor: &signer, session: &mut Session, contribution: VerifiableContribution
+    ) {
         assert!(session.state == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE, 164507);
         let addr = address_of(contributor);
         let (found, idx) = vector::index_of(&session.allowed_contributors, &addr);
@@ -130,7 +142,9 @@ module contract_owner::threshold_scalar_mul {
         *option::borrow(&session.result)
     }
 
-    public fun decode_contribution(buf: vector<u8>): (vector<u64>, VerifiableContribution, vector<u8>) {
+    public fun decode_contribution(
+        buf: vector<u8>
+    ): (vector<u64>, VerifiableContribution, vector<u8>) {
         let (errors, payload, buf) = group::decode_element(buf);
         if (!vector::is_empty(&errors)) {
             vector::push_back(&mut errors, 270424);
@@ -141,10 +155,7 @@ module contract_owner::threshold_scalar_mul {
             vector::push_back(&mut errors, 270425);
             return (errors, dummy_contribution(), buf);
         };
-        let ret = VerifiableContribution {
-            payload,
-            proof,
-        };
+        let ret = VerifiableContribution { payload, proof };
         (vector[], ret, buf)
     }
 
@@ -157,43 +168,77 @@ module contract_owner::threshold_scalar_mul {
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
-    public fun generate_contribution(contributor: &signer, session: &Session, secret_share: &dkg_v0::SecretShare): VerifiableContribution {
+    public fun generate_contribution(
+        contributor: &signer, session: &Session, secret_share: &dkg_v0::SecretShare
+    ): VerifiableContribution {
         let contributor_addr = address_of(contributor);
-        let (found, contributor_idx) = vector::index_of(&session.allowed_contributors, &contributor_addr);
+        let (found, contributor_idx) = vector::index_of(
+            &session.allowed_contributors, &contributor_addr
+        );
         assert!(found, 310240);
-        let (_agg_ek, ek_shares) = dkg_v0::unpack_shared_secret_public_info(session.secret_info);
-        let (enc_base, public_point) = elgamal::unpack_enc_key(ek_shares[contributor_idx]);
+        let (_agg_ek, ek_shares) =
+            dkg_v0::unpack_shared_secret_public_info(session.secret_info);
+        let (enc_base, public_point) =
+            elgamal::unpack_enc_key(ek_shares[contributor_idx]);
         let private_scalar = dkg_v0::unpack_secret_share(*secret_share);
         let payload = group::scale_element(&session.to_be_scaled, &private_scalar);
-        let proof = sigma_dlog_eq::prove(&mut fiat_shamir_transform::new_transcript(), &enc_base, &public_point, &session.to_be_scaled, &payload, &private_scalar);
-        VerifiableContribution {
-            payload,
-            proof,
-        }
+        let proof =
+            sigma_dlog_eq::prove(
+                &mut fiat_shamir_transform::new_transcript(),
+                &enc_base,
+                &public_point,
+                &session.to_be_scaled,
+                &payload,
+                &private_scalar
+            );
+        VerifiableContribution { payload, proof }
     }
 
-    #[test(framework = @0x1, alice = @0xaaaa, bob = @0xbbbb, eric = @0xeeee)]
-    fun example(framework: signer, alice: signer, bob: signer, eric: signer) {
+    #[test(
+        framework = @0x1, alice = @0xaaaa, bob = @0xbbbb, eric = @0xeeee
+    )]
+    fun example(
+        framework: signer, alice: signer, bob: signer, eric: signer
+    ) {
         randomness::initialize_for_testing(&framework);
         timestamp::set_time_has_started_for_testing(&framework);
 
         let alice_addr = address_of(&alice);
         let bob_addr = address_of(&bob);
         let eric_addr = address_of(&eric);
-        let (secret_public_info, alice_secret_share, bob_secret_share, eric_secret_share) = dkg_v0::run_example_session(&alice, &bob, &eric);
+        let (secret_public_info, alice_secret_share, bob_secret_share, eric_secret_share) =
+
+            dkg_v0::run_example_session(&alice, &bob, &eric);
         let now_secs = timestamp::now_seconds();
         let target = group::rand_element();
-        let session = new_session(target, secret_public_info, vector[alice_addr, bob_addr, eric_addr], now_secs + 5);
-        let alice_contribution = generate_contribution(&alice, &session, &alice_secret_share);
+        let session =
+            new_session(
+                target,
+                secret_public_info,
+                vector[alice_addr, bob_addr, eric_addr],
+                now_secs + 5
+            );
+        let alice_contribution =
+            generate_contribution(&alice, &session, &alice_secret_share);
         let bob_contribution = generate_contribution(&bob, &session, &bob_secret_share);
-        let eric_contribution = generate_contribution(&eric, &session, &eric_secret_share);
+        let eric_contribution = generate_contribution(
+            &eric, &session, &eric_secret_share
+        );
         process_contribution(&alice, &mut session, alice_contribution);
         process_contribution(&bob, &mut session, bob_contribution);
         process_contribution(&eric, &mut session, eric_contribution);
         state_update(&mut session);
         assert!(succeeded(&session), 161938);
         let actual_result = get_result(&session);
-        let reconstructed_secret = dkg_v0::reconstruct_secret(&secret_public_info, vector[option::some(alice_secret_share), option::some(bob_secret_share), option::some(eric_secret_share)]);
+        let reconstructed_secret =
+            dkg_v0::reconstruct_secret(
+                &secret_public_info,
+                vector[
+                    option::some(alice_secret_share),
+                    option::some(bob_secret_share),
+                    option::some(eric_secret_share)
+                ]
+            );
         let expected_result = group::scale_element(&target, &reconstructed_secret);
         assert!(expected_result == actual_result, 161939);
     }

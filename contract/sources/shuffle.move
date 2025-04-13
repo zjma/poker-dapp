@@ -24,17 +24,19 @@ module contract_owner::shuffle {
 
     struct VerifiableContribution has copy, drop, store {
         new_ciphertexts: vector<elgamal::Ciphertext>,
-        proof: bg12::Proof,
+        proof: bg12::Proof
     }
 
     public fun dummy_contribution(): VerifiableContribution {
         VerifiableContribution {
             new_ciphertexts: vector[],
-            proof: bg12::dummy_proof(),
+            proof: bg12::dummy_proof()
         }
     }
 
-    public fun decode_contribution(buf: vector<u8>): (vector<u64>, VerifiableContribution, vector<u8>) {
+    public fun decode_contribution(
+        buf: vector<u8>
+    ): (vector<u64>, VerifiableContribution, vector<u8>) {
         let (errors, num_items, buf) = utils::decode_u64(buf);
         if (!vector::is_empty(&errors)) {
             vector::push_back(&mut errors, 182920);
@@ -66,9 +68,12 @@ module contract_owner::shuffle {
         let buf = vector[];
         let num_ciphs = vector::length(&obj.new_ciphertexts);
         vector::append(&mut buf, utils::encode_u64(num_ciphs));
-        vector::for_each_ref(&obj.new_ciphertexts, |ciph|{
-            vector::append(&mut buf, elgamal::encode_ciphertext(ciph));
-        });
+        vector::for_each_ref(
+            &obj.new_ciphertexts,
+            |ciph| {
+                vector::append(&mut buf, elgamal::encode_ciphertext(ciph));
+            }
+        );
         vector::append(&mut buf, bg12::encode_proof(&obj.proof));
         buf
     }
@@ -84,7 +89,7 @@ module contract_owner::shuffle {
         /// If `status == STATE__ACCEPTING_CONTRIBUTION`, this indicates who should contribute now.
         expected_contributor_idx: u64,
         contributions: vector<VerifiableContribution>,
-        culprit: Option<address>,
+        culprit: Option<address>
     }
 
     public fun dummy_session(): Session {
@@ -98,12 +103,17 @@ module contract_owner::shuffle {
             status: 0,
             expected_contributor_idx: 0,
             contributions: vector[],
-            culprit: option::none(),
+            culprit: option::none()
         }
     }
 
     #[lint::allow_unsafe_randomness]
-    public fun new_session(enc_key: elgamal::EncKey, initial_ciphertexts: vector<elgamal::Ciphertext>, allowed_contributors: vector<address>, deadlines: vector<u64>): Session {
+    public fun new_session(
+        enc_key: elgamal::EncKey,
+        initial_ciphertexts: vector<elgamal::Ciphertext>,
+        allowed_contributors: vector<address>,
+        deadlines: vector<u64>
+    ): Session {
         let num_contributions_expected = vector::length(&allowed_contributors);
         assert!(num_contributions_expected >= 2, 180007);
         assert!(num_contributions_expected == vector::length(&deadlines), 180008);
@@ -112,7 +122,7 @@ module contract_owner::shuffle {
         assert!(timestamp::now_seconds() < deadlines[0], 180009);
         let i = 1;
         while (i < num_contributions_expected) {
-            assert!(deadlines[i-1] < deadlines[i], 180010);
+            assert!(deadlines[i - 1] < deadlines[i], 180010);
             i = i + 1;
         };
 
@@ -127,38 +137,55 @@ module contract_owner::shuffle {
             status: STATE__ACCEPTING_CONTRIBUTION,
             expected_contributor_idx: 0,
             contributions: vector[],
-            culprit: option::none(),
+            culprit: option::none()
         }
     }
 
     public fun state_update(session: &mut Session) {
         let now_secs = timestamp::now_seconds();
         if (session.status == STATE__ACCEPTING_CONTRIBUTION) {
-            if (vector::length(&session.contributions) > session.expected_contributor_idx) {
+            if (vector::length(&session.contributions)
+                > session.expected_contributor_idx) {
                 session.expected_contributor_idx = session.expected_contributor_idx + 1;
-                if (session.expected_contributor_idx == session.num_contributions_expected) {
+                if (session.expected_contributor_idx
+                    == session.num_contributions_expected) {
                     session.status = STATE__SUCCEEDED;
                 }
             } else if (now_secs >= session.deadlines[session.expected_contributor_idx]) {
                 session.status = STATE__FAILED;
-                session.culprit = option::some(session.allowed_contributors[session.expected_contributor_idx]);
+                session.culprit = option::some(
+                    session.allowed_contributors[session.expected_contributor_idx]
+                );
             }
         }
     }
 
-    public fun process_contribution(contributor: &signer, session: &mut Session, contribution: VerifiableContribution) {
+    public fun process_contribution(
+        contributor: &signer, session: &mut Session, contribution: VerifiableContribution
+    ) {
         let addr = address_of(contributor);
         let (found, idx) = vector::index_of(&session.allowed_contributors, &addr);
         assert!(found, 180100);
         let num_contri_committed = vector::length(&session.contributions);
         assert!(idx == num_contri_committed, 180101);
         let trx = fiat_shamir_transform::new_transcript();
-        let original = if (idx == 0) {
-            &session.initial_ciphertexts
-        } else {
-            &session.contributions[idx-1].new_ciphertexts
-        };
-        assert!(bg12::verify(&session.enc_key, &session.pedersen_ctxt, &mut trx, original, &contribution.new_ciphertexts, &contribution.proof), 180102);
+        let original =
+            if (idx == 0) {
+                &session.initial_ciphertexts
+            } else {
+                &session.contributions[idx - 1].new_ciphertexts
+            };
+        assert!(
+            bg12::verify(
+                &session.enc_key,
+                &session.pedersen_ctxt,
+                &mut trx,
+                original,
+                &contribution.new_ciphertexts,
+                &contribution.proof
+            ),
+            180102
+        );
         vector::push_back(&mut session.contributions, contribution);
     }
 
@@ -184,42 +211,73 @@ module contract_owner::shuffle {
         session.contributions[session.num_contributions_expected - 1].new_ciphertexts
     }
 
-    public fun is_waiting_for_contribution(session: &Session, who: address): bool {
-        if (session.status != STATE__ACCEPTING_CONTRIBUTION) return false;
+    public fun is_waiting_for_contribution(
+        session: &Session, who: address
+    ): bool {
+        if (session.status != STATE__ACCEPTING_CONTRIBUTION)
+            return false;
         who == session.allowed_contributors[session.expected_contributor_idx]
     }
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
-    public fun generate_contribution_locally(contributor: &signer, session: &Session): VerifiableContribution {
+    public fun generate_contribution_locally(
+        contributor: &signer, session: &Session
+    ): VerifiableContribution {
         assert!(session.status == STATE__ACCEPTING_CONTRIBUTION, 183535);
         let contributor_addr = address_of(contributor);
-        let (contributor_found, contributor_idx) = vector::index_of(&session.allowed_contributors, &contributor_addr);
+        let (contributor_found, contributor_idx) = vector::index_of(
+            &session.allowed_contributors, &contributor_addr
+        );
         assert!(contributor_found, 183536);
         assert!(session.expected_contributor_idx == contributor_idx, 183537);
 
         let num_items = vector::length(&session.initial_ciphertexts);
 
-        let current_deck = if (session.expected_contributor_idx == 0) {
-            session.initial_ciphertexts
-        } else {
-            session.contributions[session.expected_contributor_idx - 1].new_ciphertexts
-        };
+        let current_deck =
+            if (session.expected_contributor_idx == 0) {
+                session.initial_ciphertexts
+            } else {
+                session.contributions[session.expected_contributor_idx - 1].new_ciphertexts
+            };
         let permutation = randomness::permutation(num_items);
-        let rerandomizers = vector::map(vector::range(0, num_items), |_|group::rand_scalar());
+        let rerandomizers = vector::map(
+            vector::range(0, num_items),
+            |_| group::rand_scalar()
+        );
 
-        let new_ciphertexts = vector::map(vector::range(0, num_items), |i|{
-            let blinder = elgamal::enc(&session.enc_key, &rerandomizers[i], &group::group_identity());
-            let new_ciph = elgamal::ciphertext_add(&current_deck[permutation[i]], &blinder);
-            new_ciph
-        });
+        let new_ciphertexts = vector::map(
+            vector::range(0, num_items),
+            |i| {
+                let blinder =
+                    elgamal::enc(
+                        &session.enc_key, &rerandomizers[i], &group::group_identity()
+                    );
+                let new_ciph =
+                    elgamal::ciphertext_add(&current_deck[permutation[i]], &blinder);
+                new_ciph
+            }
+        );
         let trx = fiat_shamir_transform::new_transcript();
-        let proof = bg12::prove(&session.enc_key, &session.pedersen_ctxt, &mut trx, &current_deck, &new_ciphertexts, permutation, &rerandomizers);
+        let proof =
+            bg12::prove(
+                &session.enc_key,
+                &session.pedersen_ctxt,
+                &mut trx,
+                &current_deck,
+                &new_ciphertexts,
+                permutation,
+                &rerandomizers
+            );
         VerifiableContribution { new_ciphertexts, proof }
     }
 
-    #[test(framework = @0x1, alice = @0xaaaa, bob = @0xbbbb, eric = @0xeeee)]
-    fun example(framework: signer, alice: signer, bob: signer, eric: signer) {
+    #[test(
+        framework = @0x1, alice = @0xaaaa, bob = @0xbbbb, eric = @0xeeee
+    )]
+    fun example(
+        framework: signer, alice: signer, bob: signer, eric: signer
+    ) {
         randomness::initialize_for_testing(&framework);
         timestamp::set_time_has_started_for_testing(&framework);
         let alice_addr = address_of(&alice);
@@ -228,10 +286,22 @@ module contract_owner::shuffle {
 
         let enc_base = group::rand_element();
         let (dk, ek) = elgamal::key_gen(enc_base);
-        let plaintexts = vector::map(vector::range(0, 52), |_|group::rand_element());
-        let ciphertexts = vector::map_ref(&plaintexts, |plain| elgamal::enc(&ek, &group::rand_scalar(), plain));
+        let plaintexts = vector::map(
+            vector::range(0, 52),
+            |_| group::rand_element()
+        );
+        let ciphertexts = vector::map_ref(
+            &plaintexts,
+            |plain| elgamal::enc(&ek, &group::rand_scalar(), plain)
+        );
         let now_secs = timestamp::now_seconds();
-        let session = new_session(ek, ciphertexts, vector[alice_addr, bob_addr, eric_addr], vector[now_secs + 5, now_secs + 10, now_secs + 15]);
+        let session =
+            new_session(
+                ek,
+                ciphertexts,
+                vector[alice_addr, bob_addr, eric_addr],
+                vector[now_secs + 5, now_secs + 10, now_secs + 15]
+            );
         assert!(is_waiting_for_contribution(&session, alice_addr), 185955);
         let alice_contribution = generate_contribution_locally(&alice, &session);
         process_contribution(&alice, &mut session, alice_contribution);
@@ -246,12 +316,17 @@ module contract_owner::shuffle {
         state_update(&mut session);
         assert!(succeeded(&session), 185958);
         let shuffled_ciphs = result_cloned(&session);
-        let shuffled_plains = vector::map(shuffled_ciphs, |ciph| elgamal::dec(&dk, &ciph));
-        let permutation = vector::map(plaintexts, |plain| {
-            let (found, new_pos) = vector::index_of(&shuffled_plains, &plain);
-            assert!(found, 185959);
-            new_pos
-        });
+        let shuffled_plains = vector::map(
+            shuffled_ciphs, |ciph| elgamal::dec(&dk, &ciph)
+        );
+        let permutation = vector::map(
+            plaintexts,
+            |plain| {
+                let (found, new_pos) = vector::index_of(&shuffled_plains, &plain);
+                assert!(found, 185959);
+                new_pos
+            }
+        );
         print(&permutation);
     }
 }

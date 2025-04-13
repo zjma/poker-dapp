@@ -8,18 +8,19 @@ module contract_owner::elgamal {
     struct Ciphertext has copy, drop, store {
         enc_base: group::Element,
         c_0: group::Element,
-        c_1: group::Element,
+        c_1: group::Element
     }
 
     struct Plaintext has drop, store {}
+
     struct DecKey has copy, drop, store {
         enc_base: group::Element,
-        private_scalar: group::Scalar,
+        private_scalar: group::Scalar
     }
 
     struct EncKey has copy, drop, store {
         enc_base: group::Element,
-        public_point: group::Element,
+        public_point: group::Element
     }
 
     public fun decode_enc_key(buf: vector<u8>): (vector<u64>, EncKey, vector<u8>) {
@@ -33,7 +34,7 @@ module contract_owner::elgamal {
             vector::push_back(&mut errors, 172709);
             return (errors, dummy_enc_key(), buf);
         };
-        let ret = EncKey { enc_base, public_point, };
+        let ret = EncKey { enc_base, public_point };
         (vector[], ret, buf)
     }
 
@@ -47,30 +48,31 @@ module contract_owner::elgamal {
     public fun dummy_enc_key(): EncKey {
         EncKey {
             enc_base: group::group_identity(),
-            public_point: group::group_identity(),
+            public_point: group::group_identity()
         }
     }
 
-    public fun make_enc_key(enc_base: group::Element, public_point: group::Element): EncKey {
-        EncKey {
-            enc_base,
-            public_point,
-        }
+    public fun make_enc_key(
+        enc_base: group::Element, public_point: group::Element
+    ): EncKey {
+        EncKey { enc_base, public_point }
     }
 
-    public fun make_ciphertext(enc_base: group::Element, c_0: group::Element, c_1: group::Element): Ciphertext {
-        Ciphertext {
-            enc_base,
-            c_0,
-            c_1,
-        }
+    public fun make_ciphertext(
+        enc_base: group::Element, c_0: group::Element, c_1: group::Element
+    ): Ciphertext {
+        Ciphertext { enc_base, c_0, c_1 }
     }
 
-    public fun enc(ek: &EncKey, randomizer: &group::Scalar, ptxt: &group::Element): Ciphertext {
+    public fun enc(
+        ek: &EncKey, randomizer: &group::Scalar, ptxt: &group::Element
+    ): Ciphertext {
         Ciphertext {
             enc_base: ek.enc_base,
             c_0: group::scale_element(&ek.enc_base, randomizer),
-            c_1: group::element_add(ptxt, &group::scale_element(&ek.public_point, randomizer)),
+            c_1: group::element_add(
+                ptxt, &group::scale_element(&ek.public_point, randomizer)
+            )
         }
     }
 
@@ -83,7 +85,7 @@ module contract_owner::elgamal {
         Ciphertext {
             enc_base: a.enc_base,
             c_0: group::element_add(&a.c_0, &b.c_0),
-            c_1: group::element_add(&a.c_1, &b.c_1),
+            c_1: group::element_add(&a.c_1, &b.c_1)
         }
     }
 
@@ -91,26 +93,31 @@ module contract_owner::elgamal {
         Ciphertext {
             enc_base: a.enc_base,
             c_0: group::scale_element(&a.c_0, s),
-            c_1: group::scale_element(&a.c_1, s),
+            c_1: group::scale_element(&a.c_1, s)
         }
     }
 
-    public fun weird_multi_exp(ciphs: &vector<Ciphertext>, scalars: &vector<group::Scalar>): Ciphertext {
+    public fun weird_multi_exp(
+        ciphs: &vector<Ciphertext>, scalars: &vector<group::Scalar>
+    ): Ciphertext {
         let acc = Ciphertext {
             enc_base: vector::borrow(ciphs, 0).enc_base,
             c_0: group::group_identity(),
-            c_1: group::group_identity(),
+            c_1: group::group_identity()
         };
-        vector::zip_ref(ciphs, scalars, |ciph, scalar|{
-            acc = ciphertext_add(
-                &acc,
-                &ciphertext_mul(ciph, scalar)
-            )
-        });
+        vector::zip_ref(
+            ciphs,
+            scalars,
+            |ciph, scalar| {
+                acc = ciphertext_add(&acc, &ciphertext_mul(ciph, scalar))
+            }
+        );
         acc
     }
 
-    public fun unpack_ciphertext(ciphertext: Ciphertext): (group::Element, group::Element, group::Element) {
+    public fun unpack_ciphertext(
+        ciphertext: Ciphertext
+    ): (group::Element, group::Element, group::Element) {
         let Ciphertext { enc_base, c_0, c_1 } = ciphertext;
         (enc_base, c_0, c_1)
     }
@@ -119,7 +126,7 @@ module contract_owner::elgamal {
         Ciphertext {
             enc_base: group::dummy_element(),
             c_0: group::dummy_element(),
-            c_1: group::dummy_element(),
+            c_1: group::dummy_element()
         }
     }
 
@@ -166,18 +173,12 @@ module contract_owner::elgamal {
         let dk = group::rand_scalar();
         let ek = group::scale_element(&enc_base, &dk);
         (
-            DecKey {
-                enc_base,
-                private_scalar: dk,
-            },
-            EncKey {
-                enc_base,
-                public_point: ek,
-            },
+            DecKey { enc_base, private_scalar: dk },
+            EncKey { enc_base, public_point: ek }
         )
     }
 
-    #[test(framework=@0x1)]
+    #[test(framework = @0x1)]
     fun general(framework: signer) {
         randomness::initialize_for_testing(&framework);
         let enc_base = group::rand_element();
