@@ -4,7 +4,6 @@
 module contract_owner::poker_room {
     use std::signer::address_of;
     use std::vector;
-    use aptos_std::debug::print;
     use aptos_std::math64::min;
     use aptos_std::table;
     use aptos_std::table::Table;
@@ -19,16 +18,8 @@ module contract_owner::poker_room {
     use contract_owner::group;
     use contract_owner::game;
     use contract_owner::dkg_v0;
-    #[test_only]
-    use std::string::utf8;
-    #[test_only]
-    use aptos_framework::account;
-    #[test_only]
-    use aptos_framework::aptos_coin;
-    #[test_only]
-    use aptos_framework::randomness;
-    #[test_only]
-    use contract_owner::utils;
+
+    friend contract_owner::poker_room_examples;
 
     const STATE__WAITING_FOR_PLAYERS: u64 = 1;
     const STATE__DKG_IN_PROGRESS: u64 = 2;
@@ -140,7 +131,7 @@ module contract_owner::poker_room {
     /// Anyone can call this to trigger state transitions in the given poker room.
     /// dapp TODO: decide whether the host should run a separate thread to trigger it every x sec, or players should be responsible for it.
     #[randomness]
-    entry fun state_update(room_addr: address) acquires PokerRoomState {
+    public(friend) entry fun state_update(room_addr: address) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room_addr);
         if (room.state == STATE__WAITING_FOR_PLAYERS) {
             if (vector::all(&room.player_livenesses, |liveness|*liveness)) {
@@ -227,7 +218,7 @@ module contract_owner::poker_room {
 
     /// A host calls this to create a room. Room state will be stored as a resource under the host's address.
     #[randomness]
-    entry fun create(host: &signer, allowed_players: vector<address>) {
+    public(friend) entry fun create(host: &signer, allowed_players: vector<address>) {
         let player_livenesses = vector::map_ref(&allowed_players, |_| false);
         let player_chips = vector::map_ref<address, u64>(&allowed_players, |_| 0);
         let num_players = vector::length(&allowed_players);
@@ -254,7 +245,7 @@ module contract_owner::poker_room {
 
     /// A player calls this to join a poker room.
     #[randomness]
-    entry fun join(player: &signer, room: address) acquires PokerRoomState {
+    public(friend) entry fun join(player: &signer, room: address) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__WAITING_FOR_PLAYERS, 174045);
         let player_addr = address_of(player);
@@ -266,7 +257,7 @@ module contract_owner::poker_room {
     }
 
     #[randomness]
-    entry fun process_dkg_contribution(player: &signer, room: address, session_id: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
+    public(friend) entry fun process_dkg_contribution(player: &signer, room: address, session_id: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__DKG_IN_PROGRESS, 174737);
         assert!(room.num_dkgs_done == session_id, 174738);
@@ -278,7 +269,7 @@ module contract_owner::poker_room {
     }
 
     #[randomness]
-    entry fun process_shuffle_contribution(player: &signer, room: address, shuffle_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
+    public(friend) entry fun process_shuffle_contribution(player: &signer, room: address, shuffle_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS || room.state == STATE__SHUFFLE_IN_PROGRESS, 180918);
         assert!(room.num_shuffles_done == shuffle_idx, 180919);
@@ -289,7 +280,7 @@ module contract_owner::poker_room {
         shuffle::process_contribution(player, shuffle, contribution);
     }
 
-    entry fun process_private_dealing_reencryption(player: &signer, room: address, game_idx: u64, dealing_idx: u64, reencyption_bytes: vector<u8>) acquires PokerRoomState {
+    public(friend) entry fun process_private_dealing_reencryption(player: &signer, room: address, game_idx: u64, dealing_idx: u64, reencyption_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS, 124642);
         assert!(room.num_games_done == game_idx, 124643);
@@ -300,7 +291,7 @@ module contract_owner::poker_room {
         game::process_private_dealing_reencryption(player, game, dealing_idx, contribution);
     }
 
-    entry fun process_private_dealing_contribution(player: &signer, room: address, game_idx: u64, dealing_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
+    public(friend) entry fun process_private_dealing_contribution(player: &signer, room: address, game_idx: u64, dealing_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS, 124642);
         assert!(room.num_games_done == game_idx, 124643);
@@ -311,7 +302,7 @@ module contract_owner::poker_room {
         game::process_private_dealing_contribution(player, game, dealing_idx, contribution);
     }
 
-    entry fun process_public_opening_contribution(player: &signer, room: address, game_idx: u64, opening_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
+    public(friend) entry fun process_public_opening_contribution(player: &signer, room: address, game_idx: u64, opening_idx: u64, contribution_bytes: vector<u8>) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS, 124642);
         assert!(room.num_games_done == game_idx, 124643);
@@ -322,7 +313,7 @@ module contract_owner::poker_room {
         game::process_public_opening_contribution(player, game, opening_idx, contribution);
     }
 
-    entry fun process_showdown_reveal(player: &signer, room: address, game_idx: u64, dealing_idx: u64, private_card_revealing_bytes: vector<u8>) acquires PokerRoomState {
+    public(friend) entry fun process_showdown_reveal(player: &signer, room: address, game_idx: u64, dealing_idx: u64, private_card_revealing_bytes: vector<u8>) acquires PokerRoomState {
         let (errors, reenc_private_state, remainder) = reencryption::decode_private_state(private_card_revealing_bytes);
         assert!(vector::is_empty(&errors), 102202);
         assert!(vector::is_empty(&remainder), 102203);
@@ -375,362 +366,36 @@ module contract_owner::poker_room {
         game::process_bet_action(player, game, bet);
     }
 
-    #[test(framework=@0x1, host=@0xcafe)]
-    fun example(framework: signer, host: signer) acquires PokerRoomState {
-        randomness::initialize_for_testing(&framework);
-        timestamp::set_time_has_started_for_testing(&framework);
-        let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(&framework);
-        let alice = account::create_account_for_test(@0xaaaa);
-        let bob = account::create_account_for_test(@0xbbbb);
-        let eric = account::create_account_for_test(@0xeeee);
-        coin::register<AptosCoin>(&alice);
-        coin::register<AptosCoin>(&bob);
-        coin::register<AptosCoin>(&eric);
-
-        print(&utf8(b"Host creates a room with a player allowlist."));
-        let alice_addr = address_of(&alice);
-        let bob_addr = address_of(&bob);
-        let eric_addr = address_of(&eric);
-        let host_addr = address_of(&host);
-        coin::deposit(alice_addr, coin::mint(25000, &mint_cap));
-        coin::deposit(bob_addr, coin::mint(25000, &mint_cap));
-        coin::deposit(eric_addr, coin::mint(25000, &mint_cap));
-        create(&host, vector[alice_addr, bob_addr, eric_addr]);
-
-        print(&utf8(b"Alice, Bob, Eric join the room."));
-        join(&alice, host_addr);
-        join(&bob, host_addr);
-        join(&eric, host_addr);
-
-        state_update(host_addr);
-
-        print(&utf8(b"Anyone sees we now need to do DKG 0."));
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__DKG_IN_PROGRESS, 999);
-        assert!(room.num_dkgs_done == 0, 999);
-
-        state_update(host_addr);
-
-        print(&utf8(b"Eric contributes to DKG 0."));
-        let (dkg_0_eric_secret_share, dkg_0_eric_contribution) = dkg_v0::generate_contribution(&room.cur_dkg_session);
-        process_dkg_contribution(&eric, host_addr, 0, dkg_v0::encode_contribution(&dkg_0_eric_contribution));
-
-        state_update(host_addr);
-
-        print(&utf8(b"Alice contributes to DKG 0."));
-        let (dkg_0_alice_secret_share, dkg_0_alice_contribution) = dkg_v0::generate_contribution(&room.cur_dkg_session);
-        process_dkg_contribution(&alice, host_addr, 0, dkg_v0::encode_contribution(&dkg_0_alice_contribution));
-
-        state_update(host_addr);
-
-        print(&utf8(b"Bob contributes to DKG 0."));
-        let (dkg_0_bob_secret_share, dkg_0_bob_contribution) = dkg_v0::generate_contribution(&room.cur_dkg_session);
-        process_dkg_contribution(&bob, host_addr, 0, dkg_v0::encode_contribution(&dkg_0_bob_contribution));
-
-        state_update(host_addr);
-
-        print(&utf8(b"Anyone sees that DKG 0 finished and shuffle 0 started."));
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__SHUFFLE_IN_PROGRESS, 999);
-        assert!(room.num_shuffles_done == 0, 999);
-        assert!(shuffle::is_waiting_for_contribution(&room.cur_shuffle_session, alice_addr), 999);
-
-        print(&utf8(b"Alice contributes to shuffle 0."));
-        let game_0_alice_shuffle_contri = shuffle::generate_contribution_locally(&alice, &room.cur_shuffle_session);
-        process_shuffle_contribution(&alice, host_addr, 0, shuffle::encode_contribution(&game_0_alice_shuffle_contri));
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__SHUFFLE_IN_PROGRESS, 999);
-        assert!(room.num_shuffles_done == 0, 999);
-        assert!(shuffle::is_waiting_for_contribution(&room.cur_shuffle_session, bob_addr), 999);
-
-        print(&utf8(b"Bob contributes to shuffle 0."));
-        let game_0_bob_shuffle_contri = shuffle::generate_contribution_locally(&bob, &room.cur_shuffle_session);
-        process_shuffle_contribution(&bob, host_addr, 0, shuffle::encode_contribution(&game_0_bob_shuffle_contri));
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-
-        print(&utf8(b"Eric contributes to shuffle 0."));
-        let game_0_eric_shuffle_contri = shuffle::generate_contribution_locally(&eric, &room.cur_shuffle_session);
-        process_shuffle_contribution(&eric, host_addr, 0, shuffle::encode_contribution(&game_0_eric_shuffle_contri));
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        print(&utf8(b"Game 0 officially starts. So does shuffle 1."));
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS, 999);
-        assert!(room.num_games_done == 0, 999);
-        game::is_dealing_private_cards(&room.cur_game);
-
-        print(&utf8(b"Initiate 6 private card dealings in parallel."));
-        let (game_0_deal_0_alice_secret, game_0_deal_0_alice_reenc) = reencryption::reencrypt(&alice, game::borrow_private_dealing_session(&room.cur_game, 0));
-        let (game_0_deal_1_alice_secret, game_0_deal_1_alice_reenc) = reencryption::reencrypt(&alice, game::borrow_private_dealing_session(&room.cur_game, 1));
-        let (game_0_deal_2_bob_secret, game_0_deal_2_bob_reenc) = reencryption::reencrypt(&bob, game::borrow_private_dealing_session(&room.cur_game, 2));
-        let (game_0_deal_3_bob_secret, game_0_deal_3_bob_reenc) = reencryption::reencrypt(&bob, game::borrow_private_dealing_session(&room.cur_game, 3));
-        let (game_0_deal_4_eric_secret, game_0_deal_4_eric_reenc) = reencryption::reencrypt(&eric, game::borrow_private_dealing_session(&room.cur_game, 4));
-        let (game_0_deal_5_eric_secret, game_0_deal_5_eric_reenc) = reencryption::reencrypt(&eric, game::borrow_private_dealing_session(&room.cur_game, 5));
-        process_private_dealing_reencryption(&alice, host_addr, 0, 0, reencryption::encode_reencryption(&game_0_deal_0_alice_reenc));
-        process_private_dealing_reencryption(&alice, host_addr, 0, 1, reencryption::encode_reencryption(&game_0_deal_1_alice_reenc));
-        process_private_dealing_reencryption(&bob, host_addr, 0, 2, reencryption::encode_reencryption(&game_0_deal_2_bob_reenc));
-        process_private_dealing_reencryption(&bob, host_addr, 0, 3, reencryption::encode_reencryption(&game_0_deal_3_bob_reenc));
-        process_private_dealing_reencryption(&eric, host_addr, 0, 4, reencryption::encode_reencryption(&game_0_deal_4_eric_reenc));
-        process_private_dealing_reencryption(&eric, host_addr, 0, 5, reencryption::encode_reencryption(&game_0_deal_5_eric_reenc));
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        print(&utf8(b"Everyone does its card dealing duties."));
-        vector::for_each(vector::range(0, 6), |i| {
-            let game_0_deal_i_scalar_mul_session = reencryption::borrow_scalar_mul_session(
-                game::borrow_private_dealing_session(&room.cur_game, i));
-            let game_0_deal_i_player_share = threshold_scalar_mul::generate_contribution(&alice, game_0_deal_i_scalar_mul_session, &dkg_0_alice_secret_share);
-            process_private_dealing_contribution(&alice, host_addr, 0, i, threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share));
-        });
-        vector::for_each(vector::range(0, 6), |i| {
-            let game_0_deal_i_scalar_mul_session = reencryption::borrow_scalar_mul_session(
-                game::borrow_private_dealing_session(&room.cur_game, i));
-            let game_0_deal_i_player_share = threshold_scalar_mul::generate_contribution(&bob, game_0_deal_i_scalar_mul_session, &dkg_0_bob_secret_share);
-            process_private_dealing_contribution(&bob, host_addr, 0, i, threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share));
-        });
-        vector::for_each(vector::range(0, 6), |i| {
-            let game_0_deal_i_scalar_mul_session = reencryption::borrow_scalar_mul_session(
-                game::borrow_private_dealing_session(&room.cur_game, i));
-            let game_0_deal_i_player_share = threshold_scalar_mul::generate_contribution(&eric, game_0_deal_i_scalar_mul_session, &dkg_0_eric_secret_share);
-            process_private_dealing_contribution(&eric, host_addr, 0, i, threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share));
-        });
-
-        state_update(host_addr);
-
-        let room = get_room_brief(host_addr);
-        print(&utf8(b"Assert: Game 0 is still in progress, in phase 1 betting, Alice's turn."));
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS, 999);
-        assert!(room.num_games_done == 0, 999);
-        assert!(vector[false, false, false] == game::get_fold_statuses(&room.cur_game), 999);
-        assert!(game::is_phase_1_betting(&room.cur_game, alice_addr), 999);
-        print(&game::get_bets(&room.cur_game));
-        assert!(vector[0, 125, 250] == game::get_bets(&room.cur_game), 999);
-
-        print(&utf8(b"Alice takes a look at her private cards."));
-        let game_0_alice_card_0 = game::reveal_dealed_card_locally(&alice, &room.cur_game, 0, game_0_deal_0_alice_secret);
-        let game_0_alice_card_1 = game::reveal_dealed_card_locally(&alice, &room.cur_game, 1, game_0_deal_1_alice_secret);
-        print(&utf8(b"game_0_alice_card_0:"));
-        print(&utils::get_card_text(game_0_alice_card_0));
-        print(&utf8(b"game_0_alice_card_1:"));
-        print(&utils::get_card_text(game_0_alice_card_1));
-
-        print(&utf8(b"Bob takes a look at his private cards."));
-        let game_0_bob_card_0 = game::reveal_dealed_card_locally(&bob, &room.cur_game, 2, game_0_deal_2_bob_secret);
-        let game_0_bob_card_1 = game::reveal_dealed_card_locally(&bob, &room.cur_game, 3, game_0_deal_3_bob_secret);
-        print(&utf8(b"game_0_bob_card_0:"));
-        print(&utils::get_card_text(game_0_bob_card_0));
-        print(&utf8(b"game_0_bob_card_1:"));
-        print(&utils::get_card_text(game_0_bob_card_1));
-
-        print(&utf8(b"Eric takes a look at his private cards."));
-        let game_0_eric_card_0 = game::reveal_dealed_card_locally(&eric, &room.cur_game, 4, game_0_deal_4_eric_secret);
-        let game_0_eric_card_1 = game::reveal_dealed_card_locally(&eric, &room.cur_game, 5, game_0_deal_5_eric_secret);
-        print(&utf8(b"game_0_eric_card_0:"));
-        print(&utils::get_card_text(game_0_eric_card_0));
-        print(&utf8(b"game_0_eric_card_1:"));
-        print(&utils::get_card_text(game_0_eric_card_1));
-
-        print(&utf8(b"Alice folds."));
-        process_new_bet(&alice, host_addr, 0, 0);
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        print(&utf8(b"They also find some cycles to do shuffle 1."));
-        print(&utf8(b"Alice contributes to shuffle 1."));
-        assert!(shuffle::is_waiting_for_contribution(&room.cur_shuffle_session, alice_addr), 999);
-        let game_1_alice_shuffle_contri = shuffle::generate_contribution_locally(&alice, &room.cur_shuffle_session);
-        process_shuffle_contribution(&alice, host_addr, 1, shuffle::encode_contribution(&game_1_alice_shuffle_contri));
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        print(&utf8(b"Bob contributes to shuffle 1."));
-        assert!(shuffle::is_waiting_for_contribution(&room.cur_shuffle_session, bob_addr), 999);
-        let game_1_bob_shuffle_contri = shuffle::generate_contribution_locally(&bob, &room.cur_shuffle_session);
-        process_shuffle_contribution(&bob, host_addr, 1, shuffle::encode_contribution(&game_1_bob_shuffle_contri));
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        print(&utf8(b"Eric contributes to shuffle 1."));
-        assert!(shuffle::is_waiting_for_contribution(&room.cur_shuffle_session, eric_addr), 999);
-        let game_1_eric_shuffle_contri = shuffle::generate_contribution_locally(&eric, &room.cur_shuffle_session);
-        process_shuffle_contribution(&eric, host_addr, 1, shuffle::encode_contribution(&game_1_eric_shuffle_contri));
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
-        print(&utf8(b"Anyone can see shuffle 1 is done."));
-        assert!(shuffle::succeeded(&room.cur_shuffle_session), 999);
-        assert!(vector[0, 125, 250] == game::get_bets(&room.cur_game), 999);
-        assert!(vector[true, false, false] == game::get_fold_statuses(&room.cur_game), 999);
-        assert!(game::is_phase_1_betting(&room.cur_game, bob_addr), 999);
-
-
-        print(&utf8(b"Bob raises."));
-        process_new_bet(&bob, host_addr, 0, 500);
-
-        state_update(host_addr);
-
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
-        assert!(vector[0, 500, 250] == game::get_bets(&room.cur_game), 999);
-        assert!(vector[true, false, false] == game::get_fold_statuses(&room.cur_game), 999);
-        assert!(game::is_phase_1_betting(&room.cur_game, eric_addr), 999);
-
-        print(&utf8(b"Eric calls."));
-        process_new_bet(&eric, host_addr, 0, 500);
-
-        state_update(host_addr);
-
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
-        assert!(vector[0, 500, 500] == game::get_bets(&room.cur_game), 999);
-        assert!(vector[true, false, false] == game::get_fold_statuses(&room.cur_game), 999);
-
-        print(&utf8(b"Time to open 3 community cards."));
-        assert!(game::is_dealing_community_cards(&room.cur_game), 999);
-
-        print(&utf8(b"Everyone does his card opening duty."));
-        vector::for_each(vector[0,1,2], |opening_idx|{
-            let scalar_mul_session = game::borrow_public_opening_session(&room.cur_game, opening_idx);
-            let share = threshold_scalar_mul::generate_contribution(&bob, scalar_mul_session, &dkg_0_bob_secret_share);
-            process_public_opening_contribution(&bob, host_addr, 0, opening_idx, threshold_scalar_mul::encode_contribution(&share));
-        });
-        vector::for_each(vector[0,1,2], |opening_idx|{
-            let scalar_mul_session = game::borrow_public_opening_session(&room.cur_game, opening_idx);
-            let share = threshold_scalar_mul::generate_contribution(&eric, scalar_mul_session, &dkg_0_eric_secret_share);
-            process_public_opening_contribution(&eric, host_addr, 0, opening_idx, threshold_scalar_mul::encode_contribution(&share));
-        });
-        vector::for_each(vector[0,1,2], |opening_idx|{
-            let scalar_mul_session = game::borrow_public_opening_session(&room.cur_game, opening_idx);
-            let share = threshold_scalar_mul::generate_contribution(&alice, scalar_mul_session, &dkg_0_alice_secret_share);
-            process_public_opening_contribution(&alice, host_addr, 0, opening_idx, threshold_scalar_mul::encode_contribution(&share));
-        });
-
-        state_update(host_addr);
-
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
-        assert!(game::is_phase_2_betting(&room.cur_game, bob_addr), 999);
-        print(&utf8(b"Everyone can see the 3 public cards."));
-        let public_card_0 = game::get_public_card(&room.cur_game, 0);
-        let public_card_1 = game::get_public_card(&room.cur_game, 1);
-        let public_card_2 = game::get_public_card(&room.cur_game, 2);
-        print(&utf8(b"game_0_public_card_0:"));
-        print(&utils::get_card_text(public_card_0));
-        print(&utf8(b"game_0_public_card_1:"));
-        print(&utils::get_card_text(public_card_1));
-        print(&utf8(b"game_0_public_card_2:"));
-        print(&utils::get_card_text(public_card_2));
-
-        print(&utf8(b"Game 0 post-flop betting starts."));
-        print(&utf8(b"Bob checks."));
-        process_new_bet(&bob, host_addr, 0, 500);
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
-        assert!(game::is_phase_2_betting(&room.cur_game, eric_addr), 999);
-
-        print(&utf8(b"Eric bet 300 more chips."));
-        process_new_bet(&eric, host_addr, 0, 800);
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
-        assert!(game::is_phase_2_betting(&room.cur_game, bob_addr), 999);
-
-        print(&utf8(b"Bob calls."));
-        process_new_bet(&bob, host_addr, 0, 800);
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
-        assert!(game::is_opening_4th_community_card(&room.cur_game), 999);
-
-        print(&utf8(b"Opening the 4th public card."));
-        let game_0_opening_3 = game::borrow_public_opening_session(&room.cur_game, 3);
-
-        let game_0_opening_3_alice_share = threshold_scalar_mul::generate_contribution(&alice, game_0_opening_3, &dkg_0_alice_secret_share);
-        process_public_opening_contribution(&alice, host_addr, 0, 3, threshold_scalar_mul::encode_contribution(&game_0_opening_3_alice_share));
-        let game_0_opening_3_bob_share = threshold_scalar_mul::generate_contribution(&bob, game_0_opening_3, &dkg_0_bob_secret_share);
-        process_public_opening_contribution(&bob, host_addr, 0, 3, threshold_scalar_mul::encode_contribution(&game_0_opening_3_bob_share));
-        let game_0_opening_3_eric_share = threshold_scalar_mul::generate_contribution(&eric, game_0_opening_3, &dkg_0_eric_secret_share);
-        process_public_opening_contribution(&eric, host_addr, 0, 3, threshold_scalar_mul::encode_contribution(&game_0_opening_3_eric_share));
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
-        assert!(game::is_phase_3_betting(&room.cur_game, bob_addr), 999);
-
-        print(&utf8(b"Anyone can see the 4th public card."));
-        let public_card_3 = game::get_public_card(&room.cur_game, 3);
-        print(&utf8(b"game_0_public_card_3:"));
-        print(&utils::get_card_text(public_card_3));
-
-        print(&utf8(b"Game 0 post-turn betting starts."));
-        print(&utf8(b"Bob raises."));
-        process_new_bet(&bob, host_addr, 0, 20000);
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
-        assert!(game::is_phase_3_betting(&room.cur_game, eric_addr), 999);
-
-        print(&utf8(b"Eric calls."));
-        process_new_bet(&eric, host_addr, 0, 20000);
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
-        assert!(game::is_opening_5th_community_card(&room.cur_game), 999);
-
-        print(&utf8(b"Opening the 5th public card."));
-        let game_0_opening_4 = game::borrow_public_opening_session(&room.cur_game, 4);
-
-        let game_0_opening_4_eric_share = threshold_scalar_mul::generate_contribution(&eric, game_0_opening_4, &dkg_0_eric_secret_share);
-        process_public_opening_contribution(&eric, host_addr, 0, 4, threshold_scalar_mul::encode_contribution(&game_0_opening_4_eric_share));
-        let game_0_opening_4_alice_share = threshold_scalar_mul::generate_contribution(&alice, game_0_opening_4, &dkg_0_alice_secret_share);
-        process_public_opening_contribution(&alice, host_addr, 0, 4, threshold_scalar_mul::encode_contribution(&game_0_opening_4_alice_share));
-        let game_0_opening_4_bob_share = threshold_scalar_mul::generate_contribution(&bob, game_0_opening_4, &dkg_0_bob_secret_share);
-        process_public_opening_contribution(&bob, host_addr, 0, 4, threshold_scalar_mul::encode_contribution(&game_0_opening_4_bob_share));
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 0, 999);
-        assert!(game::is_phase_4_betting(&room.cur_game, bob_addr), 999);
-
-        print(&utf8(b"Anyone can see the 5th public card."));
-        let public_card_4 = game::get_public_card(&room.cur_game, 4);
-
-        print(&utf8(b"game_0_public_card_4:"));
-        print(&utils::get_card_text(public_card_4));
-
-        print(&utf8(b"Game 0 post-river betting starts."));
-        print(&utf8(b"Bob checks."));
-        process_new_bet(&bob, host_addr, 0, 20000);
-        state_update(host_addr);
-        print(&utf8(b"Eric checks."));
-        process_new_bet(&eric, host_addr, 0, 20000);
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        print(&utf8(b"Game 0 showdown."));
-        assert!(game::is_at_showdown(&room.cur_game), 999);
-
-        print(&utf8(b"Bob and Eric reveal their private cards"));
-        process_showdown_reveal(&eric, host_addr, 0, 4, reencryption::encode_private_state(&game_0_deal_4_eric_secret));
-        process_showdown_reveal(&eric, host_addr, 0, 5, reencryption::encode_private_state(&game_0_deal_5_eric_secret));
-        process_showdown_reveal(&bob, host_addr, 0, 3, reencryption::encode_private_state(&game_0_deal_3_bob_secret));
-        process_showdown_reveal(&bob, host_addr, 0, 2, reencryption::encode_private_state(&game_0_deal_2_bob_secret));
-
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
-        assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS && room.num_games_done == 1, 999);
-
-        coin::destroy_burn_cap(burn_cap);
-        coin::destroy_mint_cap(mint_cap);
+    #[test_only]
+    public fun is_in_dkg(room_brief: &PokerRoomStateBrief, dkg_idx: u64): bool {
+        room_brief.state == STATE__DKG_IN_PROGRESS
+            && room_brief.num_dkgs_done == dkg_idx
+    }
+
+    #[test_only]
+    public fun is_in_shuffle(room_brief: &PokerRoomStateBrief, shuffle_idx: u64): bool {
+        room_brief.state == STATE__SHUFFLE_IN_PROGRESS
+            && room_brief.num_shuffles_done == shuffle_idx
+    }
+
+    #[test_only]
+    public fun is_in_game(room_brief: &PokerRoomStateBrief, game_idx: u64): bool {
+        room_brief.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS
+            && room_brief.num_games_done == game_idx
+    }
+
+    #[test_only]
+    public fun cur_game(room_brief: &PokerRoomStateBrief): &game::Session {
+        &room_brief.cur_game
+    }
+
+    #[test_only]
+    public fun cur_dkg(room_brief: &PokerRoomStateBrief): &dkg_v0::DKGSession {
+        &room_brief.cur_dkg_session
+    }
+
+    #[test_only]
+    public fun cur_shuffle(room_brief: &PokerRoomStateBrief): &shuffle::Session {
+        &room_brief.cur_shuffle_session
     }
 }
