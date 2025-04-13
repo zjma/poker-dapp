@@ -198,7 +198,10 @@ module contract_owner::threshold_scalar_mul {
         framework = @0x1, alice = @0xaaaa, bob = @0xbbbb, eric = @0xeeee
     )]
     fun example(
-        framework: signer, alice: signer, bob: signer, eric: signer
+        framework: signer,
+        alice: signer,
+        bob: signer,
+        eric: signer
     ) {
         randomness::initialize_for_testing(&framework);
         timestamp::set_time_has_started_for_testing(&framework);

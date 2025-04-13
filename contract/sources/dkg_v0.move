@@ -166,7 +166,9 @@ module contract_owner::dkg_v0 {
     }
 
     public fun process_contribution(
-        contributor: &signer, session: &mut DKGSession, contribution: VerifiableContribution
+        contributor: &signer,
+        session: &mut DKGSession,
+        contribution: VerifiableContribution
     ) {
         //TODO: verify contribution
         let contributor_addr = address_of(contributor);

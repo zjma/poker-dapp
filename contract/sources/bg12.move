@@ -231,7 +231,7 @@ module contract_owner::bg12 {
         let n = 52;
         let pedersen_ctxt = pederson_commitment::rand_context(52);
         let enc_base = group::rand_element();
-        let (elgamal_dk, ek) = elgamal::key_gen(enc_base);
+        let (_elgamal_dk, ek) = elgamal::key_gen(enc_base);
         let card_plaintexts = vector::map(vector::range(0, n), |_| group::rand_element());
         let old_deck = vector::map(
             vector::range(0, n),

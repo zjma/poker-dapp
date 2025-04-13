@@ -141,8 +141,8 @@ module contract_owner::product_argument {
         pederson_ctxt: &pederson_commitment::Context,
         trx: &mut fiat_shamir_transform::Transcript,
         n: u64,
-        vec_a_cmt: &group::Element,
-        b: &group::Scalar,
+        _vec_a_cmt: &group::Element,
+        _b: &group::Scalar,
         vec_a: &vector<group::Scalar>,
         r: &group::Scalar
     ): Proof {

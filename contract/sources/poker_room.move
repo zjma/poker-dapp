@@ -488,7 +488,10 @@ module contract_owner::poker_room {
     }
 
     public fun process_new_bet(
-        player: &signer, room: address, game_idx: u64, bet: u64
+        player: &signer,
+        room: address,
+        game_idx: u64,
+        bet: u64
     ) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS, 120142);

@@ -279,7 +279,7 @@ module contract_owner::multiexp_argument {
         let n = 52;
         let pedersen_ctxt = pederson_commitment::rand_context(n);
         let elgamal_base = group::rand_element();
-        let (dk, ek) = elgamal::key_gen(elgamal_base);
+        let (_dk, ek) = elgamal::key_gen(elgamal_base);
         let r = group::rand_scalar();
         let vec_a = vector::map(vector::range(0, n), |_| group::rand_scalar());
         let vec_a_cmt = pederson_commitment::vec_commit(&pedersen_ctxt, &r, &vec_a);

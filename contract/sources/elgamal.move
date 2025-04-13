@@ -172,10 +172,7 @@ module contract_owner::elgamal {
     public fun key_gen(enc_base: group::Element): (DecKey, EncKey) {
         let dk = group::rand_scalar();
         let ek = group::scale_element(&enc_base, &dk);
-        (
-            DecKey { enc_base, private_scalar: dk },
-            EncKey { enc_base, public_point: ek }
-        )
+        (DecKey { enc_base, private_scalar: dk }, EncKey { enc_base, public_point: ek })
     }
 
     #[test(framework = @0x1)]
