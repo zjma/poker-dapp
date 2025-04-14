@@ -33,3 +33,4 @@ You are encouraged to go through the test case line by line to
 - Design the penalty when the game is stuck.
 - Implement poker hand ranking.
 - Player/host action gas cost benchmarking and optimization.
+- Emit events on state updates for easier indexing!
