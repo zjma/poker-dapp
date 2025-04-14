@@ -30,7 +30,7 @@ module contract_owner::dkg_v0 {
         contributions: vector<Option<VerifiableContribution>>,
         contribution_still_needed: u64,
         agg_public_point: group::Element,
-        culprits: vector<address>
+        culprits: vector<address>,
     }
 
     struct VerifiableContribution has copy, drop, store {
