@@ -226,7 +226,7 @@ module contract_owner::dkg_v0 {
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
-    /// Client needs to implement this.
+    /// NOTE: client needs to implement this.
     public fun generate_contribution(session: &DKGSession):
         (SecretShare, VerifiableContribution) {
         let private_scalar = group::rand_scalar();

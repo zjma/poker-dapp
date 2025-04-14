@@ -50,6 +50,7 @@ module contract_owner::bg12 {
         (vector[], ret, buf)
     }
 
+    /// NOTE: client needs to implement this.
     public fun encode_proof(proof: &Proof): vector<u8> {
         let buf = group::encode_element(&proof.vec_a_cmt);
         vector::append(&mut buf, group::encode_element(&proof.vec_b_cmt));
@@ -60,6 +61,7 @@ module contract_owner::bg12 {
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
+    /// NOTE: client needs to implement this.
     public fun prove(
         ek: &elgamal::EncKey,
         pedersen_ctxt: &pederson_commitment::Context,

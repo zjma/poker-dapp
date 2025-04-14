@@ -137,6 +137,7 @@ module contract_owner::product_argument {
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
+    /// NOTE: client needs to implement this.
     public fun prove(
         pederson_ctxt: &pederson_commitment::Context,
         trx: &mut fiat_shamir_transform::Transcript,

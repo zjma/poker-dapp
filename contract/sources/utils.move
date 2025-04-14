@@ -17,6 +17,7 @@ module contract_owner::utils {
         (vector[], ret, buf)
     }
 
+    /// NOTE: client needs to implement this.
     public fun encode_u64(x: u64): vector<u8> {
         vector::map(
             vector::range(0, 8),

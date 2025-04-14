@@ -38,6 +38,7 @@ module contract_owner::elgamal {
         (vector[], ret, buf)
     }
 
+    /// NOTE: client needs to implement this.
     public fun encode_enc_key(ek: &EncKey): vector<u8> {
         let buf = vector[];
         vector::append(&mut buf, group::encode_element(&ek.enc_base));
@@ -130,6 +131,7 @@ module contract_owner::elgamal {
         }
     }
 
+    /// NOTE: client needs to implement this.
     public fun encode_ciphertext(obj: &Ciphertext): vector<u8> {
         let buf = vector[];
         vector::append(&mut buf, group::encode_element(&obj.enc_base));

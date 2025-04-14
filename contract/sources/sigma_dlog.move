@@ -42,6 +42,7 @@ module contract_owner::sigma_dlog {
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
+    /// NOTE: client needs to implement this.
     public fun prove(
         trx: &mut fiat_shamir_transform::Transcript,
         b: &group::Element,

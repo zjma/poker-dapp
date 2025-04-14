@@ -38,6 +38,9 @@ module contract_owner::group {
     }
 
     #[lint::allow_unsafe_randomness]
+    /// Generate a random scalar.
+    ///
+    /// NOTE: client needs to implement this.
     public fun rand_scalar(): Scalar {
         let rand_scalar_val = randomness::u256_range(0, Q);
         let bytes = vector::map(

@@ -20,6 +20,7 @@ module contract_owner::sigma_dlog_eq {
         }
     }
 
+    /// NOTE: client needs to implement this.
     public fun encode_proof(proof: &Proof): vector<u8> {
         let buf = vector[];
         vector::append(&mut buf, group::encode_element(&proof.t0));
@@ -50,6 +51,7 @@ module contract_owner::sigma_dlog_eq {
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
+    /// NOTE: client needs to implement this.
     public fun prove(
         trx: &mut fiat_shamir_transform::Transcript,
         b0: &group::Element,

@@ -139,6 +139,7 @@ module contract_owner::multiexp_argument {
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
+    /// NOTE: client needs to implement this.
     public fun prove(
         ek: &elgamal::EncKey,
         pedersen_ctxt: &pederson_commitment::Context,

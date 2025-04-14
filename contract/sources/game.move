@@ -44,6 +44,7 @@ module contract_owner::game {
     const STATE__SUCCEEDED: u64 = 141628;
     const STATE__FAILED: u64 = 141629;
 
+    /// The full state of a hand.
     struct Session has copy, drop, store {
         num_players: u64,
         players: vector<address>, // [btn, sb, bb, ...]
@@ -665,66 +666,79 @@ module contract_owner::game {
         game.no_more_action_needed[player_idx] = false;
     }
 
+    #[test_only]
     public fun get_public_card(game: &Session, public_card_idx: u64): u64 {
         game.publicly_opened_cards[public_card_idx]
     }
 
+    #[test_only]
     public fun get_bets(game: &Session): vector<u64> {
         game.bets
     }
 
+    #[test_only]
     public fun get_fold_statuses(game: &Session): vector<bool> {
         game.fold_statuses
     }
 
+    #[test_only]
     public fun is_dealing_community_cards(game: &Session): bool {
         game.state == STATE__OPENING_COMMUNITY_CARDS
             && 3 == vector::length(&game.public_opening_sessions)
     }
 
+    #[test_only]
     public fun is_opening_4th_community_card(game: &Session): bool {
         game.state == STATE__OPENING_COMMUNITY_CARDS
             && 4 == vector::length(&game.public_opening_sessions)
     }
 
+    #[test_only]
     public fun is_opening_5th_community_card(game: &Session): bool {
         game.state == STATE__OPENING_COMMUNITY_CARDS
             && 5 == vector::length(&game.public_opening_sessions)
     }
 
+    #[test_only]
     public fun is_at_showdown(game: &Session): bool {
         game.state == STATE__SHOWDOWN
     }
 
+    #[test_only]
     public fun is_phase_1_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
             && 0 == vector::length(&game.public_opening_sessions)
             && whose_turn == game.players[game.current_action_player_idx]
     }
 
+    #[test_only]
     public fun is_phase_2_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
             && 3 == vector::length(&game.public_opening_sessions)
             && whose_turn == game.players[game.current_action_player_idx]
     }
 
+    #[test_only]
     public fun is_phase_3_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
             && 4 == vector::length(&game.public_opening_sessions)
             && whose_turn == game.players[game.current_action_player_idx]
     }
 
+    #[test_only]
     public fun is_phase_4_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
             && 5 == vector::length(&game.public_opening_sessions)
             && whose_turn == game.players[game.current_action_player_idx]
     }
 
+    #[test_only]
     public fun borrow_private_dealing_session(game: &Session, idx: u64):
         &reencryption::Session {
         &game.private_dealing_sessions[idx]
     }
 
+    #[test_only]
     public fun borrow_public_opening_session(
         game: &Session, idx: u64
     ): &threshold_scalar_mul::Session {

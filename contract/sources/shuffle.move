@@ -221,6 +221,7 @@ module contract_owner::shuffle {
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
+    /// NOTE: client needs to implement this.
     public fun generate_contribution_locally(
         contributor: &signer, session: &Session
     ): VerifiableContribution {

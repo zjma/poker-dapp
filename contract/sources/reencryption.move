@@ -42,6 +42,7 @@ module contract_owner::reencryption {
         }
     }
 
+    /// NOTE: client needs to implement this.
     public fun encode_reencryption(obj: &VerifiableReencrpytion): vector<u8> {
         let buf = vector[];
         vector::append(&mut buf, group::encode_element(&obj.th));
@@ -230,12 +231,14 @@ module contract_owner::reencryption {
         (vector[], ret, buf)
     }
 
+    /// NOTE: client needs to implement this.
     public fun encode_private_state(obj: &RecipientPrivateState): vector<u8> {
         group::encode_scalar(&obj.u)
     }
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
+    /// NOTE: client needs to implement this.
     public fun reencrypt(
         target: &signer, session: &Session
     ): (RecipientPrivateState, VerifiableReencrpytion) {

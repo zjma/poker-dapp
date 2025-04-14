@@ -20,6 +20,7 @@ module contract_owner::pederson_commitment {
         }
     }
 
+    /// NOTE: client needs to implement this.
     public fun vec_commit(
         context: &Context, randomizer: &group::Scalar, vec: &vector<group::Scalar>
     ): group::Element {

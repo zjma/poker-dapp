@@ -168,6 +168,7 @@ module contract_owner::threshold_scalar_mul {
 
     #[lint::allow_unsafe_randomness]
     #[test_only]
+    /// NOTE: client needs to implement this.
     public fun generate_contribution(
         contributor: &signer, session: &Session, secret_share: &dkg_v0::SecretShare
     ): VerifiableContribution {
