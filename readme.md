@@ -3,55 +3,60 @@
 The proposed Poker dapp can be described in terms of multiple layers of protocols,
 presented below from the lowest to the highest level.
 
+All protocols leverage the blockchain as a broadcast channel,
+which is assumed the only way for the users to communicate with each other.
+
 ### Naive n-out-of-n DKG
-In this protocol, a group of users collaboratively generate a random scalar `s` such that:
-- no individual knows `s`;
-- Group element `s*G` where group element `G` is a public parameter;
-- `s` is shared:
-  - user `i` privately owns the `i`-th share (denoted by `s(i)` and is also a scalar);
-  - whoever sees all the shares can reconstruct `s`.
+In this protocol, a group of users joinly generates a random scalar `s` such that:
+- no individual learns the value of `s`;
+- The group element `s*G` is publicly known, where group element `G` is a public parameter;
+- `s` is secret-shared among the participants:
+  - user `i` privately holds the `i`-th share, denoted by `s(i)`, which itself is a scalar;
+  - anyone with access to all shares can reconstruct `s`.
 
-The caller initializes a DKG with following as follows.
-- On-chain parameter: a list of allowed participants;
-- On-chain parameter: a deadline;
-- some other parameters are randomly generated using on-chain randomness.
+The caller initializes a DKG with following on-chain states:
+- a list of allowed participants;
+- a deadline;
+- some other parameters that can be randomly generated using on-chain randomness.
 
-Then concurrently, participants each:
-- fetches the parameters,
+Then, concurrently, participants each:
+- fetches the parameters;
 - locally generates their own DKG contribution;
-- sends a transaction to publish it on chain.
+- sends a transaction to publish the contribution on chain.
 
-In the end, anyone can send a transaction to:
-- mark the DKG succeeded;
+At the end, anyone can send a transaction to:
+- mark the DKG as succeeded;
 - conclude the generation of `s` and make `s*G` available on chain.
 
 If one or more users didn't submit a valid contribution before the deadline, anyone can send a transaction to:
-- mark the DKG failed;
+- mark the DKG as failed;
 - report the culprits to the caller.
 
 Reference implementation: [contract/dkg_v0.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/dkg_v0.move).
 
 ### Shuffle
-In this protocol, a group of users collaboratively shuffle a list of ElGamal ciphertexts,
+In this protocol, a group of users joinly shuffles a list of ElGamal ciphertexts,
 which are independently encrypted by the same publicly known encryption key `ek`.
 
 The caller initializes a shuffle with the following on-chain parameters.
 - An ordered list of allowed contributors.
 - Deadlines for every contributor.
 - The ElGamal encryption key `ek`.
-- The original ciphertext list.
+- The original ciphertexts.
 
 Next, the contributors take turns to:
-- fetch the current ciphertext list on chain;
-- generate a BG12 verifiable shuffle of the 52 cards;
-- send a transaction to update the ciphertext list;
+- fetch the current ciphertexts on chain;
+- sample a random permutation privately;
+- apply the permutation to the ciphertexts, re-randomize each ciphertext independently;
+- generate a BG12 verifiable shuffle proof;
+- send a transaction to publish the permuted and re-randomized ciphertexts along with a BG12 proof;
 
 In the end, anyone can send a transaction to:
-- mark the shuffle succeeded;
+- mark the shuffle as succeeded;
 - report the final ciphertext list back to the caller.
 
 If it is someone's turn but they didn't submit a valid contribution before their deadline, anyone can send a transaction to:
-- mark the shuffle failed;
+- mark the shuffle as failed;
 - report the culprit to the caller.
 
 Reference implementation: [contract/shuffle.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/shuffle.move).
@@ -61,20 +66,20 @@ In this protocol, a group of users has previously shared a secret scalar `s`,
 and now collaboratively compute `s*P` for a group element `P` without revealing `s`.
 
 The caller initializes a scalar multiplication as follows.
-- On-chain parameter: the group element `P` to be raised.
-- On-chain parameter: the public information of the shared secret scalar `s`.
+- On-chain state: the group element `P` to be raised.
+- On-chain state: the public information of the shared secret scalar `s`.
 - Private state assumed: participants `i` has the `i`-th share of the secret `s`.
 
-Then concurrently, users each:
+Then, concurrently, users each:
 - computes `s(i)*P` locally and generate a proof of correct computation;
 - publish `s(i)*P` and the proof on chain.
 
 In the end, anyone can send a transaction to:
-- mark the protocol succeeded;
+- mark the operation as succeeded;
 - conclude the computation and make `s*P` available on chain.
 
 If one or more users didn't submit a valid contribution in time, anyone can send a transaction to:
-- mark the operation failed;
+- mark the operation as failed;
 - report the culprits to the caller.
 
 Reference implementation: [contract/threshold_scalar_mul.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/threshold_scalar_mul.move).
@@ -107,7 +112,7 @@ Then, the target user can reveal `P` as `C1' - s*C0' - u*C0'`.
 
 if the target user didn't provide a valid transformation in time, or the threshold scalar multiplication failed,
 anyone can send a transaction to:
-- mark this private dealing failed;
+- mark this private dealing as failed;
 - report the culprits to the caller.
 
 Reference implementation: [contract/reencryption.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/reencryption.move).
@@ -129,7 +134,7 @@ The group simply runs a threshold scalar multiplication protocol to compute `s *
 and `P` can then be derived trivially as `C1 - s * C0`.
 
 If the threshold scalar multiplication failed, anyone can send a transaction to:
-- mark this public card opening failed;
+- mark this public card opening as failed;
 - report the culprit info to the caller.
 
 ### The hand protocol
@@ -162,7 +167,7 @@ Then the regular poker logic follows, utilizing the protocols introduced above.
 
 If any private dealing protocols/public opening protocols failed, the hand became unplayable.
 Anyone can send a transaction to:
-- mark the hand failed;
+- mark the hand as failed;
 - declare the hand void, bets returned;
 - report the culprits to the caller.
 
