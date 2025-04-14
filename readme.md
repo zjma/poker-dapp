@@ -29,7 +29,7 @@ If one or more users didn't submit a valid contribution before the deadline, any
 - mark the DKG failed;
 - report the culprits to the caller.
 
-Reference implementation: `contract/dkg_v0.move`.
+Reference implementation: [contract/dkg_v0.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/dkg_v0.move).
 
 ### Shuffle
 In this protocol, a group of users collaboratively shuffle a list of ElGamal ciphertexts,
@@ -54,7 +54,7 @@ If it is someone's turn but they didn't submit a valid contribution before their
 - mark the shuffle failed;
 - report the culprit to the caller.
 
-Reference implementation: `contract/shuffle.move`.
+Reference implementation: [contract/shuffle.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/shuffle.move).
 
 ### Threshold scalar multiplication
 In this protocol, a group of users has previously shared a secret scalar `s`,
@@ -77,7 +77,7 @@ If one or more users didn't submit a valid contribution in time, anyone can send
 - mark the operation failed;
 - report the culprits to the caller.
 
-Reference implementation: `contract/threshold_scalar_mul.move`.
+Reference implementation: [contract/threshold_scalar_mul.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/threshold_scalar_mul.move).
 
 ### Private card dealing
 In this protocol, a group of users has previously shared a secret scalar `s`,
@@ -110,7 +110,7 @@ anyone can send a transaction to:
 - mark this private dealing failed;
 - report the culprits to the caller.
 
-Reference implementation: `contract/reencryption.move`.
+Reference implementation: [contract/reencryption.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/reencryption.move).
 
 ### Public card opening
 In this protocol, a group of users has previously shared a secret scalar `s`,
@@ -168,7 +168,7 @@ Anyone can send a transaction to:
 
 If it is someone's turn to bet/reveal cards in showdown but they failed to act correctly in time, they are automatically folded.
 
-Reference implementation: `contract/game.move`.
+Reference implementation: [contract/game.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/game.move).
 
 ### The protocol for a poker room
 In this protocol, a host creates a poker room on chain, and `n` players play poker in a tournament-like setting.
@@ -214,4 +214,4 @@ To tolerate such situations, the following timeout mechanism (not yet implemente
 - when a player exceeds the initial deadline for any action in any protocol, the buffer begins to deplete;
 - an action is considered timeout only if the actioner's buffer fully exhausted.
 
-Reference implementation: `contract/poker_room.move`.
+Reference implementation: [contract/poker_room.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/poker_room.move).
