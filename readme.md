@@ -14,6 +14,8 @@ In this protocol, a group of users joinly generates a random scalar `s` such tha
   - user `i` privately holds the `i`-th share, denoted by `s(i)`, which itself is a scalar;
   - anyone with access to all shares can reconstruct `s`.
 
+NOTE: we may soon migrate to a t-out-of-n secret instead of the current n-out-of-n secret.
+
 The caller initializes a DKG with following on-chain states:
 - a list of allowed participants;
 - a deadline;
@@ -35,7 +37,7 @@ If one or more users didn't submit a valid contribution before the deadline, any
 Reference implementation: [contract/dkg_v0.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/dkg_v0.move).
 
 ### Shuffle
-In this protocol, a group of users joinly shuffles a list of ElGamal ciphertexts,
+In this protocol, a group of users joinly shuffles a list of [ElGamal](https://en.wikipedia.org/wiki/ElGamal_encryption) ciphertexts,
 which are independently encrypted by the same publicly known encryption key `ek`.
 
 The caller initializes a shuffle with the following on-chain parameters.
@@ -48,7 +50,7 @@ Next, the contributors take turns to:
 - fetch the current ciphertexts on chain;
 - sample a random permutation privately;
 - apply the permutation to the ciphertexts, re-randomize each ciphertext independently;
-- generate a BG12 verifiable shuffle proof;
+- generate a [BG12](http://www0.cs.ucl.ac.uk/staff/J.Groth/MinimalShuffle.pdf) verifiable shuffle proof;
 - send a transaction to publish the permuted and re-randomized ciphertexts along with a BG12 proof;
 
 In the end, anyone can send a transaction to:
@@ -64,6 +66,8 @@ Reference implementation: [contract/shuffle.move](https://github.com/zjma/poker-
 ### Threshold scalar multiplication
 In this protocol, a group of users has previously shared a secret scalar `s`,
 and now collaboratively compute `s*P` for a group element `P` without revealing `s`.
+
+NOTE: called "threshold" since we may soon migrate to a t-out-of-n secret instead of the current n-out-of-n secret.
 
 The caller initializes a scalar multiplication as follows.
 - On-chain state: the group element `P` to be raised.
@@ -175,8 +179,9 @@ If it is someone's turn to bet/reveal cards in showdown but they failed to act c
 
 Reference implementation: [contract/game.move](https://github.com/zjma/poker-dapp/blob/main/contract/sources/game.move).
 
-### The protocol for a poker room
-In this protocol, a host creates a poker room on chain, and `n` players play poker in a tournament-like setting.
+### The poker room protocol
+
+In this protocol, a **host** creates a poker room on chain, then `n` **players** join to play poker in a tournament-like setting.
 
 The host sends a transaction to initialize a poker room with:
 - a list of addresses of the players allowed to join;
