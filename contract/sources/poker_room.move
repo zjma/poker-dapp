@@ -10,6 +10,7 @@ module contract_owner::poker_room {
     use aptos_framework::aptos_coin::AptosCoin;
     use aptos_framework::coin;
     use aptos_framework::coin::Coin;
+    use aptos_framework::object;
     use aptos_framework::timestamp;
     use contract_owner::elgamal;
     use contract_owner::shuffle;
@@ -89,7 +90,7 @@ module contract_owner::poker_room {
     #[randomness]
     /// A host calls this to create a room. Room state will be stored as a resource under the host's address.
     public(friend) entry fun create(
-        host: &signer, allowed_players: vector<address>
+        host: &signer, seed: vector<u8>, allowed_players: vector<address>
     ) {
         let player_livenesses = allowed_players.map_ref(|_| false);
         let player_chips = allowed_players.map_ref::<address, u64>(|_| 0);
@@ -112,7 +113,9 @@ module contract_owner::poker_room {
             num_shuffles_done: 0,
             escrewed_funds: coin::zero()
         };
-        move_to(host, room)
+        let constructor = object::create_named_object(host, seed);
+        let obj_signer = object::generate_signer(&constructor);
+        move_to(&obj_signer, room)
     }
 
     #[randomness]

@@ -17,6 +17,8 @@ module contract_owner::poker_room_examples {
     #[test_only]
     use aptos_framework::coin;
     #[test_only]
+    use aptos_framework::object;
+    #[test_only]
     use aptos_framework::randomness;
     #[test_only]
     use aptos_framework::timestamp;
@@ -69,61 +71,62 @@ module contract_owner::poker_room_examples {
         let alice_addr = address_of(&alice);
         let bob_addr = address_of(&bob);
         let eric_addr = address_of(&eric);
-        let host_addr = address_of(&host);
         coin::deposit(alice_addr, coin::mint(25000, &mint_cap));
         coin::deposit(bob_addr, coin::mint(25000, &mint_cap));
         coin::deposit(eric_addr, coin::mint(25000, &mint_cap));
-        create(&host, vector[alice_addr, bob_addr, eric_addr]);
+        let room_seed = b"SOME_ROOM_SEED";
+        let room_addr = object::create_object_address(&address_of(&host), room_seed);
+        create(&host, room_seed, vector[alice_addr, bob_addr, eric_addr]);
 
         print(&utf8(b"Alice, Bob, Eric join the room."));
-        join(&alice, host_addr);
-        join(&bob, host_addr);
-        join(&eric, host_addr);
+        join(&alice, room_addr);
+        join(&bob, room_addr);
+        join(&eric, room_addr);
 
-        state_update(host_addr);
+        state_update(room_addr);
 
         print(&utf8(b"Anyone sees we now need to do DKG 0."));
-        let room = poker_room::get_room_brief(host_addr);
+        let room = poker_room::get_room_brief(room_addr);
         assert!(poker_room::is_in_dkg(&room, 0), 999);
 
-        state_update(host_addr);
+        state_update(room_addr);
 
         print(&utf8(b"Eric contributes to DKG 0."));
         let (dkg_0_eric_secret_share, dkg_0_eric_contribution) =
             dkg_v0::generate_contribution(cur_dkg(&room));
         process_dkg_contribution(
             &eric,
-            host_addr,
+            room_addr,
             0,
             dkg_v0::encode_contribution(&dkg_0_eric_contribution)
         );
 
-        state_update(host_addr);
+        state_update(room_addr);
 
         print(&utf8(b"Alice contributes to DKG 0."));
         let (dkg_0_alice_secret_share, dkg_0_alice_contribution) =
             dkg_v0::generate_contribution(cur_dkg(&room));
         process_dkg_contribution(
             &alice,
-            host_addr,
+            room_addr,
             0,
             dkg_v0::encode_contribution(&dkg_0_alice_contribution)
         );
 
-        state_update(host_addr);
+        state_update(room_addr);
 
         print(&utf8(b"Bob contributes to DKG 0."));
         let (dkg_0_bob_secret_share, dkg_0_bob_contribution) =
             dkg_v0::generate_contribution(cur_dkg(&room));
         process_dkg_contribution(
             &bob,
-            host_addr,
+            room_addr,
             0,
             dkg_v0::encode_contribution(&dkg_0_bob_contribution)
         );
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         print(&utf8(b"Anyone sees that DKG 0 finished and shuffle 0 started."));
         assert!(poker_room::is_in_shuffle(&room, 0), 999);
         let cur_shuffle = cur_shuffle(&room);
@@ -134,13 +137,13 @@ module contract_owner::poker_room_examples {
             shuffle::generate_contribution_locally(&alice, cur_shuffle);
         process_shuffle_contribution(
             &alice,
-            host_addr,
+            room_addr,
             0,
             shuffle::encode_contribution(&game_0_alice_shuffle_contri)
         );
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
 
         print(&utf8(b"Bob contributes to shuffle 0."));
         assert!(poker_room::is_in_shuffle(&room, 0), 999);
@@ -150,13 +153,13 @@ module contract_owner::poker_room_examples {
             shuffle::generate_contribution_locally(&bob, cur_shuffle);
         process_shuffle_contribution(
             &bob,
-            host_addr,
+            room_addr,
             0,
             shuffle::encode_contribution(&game_0_bob_shuffle_contri)
         );
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
 
         print(&utf8(b"Eric contributes to shuffle 0."));
         assert!(poker_room::is_in_shuffle(&room, 0), 999);
@@ -166,13 +169,13 @@ module contract_owner::poker_room_examples {
             shuffle::generate_contribution_locally(&eric, cur_shuffle);
         process_shuffle_contribution(
             &eric,
-            host_addr,
+            room_addr,
             0,
             shuffle::encode_contribution(&game_0_eric_shuffle_contri)
         );
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         print(&utf8(b"Game 0 officially starts. So does shuffle 1."));
         assert!(is_in_game(&room, 0), 999);
         let cur_game = cur_game(&room);
@@ -205,48 +208,48 @@ module contract_owner::poker_room_examples {
             );
         process_private_dealing_reencryption(
             &alice,
-            host_addr,
+            room_addr,
             0,
             0,
             reencryption::encode_reencryption(&game_0_deal_0_alice_reenc)
         );
         process_private_dealing_reencryption(
             &alice,
-            host_addr,
+            room_addr,
             0,
             1,
             reencryption::encode_reencryption(&game_0_deal_1_alice_reenc)
         );
         process_private_dealing_reencryption(
             &bob,
-            host_addr,
+            room_addr,
             0,
             2,
             reencryption::encode_reencryption(&game_0_deal_2_bob_reenc)
         );
         process_private_dealing_reencryption(
             &bob,
-            host_addr,
+            room_addr,
             0,
             3,
             reencryption::encode_reencryption(&game_0_deal_3_bob_reenc)
         );
         process_private_dealing_reencryption(
             &eric,
-            host_addr,
+            room_addr,
             0,
             4,
             reencryption::encode_reencryption(&game_0_deal_4_eric_reenc)
         );
         process_private_dealing_reencryption(
             &eric,
-            host_addr,
+            room_addr,
             0,
             5,
             reencryption::encode_reencryption(&game_0_deal_5_eric_reenc)
         );
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
 
         print(&utf8(b"Everyone does its card dealing duties."));
         assert!(is_in_game(&room, 0), 999);
@@ -265,7 +268,7 @@ module contract_owner::poker_room_examples {
                 );
             process_private_dealing_contribution(
                 &alice,
-                host_addr,
+                room_addr,
                 0,
                 i,
                 threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
@@ -284,7 +287,7 @@ module contract_owner::poker_room_examples {
                 );
             process_private_dealing_contribution(
                 &bob,
-                host_addr,
+                room_addr,
                 0,
                 i,
                 threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
@@ -303,16 +306,16 @@ module contract_owner::poker_room_examples {
                 );
             process_private_dealing_contribution(
                 &eric,
-                host_addr,
+                room_addr,
                 0,
                 i,
                 threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
             );
         });
 
-        state_update(host_addr);
+        state_update(room_addr);
 
-        let room = get_room_brief(host_addr);
+        let room = get_room_brief(room_addr);
         print(
             &utf8(
                 b"Assert: Game 0 is still in progress, in phase 1 betting, Alice's turn."
@@ -391,10 +394,10 @@ module contract_owner::poker_room_examples {
         print(&utils::get_card_text(game_0_eric_card_1));
 
         print(&utf8(b"Alice folds."));
-        process_new_bet(&alice, host_addr, 0, 0);
+        process_new_bet(&alice, room_addr, 0, 0);
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         print(&utf8(b"They also find some cycles to do shuffle 1."));
         print(&utf8(b"Alice contributes to shuffle 1."));
         assert!(
@@ -404,26 +407,26 @@ module contract_owner::poker_room_examples {
             shuffle::generate_contribution_locally(&alice, cur_shuffle(&room));
         process_shuffle_contribution(
             &alice,
-            host_addr,
+            room_addr,
             1,
             shuffle::encode_contribution(&game_1_alice_shuffle_contri)
         );
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         print(&utf8(b"Bob contributes to shuffle 1."));
         assert!(shuffle::is_waiting_for_contribution(cur_shuffle(&room), bob_addr), 999);
         let game_1_bob_shuffle_contri =
             shuffle::generate_contribution_locally(&bob, cur_shuffle(&room));
         process_shuffle_contribution(
             &bob,
-            host_addr,
+            room_addr,
             1,
             shuffle::encode_contribution(&game_1_bob_shuffle_contri)
         );
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         print(&utf8(b"Eric contributes to shuffle 1."));
         assert!(
             shuffle::is_waiting_for_contribution(cur_shuffle(&room), eric_addr), 999
@@ -432,13 +435,13 @@ module contract_owner::poker_room_examples {
             shuffle::generate_contribution_locally(&eric, cur_shuffle(&room));
         process_shuffle_contribution(
             &eric,
-            host_addr,
+            room_addr,
             1,
             shuffle::encode_contribution(&game_1_eric_shuffle_contri)
         );
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         assert!(is_in_game(&room, 0), 999);
         print(&utf8(b"Anyone can see shuffle 1 is done."));
         assert!(shuffle::succeeded(cur_shuffle(&room)), 999);
@@ -453,10 +456,10 @@ module contract_owner::poker_room_examples {
         assert!(game::is_phase_1_betting(cur_game(&room), bob_addr), 999);
 
         print(&utf8(b"Bob raises."));
-        process_new_bet(&bob, host_addr, 0, 500);
+        process_new_bet(&bob, room_addr, 0, 500);
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         assert!(is_in_game(&room, 0), 999);
         assert!(
             vector[0, 500, 250] == game::get_bets(cur_game(&room)),
@@ -469,11 +472,11 @@ module contract_owner::poker_room_examples {
         assert!(game::is_phase_1_betting(cur_game(&room), eric_addr), 999);
 
         print(&utf8(b"Eric calls."));
-        process_new_bet(&eric, host_addr, 0, 500);
+        process_new_bet(&eric, room_addr, 0, 500);
 
-        state_update(host_addr);
+        state_update(room_addr);
 
-        let room = get_room_brief(host_addr);
+        let room = get_room_brief(room_addr);
         assert!(is_in_game(&room, 0), 999);
         assert!(
             vector[0, 500, 500] == game::get_bets(cur_game(&room)),
@@ -497,7 +500,7 @@ module contract_owner::poker_room_examples {
                 );
             process_public_opening_contribution(
                 &bob,
-                host_addr,
+                room_addr,
                 0,
                 opening_idx,
                 threshold_scalar_mul::encode_contribution(&share)
@@ -512,7 +515,7 @@ module contract_owner::poker_room_examples {
                 );
             process_public_opening_contribution(
                 &eric,
-                host_addr,
+                room_addr,
                 0,
                 opening_idx,
                 threshold_scalar_mul::encode_contribution(&share)
@@ -527,16 +530,16 @@ module contract_owner::poker_room_examples {
                 );
             process_public_opening_contribution(
                 &alice,
-                host_addr,
+                room_addr,
                 0,
                 opening_idx,
                 threshold_scalar_mul::encode_contribution(&share)
             );
         });
 
-        state_update(host_addr);
+        state_update(room_addr);
 
-        let room = get_room_brief(host_addr);
+        let room = get_room_brief(room_addr);
         assert!(is_in_game(&room, 0), 999);
         assert!(game::is_phase_2_betting(cur_game(&room), bob_addr), 999);
         print(&utf8(b"Everyone can see the 3 public cards."));
@@ -552,27 +555,27 @@ module contract_owner::poker_room_examples {
 
         print(&utf8(b"Game 0 post-flop betting starts."));
         print(&utf8(b"Bob checks."));
-        process_new_bet(&bob, host_addr, 0, 500);
+        process_new_bet(&bob, room_addr, 0, 500);
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         assert!(is_in_game(&room, 0), 999);
         assert!(game::is_phase_2_betting(cur_game(&room), eric_addr), 999);
 
         print(&utf8(b"Eric bet 300 more chips."));
-        process_new_bet(&eric, host_addr, 0, 800);
+        process_new_bet(&eric, room_addr, 0, 800);
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         assert!(is_in_game(&room, 0), 999);
         let cur_game = cur_game(&room);
         assert!(game::is_phase_2_betting(cur_game, bob_addr), 999);
 
         print(&utf8(b"Bob calls."));
-        process_new_bet(&bob, host_addr, 0, 800);
+        process_new_bet(&bob, room_addr, 0, 800);
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         assert!(is_in_game(&room, 0), 999);
         let cur_game = cur_game(&room);
         assert!(game::is_opening_4th_community_card(cur_game), 999);
@@ -586,7 +589,7 @@ module contract_owner::poker_room_examples {
             );
         process_public_opening_contribution(
             &alice,
-            host_addr,
+            room_addr,
             0,
             3,
             threshold_scalar_mul::encode_contribution(&game_0_opening_3_alice_share)
@@ -597,7 +600,7 @@ module contract_owner::poker_room_examples {
             );
         process_public_opening_contribution(
             &bob,
-            host_addr,
+            room_addr,
             0,
             3,
             threshold_scalar_mul::encode_contribution(&game_0_opening_3_bob_share)
@@ -608,14 +611,14 @@ module contract_owner::poker_room_examples {
             );
         process_public_opening_contribution(
             &eric,
-            host_addr,
+            room_addr,
             0,
             3,
             threshold_scalar_mul::encode_contribution(&game_0_opening_3_eric_share)
         );
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         let cur_game = cur_game(&room);
         assert!(is_in_game(&room, 0), 999);
         assert!(game::is_phase_3_betting(cur_game, bob_addr), 999);
@@ -627,19 +630,19 @@ module contract_owner::poker_room_examples {
 
         print(&utf8(b"Game 0 post-turn betting starts."));
         print(&utf8(b"Bob raises."));
-        process_new_bet(&bob, host_addr, 0, 20000);
+        process_new_bet(&bob, room_addr, 0, 20000);
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         let cur_game = cur_game(&room);
         assert!(is_in_game(&room, 0), 999);
         assert!(game::is_phase_3_betting(cur_game, eric_addr), 999);
 
         print(&utf8(b"Eric calls."));
-        process_new_bet(&eric, host_addr, 0, 20000);
+        process_new_bet(&eric, room_addr, 0, 20000);
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         let cur_game = cur_game(&room);
         assert!(is_in_game(&room, 0), 999);
         assert!(game::is_opening_5th_community_card(cur_game), 999);
@@ -653,7 +656,7 @@ module contract_owner::poker_room_examples {
             );
         process_public_opening_contribution(
             &eric,
-            host_addr,
+            room_addr,
             0,
             4,
             threshold_scalar_mul::encode_contribution(&game_0_opening_4_eric_share)
@@ -664,7 +667,7 @@ module contract_owner::poker_room_examples {
             );
         process_public_opening_contribution(
             &alice,
-            host_addr,
+            room_addr,
             0,
             4,
             threshold_scalar_mul::encode_contribution(&game_0_opening_4_alice_share)
@@ -675,14 +678,14 @@ module contract_owner::poker_room_examples {
             );
         process_public_opening_contribution(
             &bob,
-            host_addr,
+            room_addr,
             0,
             4,
             threshold_scalar_mul::encode_contribution(&game_0_opening_4_bob_share)
         );
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         let cur_game = cur_game(&room);
         assert!(is_in_game(&room, 0), 999);
         assert!(game::is_phase_4_betting(cur_game, bob_addr), 999);
@@ -695,13 +698,13 @@ module contract_owner::poker_room_examples {
 
         print(&utf8(b"Game 0 post-river betting starts."));
         print(&utf8(b"Bob checks."));
-        process_new_bet(&bob, host_addr, 0, 20000);
-        state_update(host_addr);
+        process_new_bet(&bob, room_addr, 0, 20000);
+        state_update(room_addr);
         print(&utf8(b"Eric checks."));
-        process_new_bet(&eric, host_addr, 0, 20000);
+        process_new_bet(&eric, room_addr, 0, 20000);
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         let cur_game = cur_game(&room);
         print(&utf8(b"Game 0 showdown."));
         assert!(game::is_at_showdown(cur_game), 999);
@@ -709,35 +712,35 @@ module contract_owner::poker_room_examples {
         print(&utf8(b"Bob and Eric reveal their private cards"));
         process_showdown_reveal(
             &eric,
-            host_addr,
+            room_addr,
             0,
             4,
             reencryption::encode_private_state(&game_0_deal_4_eric_secret)
         );
         process_showdown_reveal(
             &eric,
-            host_addr,
+            room_addr,
             0,
             5,
             reencryption::encode_private_state(&game_0_deal_5_eric_secret)
         );
         process_showdown_reveal(
             &bob,
-            host_addr,
+            room_addr,
             0,
             3,
             reencryption::encode_private_state(&game_0_deal_3_bob_secret)
         );
         process_showdown_reveal(
             &bob,
-            host_addr,
+            room_addr,
             0,
             2,
             reencryption::encode_private_state(&game_0_deal_2_bob_secret)
         );
 
-        state_update(host_addr);
-        let room = get_room_brief(host_addr);
+        state_update(room_addr);
+        let room = get_room_brief(room_addr);
         assert!(is_in_game(&room, 1), 999);
 
         coin::destroy_burn_cap(burn_cap);
