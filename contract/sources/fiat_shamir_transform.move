@@ -1,6 +1,5 @@
 /// Utils for Fiat-Shamir transformation.
 module contract_owner::fiat_shamir_transform {
-    use std::vector;
     use aptos_std::aptos_hash::sha3_512;
     use contract_owner::group;
 
@@ -22,7 +21,7 @@ module contract_owner::fiat_shamir_transform {
 
     /// NOTE: client needs to implement this.
     public fun append_raw_bytes(trx: &mut Transcript, raw: vector<u8>) {
-        vector::append(&mut trx.recorded, raw)
+        trx.recorded.append(raw)
     }
 
     /// NOTE: client needs to implement this.

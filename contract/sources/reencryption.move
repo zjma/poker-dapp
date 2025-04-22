@@ -7,7 +7,6 @@ module contract_owner::reencryption {
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
-    use std::vector;
     use aptos_framework::timestamp;
     use contract_owner::fiat_shamir_transform;
     use contract_owner::sigma_dlog;
@@ -45,11 +44,11 @@ module contract_owner::reencryption {
     /// NOTE: client needs to implement this.
     public fun encode_reencryption(obj: &VerifiableReencrpytion): vector<u8> {
         let buf = vector[];
-        vector::append(&mut buf, group::encode_element(&obj.th));
-        vector::append(&mut buf, group::encode_element(&obj.tsh));
-        vector::append(&mut buf, group::encode_element(&obj.urth));
-        vector::append(&mut buf, sigma_dlog_eq::encode_proof(&obj.proof_t));
-        vector::append(&mut buf, sigma_dlog::encode_proof(&obj.proof_u));
+        buf.append(group::encode_element(&obj.th));
+        buf.append(group::encode_element(&obj.tsh));
+        buf.append(group::encode_element(&obj.urth));
+        buf.append(sigma_dlog_eq::encode_proof(&obj.proof_t));
+        buf.append(sigma_dlog::encode_proof(&obj.proof_u));
         buf
     }
 
@@ -57,28 +56,28 @@ module contract_owner::reencryption {
         buf: vector<u8>
     ): (vector<u64>, VerifiableReencrpytion, vector<u8>) {
         let (errors, th, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 302035);
+        if (!errors.is_empty()) {
+            errors.push_back(302035);
             return (errors, dummy_reencryption(), buf);
         };
         let (errors, tsh, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 302036);
+        if (!errors.is_empty()) {
+            errors.push_back(302036);
             return (errors, dummy_reencryption(), buf);
         };
         let (errors, urth, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 302037);
+        if (!errors.is_empty()) {
+            errors.push_back(302037);
             return (errors, dummy_reencryption(), buf);
         };
         let (errors, proof_t, buf) = sigma_dlog_eq::decode_proof(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 302038);
+        if (!errors.is_empty()) {
+            errors.push_back(302038);
             return (errors, dummy_reencryption(), buf);
         };
         let (errors, proof_u, buf) = sigma_dlog::decode_proof(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 302039);
+        if (!errors.is_empty()) {
+            errors.push_back(302039);
             return (errors, dummy_reencryption(), buf);
         };
 
@@ -160,15 +159,15 @@ module contract_owner::reencryption {
         session: &mut Session,
         share: threshold_scalar_mul::VerifiableContribution
     ) {
-        let sub_session = option::borrow_mut(&mut session.thresh_scalar_mul_session);
+        let sub_session = session.thresh_scalar_mul_session.borrow_mut();
         threshold_scalar_mul::process_contribution(player, sub_session, share);
     }
 
     public fun state_update(session: &mut Session) {
         let now_secs = timestamp::now_seconds();
         if (session.state == STATE__ACCEPTING_REENC) {
-            if (option::is_some(&session.reenc)) {
-                let new_ciph = option::borrow(&session.reenc);
+            if (session.reenc.is_some()) {
+                let new_ciph = session.reenc.borrow();
                 let (_, new_c0, _) = elgamal::unpack_ciphertext(*new_ciph);
                 let sub_session =
                     threshold_scalar_mul::new_session(
@@ -184,7 +183,7 @@ module contract_owner::reencryption {
                 session.culprits = vector[session.deal_target];
             }
         } else if (session.state == STATE__THRESHOLD_SCALAR_MUL_IN_PROGRESS) {
-            let sub_session = option::borrow_mut(&mut session.thresh_scalar_mul_session);
+            let sub_session = session.thresh_scalar_mul_session.borrow_mut();
             threshold_scalar_mul::state_update(sub_session);
             if (threshold_scalar_mul::succeeded(sub_session)) {
                 session.state = STATE__SUCCEEDED;
@@ -208,7 +207,7 @@ module contract_owner::reencryption {
     }
 
     public fun borrow_scalar_mul_session(session: &Session): &threshold_scalar_mul::Session {
-        option::borrow(&session.thresh_scalar_mul_session)
+        session.thresh_scalar_mul_session.borrow()
     }
 
     struct RecipientPrivateState has copy, drop {
@@ -223,8 +222,8 @@ module contract_owner::reencryption {
         buf: vector<u8>
     ): (vector<u64>, RecipientPrivateState, vector<u8>) {
         let (errors, u, buf) = group::decode_scalar(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 124147);
+        if (!errors.is_empty()) {
+            errors.push_back(124147);
             return (errors, dummy_private_state(), buf);
         };
         let ret = RecipientPrivateState { u };
@@ -269,10 +268,10 @@ module contract_owner::reencryption {
         let RecipientPrivateState { u } = private_state;
         let srth =
             threshold_scalar_mul::get_result(
-                option::borrow(&session.thresh_scalar_mul_session)
+                session.thresh_scalar_mul_session.borrow()
             );
         let (_, new_c0, new_c1) =
-            elgamal::unpack_ciphertext(*option::borrow(&session.reenc));
+            elgamal::unpack_ciphertext(*session.reenc.borrow());
         let urth = group::scale_element(&new_c0, &u);
         let blinder = group::element_add(&srth, &urth);
         let plaintext = group::element_sub(&new_c1, &blinder);
@@ -315,18 +314,18 @@ module contract_owner::reencryption {
         let alice_contribution =
             threshold_scalar_mul::generate_contribution(
                 &alice,
-                option::borrow(&session.thresh_scalar_mul_session),
+                session.thresh_scalar_mul_session.borrow(),
                 &alice_share
             );
         process_scalar_mul_share(&alice, &mut session, alice_contribution);
         let bob_contribution =
             threshold_scalar_mul::generate_contribution(
-                &bob, option::borrow(&session.thresh_scalar_mul_session), &bob_share
+                &bob, session.thresh_scalar_mul_session.borrow(), &bob_share
             );
         process_scalar_mul_share(&bob, &mut session, bob_contribution);
         let eric_contribution =
             threshold_scalar_mul::generate_contribution(
-                &eric, option::borrow(&session.thresh_scalar_mul_session), &eric_share
+                &eric, session.thresh_scalar_mul_session.borrow(), &eric_share
             );
         process_scalar_mul_share(&eric, &mut session, eric_contribution);
         state_update(&mut session);

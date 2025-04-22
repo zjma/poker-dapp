@@ -5,7 +5,7 @@ module contract_owner::threshold_scalar_mul {
     use std::option::Option;
     use std::signer::address_of;
     use std::vector;
-    use std::vector::{length, range, for_each, push_back};
+    use std::vector::range;
     use aptos_framework::timestamp;
     use contract_owner::sigma_dlog_eq;
     use contract_owner::dkg_v0;
@@ -57,7 +57,7 @@ module contract_owner::threshold_scalar_mul {
         allowed_contributors: vector<address>,
         deadline: u64
     ): Session {
-        let n = length(&allowed_contributors);
+        let n = allowed_contributors.length();
         Session {
             to_be_scaled,
             secret_info,
@@ -65,7 +65,7 @@ module contract_owner::threshold_scalar_mul {
             state: STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE,
             deadline,
             culprits: vector[],
-            contributions: vector::map(range(0, n), |_| option::none()),
+            contributions: range(0, n).map(|_| option::none()),
             result: option::none()
         }
     }
@@ -73,33 +73,26 @@ module contract_owner::threshold_scalar_mul {
     public fun state_update(session: &mut Session) {
         if (session.state == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE) {
             let now_sec = timestamp::now_seconds();
-            let n = vector::length(&session.allowed_contributors);
+            let n = session.allowed_contributors.length();
             let num_shares = 0;
             let missing_contributors = vector[];
-            for_each(
-                vector::range(0, n),
-                |i| {
-                    if (option::is_some(&session.contributions[i])) {
-                        num_shares = num_shares + 1;
-                    } else {
-                        push_back(
-                            &mut missing_contributors, session.allowed_contributors[i]
-                        );
-                    }
+            vector::range(0, n).for_each(|i| {
+                if (session.contributions[i].is_some()) {
+                    num_shares += 1;
+                } else {
+                    missing_contributors.push_back(session.allowed_contributors[i]);
                 }
-            );
+            });
             let threshold = dkg_v0::get_threshold(&session.secret_info);
             if (num_shares >= threshold) {
-                let scalar_mul_shares = vector::map_ref(
-                    &session.contributions,
-                    |contri| {
-                        if (option::is_some(contri)) {
-                            option::some(option::borrow(contri).payload)
-                        } else {
-                            option::none()
-                        }
+                let scalar_mul_shares = session.contributions.map_ref(|maybe_contri| {
+                    if (maybe_contri.is_some()) {
+                        let contri = maybe_contri.borrow();
+                        option::some(contri.payload)
+                    } else {
+                        option::none()
                     }
-                );
+                });
                 session.result = option::some(
                     dkg_v0::aggregate_scalar_mul(
                         &session.secret_info, scalar_mul_shares
@@ -118,10 +111,10 @@ module contract_owner::threshold_scalar_mul {
     ) {
         assert!(session.state == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE, 164507);
         let addr = address_of(contributor);
-        let (found, idx) = vector::index_of(&session.allowed_contributors, &addr);
+        let (found, idx) = session.allowed_contributors.index_of(&addr);
         assert!(found, 164508);
         //TODO: verify contribution
-        option::fill(&mut session.contributions[idx], contribution);
+        session.contributions[idx].fill(contribution);
     }
 
     public fun succeeded(session: &Session): bool {
@@ -139,20 +132,20 @@ module contract_owner::threshold_scalar_mul {
 
     public fun get_result(session: &Session): group::Element {
         assert!(session.state == STATE__SUCCEEDED, 165045);
-        *option::borrow(&session.result)
+        *session.result.borrow()
     }
 
     public fun decode_contribution(
         buf: vector<u8>
     ): (vector<u64>, VerifiableContribution, vector<u8>) {
         let (errors, payload, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 270424);
+        if (!errors.is_empty()) {
+            errors.push_back(270424);
             return (errors, dummy_contribution(), buf);
         };
         let (errors, proof, buf) = sigma_dlog_eq::decode_proof(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 270425);
+        if (!errors.is_empty()) {
+            errors.push_back(270425);
             return (errors, dummy_contribution(), buf);
         };
         let ret = VerifiableContribution { payload, proof };
@@ -161,8 +154,8 @@ module contract_owner::threshold_scalar_mul {
 
     public fun encode_contribution(obj: &VerifiableContribution): vector<u8> {
         let buf = vector[];
-        vector::append(&mut buf, group::encode_element(&obj.payload));
-        vector::append(&mut buf, sigma_dlog_eq::encode_proof(&obj.proof));
+        buf.append(group::encode_element(&obj.payload));
+        buf.append(sigma_dlog_eq::encode_proof(&obj.proof));
         buf
     }
 
@@ -173,9 +166,7 @@ module contract_owner::threshold_scalar_mul {
         contributor: &signer, session: &Session, secret_share: &dkg_v0::SecretShare
     ): VerifiableContribution {
         let contributor_addr = address_of(contributor);
-        let (found, contributor_idx) = vector::index_of(
-            &session.allowed_contributors, &contributor_addr
-        );
+        let (found, contributor_idx) = session.allowed_contributors.index_of(&contributor_addr);
         assert!(found, 310240);
         let (_agg_ek, ek_shares) =
             dkg_v0::unpack_shared_secret_public_info(session.secret_info);

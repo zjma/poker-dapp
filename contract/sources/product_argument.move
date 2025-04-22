@@ -31,23 +31,23 @@ module contract_owner::product_argument {
 
     public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
         let (errors, vec_d_cmt, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 211909);
+        if (!errors.is_empty()) {
+            errors.push_back(211909);
             return (errors, dummy_proof(), buf);
         };
         let (errors, cmt_2, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 211910);
+        if (!errors.is_empty()) {
+            errors.push_back(211910);
             return (errors, dummy_proof(), buf);
         };
         let (errors, cmt_3, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 211911);
+        if (!errors.is_empty()) {
+            errors.push_back(211911);
             return (errors, dummy_proof(), buf);
         };
         let (errors, vec_a_tilde_len, buf) = utils::decode_u64(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 211912);
+        if (!errors.is_empty()) {
+            errors.push_back(211912);
             return (errors, dummy_proof(), buf);
         };
 
@@ -55,19 +55,19 @@ module contract_owner::product_argument {
         let i = 0;
         while (i < vec_a_tilde_len) {
             let (errors, scalar, remainder) = group::decode_scalar(buf);
-            if (!vector::is_empty(&errors)) {
-                vector::push_back(&mut errors, i);
-                vector::push_back(&mut errors, 211913);
+            if (!errors.is_empty()) {
+                errors.push_back(i);
+                errors.push_back(211913);
                 return (errors, dummy_proof(), buf);
             };
             buf = remainder;
-            vector::push_back(&mut vec_a_tilde, scalar);
-            i = i + 1;
+            vec_a_tilde.push_back(scalar);
+            i += 1;
         };
 
         let (errors, vec_b_tilde_len, buf) = utils::decode_u64(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 211914);
+        if (!errors.is_empty()) {
+            errors.push_back(211914);
             return (errors, dummy_proof(), buf);
         };
 
@@ -75,25 +75,25 @@ module contract_owner::product_argument {
         let i = 0;
         while (i < vec_b_tilde_len) {
             let (errors, scalar, remainder) = group::decode_scalar(buf);
-            if (!vector::is_empty(&errors)) {
-                vector::push_back(&mut errors, i);
-                vector::push_back(&mut errors, 211915);
+            if (!errors.is_empty()) {
+                errors.push_back(i);
+                errors.push_back(211915);
                 return (errors, dummy_proof(), buf);
             };
             buf = remainder;
-            vector::push_back(&mut vec_b_tilde, scalar);
-            i = i + 1;
+            vec_b_tilde.push_back(scalar);
+            i += 1;
         };
 
         let (errors, r_tilde, buf) = group::decode_scalar(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 211916);
+        if (!errors.is_empty()) {
+            errors.push_back(211916);
             return (errors, dummy_proof(), buf);
         };
 
         let (errors, s_tilde, buf) = group::decode_scalar(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 211917);
+        if (!errors.is_empty()) {
+            errors.push_back(211917);
             return (errors, dummy_proof(), buf);
         };
 
@@ -112,26 +112,20 @@ module contract_owner::product_argument {
 
     public fun encode_proof(proof: &Proof): vector<u8> {
         let buf = group::encode_element(&proof.vec_d_cmt);
-        vector::append(&mut buf, group::encode_element(&proof.cmt_2));
-        vector::append(&mut buf, group::encode_element(&proof.cmt_3));
-        let vec_a_tilde_len = vector::length(&proof.vec_a_tilde);
-        vector::append(&mut buf, utils::encode_u64(vec_a_tilde_len));
-        vector::for_each_ref(
-            &proof.vec_a_tilde,
-            |scalar| {
-                vector::append(&mut buf, group::encode_scalar(scalar));
-            }
-        );
-        let vec_b_tilde_len = vector::length(&proof.vec_b_tilde);
-        vector::append(&mut buf, utils::encode_u64(vec_b_tilde_len));
-        vector::for_each_ref(
-            &proof.vec_b_tilde,
-            |scalar| {
-                vector::append(&mut buf, group::encode_scalar(scalar));
-            }
-        );
-        vector::append(&mut buf, group::encode_scalar(&proof.r_tilde));
-        vector::append(&mut buf, group::encode_scalar(&proof.s_tilde));
+        buf.append(group::encode_element(&proof.cmt_2));
+        buf.append(group::encode_element(&proof.cmt_3));
+        let vec_a_tilde_len = proof.vec_a_tilde.length();
+        buf.append(utils::encode_u64(vec_a_tilde_len));
+        proof.vec_a_tilde.for_each_ref(|scalar| {
+            buf.append(group::encode_scalar(scalar));
+        });
+        let vec_b_tilde_len = proof.vec_b_tilde.length();
+        buf.append(utils::encode_u64(vec_b_tilde_len));
+        proof.vec_b_tilde.for_each_ref(|scalar| {
+            buf.append(group::encode_scalar(scalar));
+        });
+        buf.append(group::encode_scalar(&proof.r_tilde));
+        buf.append(group::encode_scalar(&proof.s_tilde));
         buf
     }
 
@@ -147,71 +141,53 @@ module contract_owner::product_argument {
         vec_a: &vector<group::Scalar>,
         r: &group::Scalar
     ): Proof {
-        let vec_b = vector[*vector::borrow(vec_a, 0)];
+        let vec_b = vector[vec_a[0]];
         let i = 1;
         while (i < n) {
-            let new_item = group::scalar_mul(&vec_b[i - 1], vector::borrow(vec_a, i));
-            vector::push_back(&mut vec_b, new_item);
-            i = i + 1;
+            let new_item = group::scalar_mul(&vec_b[i - 1], vec_a.borrow(i));
+            vec_b.push_back(new_item);
+            i += 1;
         };
 
-        let vec_d = vector::map(vector::range(0, n), |_| group::rand_scalar());
+        let vec_d = vector::range(0, n).map(|_| group::rand_scalar());
         let r_d = group::rand_scalar();
         let vec_delta = vector[vec_d[0]];
-        vector::append(
-            &mut vec_delta,
-            vector::map(
-                vector::range(1, n - 1),
-                |_| group::rand_scalar()
-            )
-        );
-        vector::push_back(&mut vec_delta, group::scalar_from_u64(0));
+        vec_delta.append(vector::range(1, n - 1).map(|_| group::rand_scalar()));
+        vec_delta.push_back(group::scalar_from_u64(0));
         let s_1 = group::rand_scalar();
         let s_x = group::rand_scalar();
         let vec_d_cmt = pederson_commitment::vec_commit(pederson_ctxt, &r_d, &vec_d);
-        let vec_2 = vector::map(
-            vector::range(0, n - 1),
-            |i| {
-                group::scalar_neg(
-                    &group::scalar_mul(&vec_d[i + 1], &vec_delta[i])
-                )
-            }
-        );
+        let vec_2 = vector::range(0, n - 1).map(|i| {
+            group::scalar_neg(
+                &group::scalar_mul(&vec_d[i + 1], &vec_delta[i])
+            )
+        });
         let cmt_2 = pederson_commitment::vec_commit(pederson_ctxt, &s_1, &vec_2);
-        let vec_3 = vector::map(
-            vector::range(0, n - 1),
-            |i| {
-                let tmp =
-                    group::scalar_add(
-                        &group::scalar_mul(vector::borrow(vec_a, i + 1), &vec_delta[i]),
-                        &group::scalar_mul(&vec_b[i], &vec_d[i + 1])
-                    );
-                group::scalar_sub(&vec_delta[i + 1], &tmp)
-            }
-        );
+        let vec_3 = vector::range(0, n - 1).map(|i| {
+            let tmp =
+                group::scalar_add(
+                    &group::scalar_mul(vec_a.borrow(i + 1), &vec_delta[i]),
+                    &group::scalar_mul(&vec_b[i], &vec_d[i + 1])
+                );
+            group::scalar_sub(&vec_delta[i + 1], &tmp)
+        });
         let cmt_3 = pederson_commitment::vec_commit(pederson_ctxt, &s_x, &vec_3);
         fiat_shamir_transform::append_group_element(trx, &vec_d_cmt);
         fiat_shamir_transform::append_group_element(trx, &cmt_2);
         fiat_shamir_transform::append_group_element(trx, &cmt_3);
         let x = fiat_shamir_transform::hash_to_scalar(trx);
-        let vec_a_tilde = vector::map(
-            vector::range(0, n),
-            |i| {
-                group::scalar_add(
-                    &vec_d[i],
-                    &group::scalar_mul(&x, vector::borrow(vec_a, i))
-                )
-            }
-        );
-        let vec_b_tilde = vector::map(
-            vector::range(0, n),
-            |i| {
-                group::scalar_add(
-                    &vec_delta[i],
-                    &group::scalar_mul(&x, &vec_b[i])
-                )
-            }
-        );
+        let vec_a_tilde = vector::range(0, n).map(|i| {
+            group::scalar_add(
+                &vec_d[i],
+                &group::scalar_mul(&x, vec_a.borrow(i))
+            )
+        });
+        let vec_b_tilde = vector::range(0, n).map(|i| {
+            group::scalar_add(
+                &vec_delta[i],
+                &group::scalar_mul(&x, &vec_b[i])
+            )
+        });
         let r_tilde = group::scalar_add(&group::scalar_mul(&x, r), &r_d);
         let s_tilde = group::scalar_add(&group::scalar_mul(&x, &s_x), &s_1);
 
@@ -245,15 +221,12 @@ module contract_owner::product_argument {
             ))
             return false;
 
-        let tmp_vec = vector::map(
-            vector::range(0, n - 1),
-            |i| {
-                group::scalar_sub(
-                    &group::scalar_mul(&x, &proof.vec_b_tilde[i + 1]),
-                    &group::scalar_mul(&proof.vec_b_tilde[i], &proof.vec_a_tilde[i + 1])
-                )
-            }
-        );
+        let tmp_vec = vector::range(0, n - 1).map(|i| {
+            group::scalar_sub(
+                &group::scalar_mul(&x, &proof.vec_b_tilde[i + 1]),
+                &group::scalar_mul(&proof.vec_b_tilde[i], &proof.vec_a_tilde[i + 1])
+            )
+        });
 
         if (group::element_add(&group::scale_element(&proof.cmt_3, &x), &proof.cmt_2)
             != pederson_commitment::vec_commit(pederson_ctxt, &proof.s_tilde, &tmp_vec))
@@ -273,10 +246,10 @@ module contract_owner::product_argument {
         let n = 52;
         let pedersen_ctxt = pederson_commitment::rand_context(n);
         let r = group::rand_scalar();
-        let vec_a = vector::map(vector::range(0, n), |_| group::rand_scalar());
+        let vec_a = vector::range(0, n).map(|_| group::rand_scalar());
 
         let b = group::scalar_from_u64(1);
-        vector::for_each_ref(&vec_a, |val| {
+        vec_a.for_each_ref(|val| {
             b = group::scalar_mul(&b, val);
         });
 

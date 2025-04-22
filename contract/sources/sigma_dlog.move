@@ -1,6 +1,5 @@
 /// Protocol to prove knowledge of scalar `s` such that `s*B == P` for public group element `B` and `P`.
 module contract_owner::sigma_dlog {
-    use std::vector;
     use contract_owner::fiat_shamir_transform;
     use contract_owner::group;
     #[test_only]
@@ -20,20 +19,20 @@ module contract_owner::sigma_dlog {
 
     public fun encode_proof(proof: &Proof): vector<u8> {
         let buf = vector[];
-        vector::append(&mut buf, group::encode_element(&proof.t));
-        vector::append(&mut buf, group::encode_scalar(&proof.s));
+        buf.append(group::encode_element(&proof.t));
+        buf.append(group::encode_scalar(&proof.s));
         buf
     }
 
     public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
         let (errors, t, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 155052);
+        if (!errors.is_empty()) {
+            errors.push_back(155052);
             return (errors, dummy_proof(), buf);
         };
         let (errors, s, buf) = group::decode_scalar(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 155053);
+        if (!errors.is_empty()) {
+            errors.push_back(155053);
             return (errors, dummy_proof(), buf);
         };
         let ret = Proof { t, s };

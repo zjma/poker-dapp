@@ -27,23 +27,23 @@ module contract_owner::bg12 {
 
     public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
         let (errors, vec_a_cmt, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 995237);
+        if (!errors.is_empty()) {
+            errors.push_back(995237);
             return (errors, dummy_proof(), buf);
         };
         let (errors, vec_b_cmt, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 995238);
+        if (!errors.is_empty()) {
+            errors.push_back(995238);
             return (errors, dummy_proof(), buf);
         };
         let (errors, multiexp_proof, buf) = multiexp_argument::decode_proof(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 995239);
+        if (!errors.is_empty()) {
+            errors.push_back(995239);
             return (errors, dummy_proof(), buf);
         };
         let (errors, product_proof, buf) = product_argument::decode_proof(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 995240);
+        if (!errors.is_empty()) {
+            errors.push_back(995240);
             return (errors, dummy_proof(), buf);
         };
         let ret = Proof { vec_a_cmt, vec_b_cmt, multiexp_proof, product_proof };
@@ -53,9 +53,9 @@ module contract_owner::bg12 {
     /// NOTE: client needs to implement this.
     public fun encode_proof(proof: &Proof): vector<u8> {
         let buf = group::encode_element(&proof.vec_a_cmt);
-        vector::append(&mut buf, group::encode_element(&proof.vec_b_cmt));
-        vector::append(&mut buf, multiexp_argument::encode_proof(&proof.multiexp_proof));
-        vector::append(&mut buf, product_argument::encode_proof(&proof.product_proof));
+        buf.append(group::encode_element(&proof.vec_b_cmt));
+        buf.append(multiexp_argument::encode_proof(&proof.multiexp_proof));
+        buf.append(product_argument::encode_proof(&proof.product_proof));
         buf
     }
 
@@ -71,17 +71,14 @@ module contract_owner::bg12 {
         permutation: vector<u64>,
         vec_rho: &vector<group::Scalar>
     ): Proof {
-        let n = vector::length(original);
-        let vec_a = vector::map(permutation, |v| group::scalar_from_u64(v + 1));
+        let n = original.length();
+        let vec_a = permutation.map(|v| group::scalar_from_u64(v + 1));
         let r = group::rand_scalar();
         let vec_a_cmt = pederson_commitment::vec_commit(pedersen_ctxt, &r, &vec_a);
         fiat_shamir_transform::append_group_element(trx, &vec_a_cmt);
         let x = fiat_shamir_transform::hash_to_scalar(trx);
         let x_powers = powers_of_x(&x, n);
-        let vec_b = vector::map(
-            vector::range(0, n),
-            |i| x_powers[permutation[i]]
-        );
+        let vec_b = vector::range(0, n).map(|i| x_powers[permutation[i]]);
         let s = group::rand_scalar();
         let vec_b_cmt = pederson_commitment::vec_commit(pedersen_ctxt, &s, &vec_b);
         fiat_shamir_transform::append_group_element(trx, &vec_b_cmt);
@@ -89,7 +86,7 @@ module contract_owner::bg12 {
         fiat_shamir_transform::append_raw_bytes(trx, b"NUDGE");
         let z = fiat_shamir_transform::hash_to_scalar(trx);
         let neg_z = group::scalar_neg(&z);
-        let vec_neg_z = vector::map(vector::range(0, n), |_| neg_z);
+        let vec_neg_z = vector::range(0, n).map(|_| neg_z);
         let vec_neg_z_cmt =
             pederson_commitment::vec_commit(
                 pedersen_ctxt, &group::scalar_from_u64(0), &vec_neg_z
@@ -99,25 +96,16 @@ module contract_owner::bg12 {
                 &group::scale_element(&vec_a_cmt, &y),
                 &vec_b_cmt
             );
-        let vec_d = vector::map(
-            vector::range(0, n),
-            |i| {
-                group::scalar_add(&group::scalar_mul(&y, &vec_a[i]), &vec_b[i])
-            }
-        );
+        let vec_d = vector::range(0, n).map(|i| {
+            group::scalar_add(&group::scalar_mul(&y, &vec_a[i]), &vec_b[i])
+        });
         let t = group::scalar_add(&group::scalar_mul(&y, &r), &s);
 
-        let tmp_vec = vector::map(
-            vector::range(0, n),
-            |i| group::scalar_sub(&vec_d[i], &z)
-        );
+        let tmp_vec = vector::range(0, n).map(|i| group::scalar_sub(&vec_d[i], &z));
         let tmp_product = group::scalar_from_u64(1);
-        vector::for_each_ref(
-            &tmp_vec,
-            |v| {
-                tmp_product = group::scalar_mul(&tmp_product, v);
-            }
-        );
+        tmp_vec.for_each_ref(|v| {
+            tmp_product = group::scalar_mul(&tmp_product, v);
+        });
         let trx_branch = *trx;
         let product_proof =
             product_argument::prove(
@@ -131,13 +119,10 @@ module contract_owner::bg12 {
             );
 
         let rho = group::scalar_from_u64(0);
-        vector::for_each(
-            vector::range(0, n),
-            |i| {
-                let new_item = group::scalar_mul(vector::borrow(vec_rho, i), &vec_b[i]);
-                rho = group::scalar_add(&rho, &new_item);
-            }
-        );
+        vector::range(0, n).for_each(|i| {
+            let new_item = group::scalar_mul(vec_rho.borrow(i), &vec_b[i]);
+            rho = group::scalar_add(&rho, &new_item);
+        });
         let tmp_ciph = elgamal::weird_multi_exp(original, &x_powers);
         let multiexp_proof =
             multiexp_argument::prove(
@@ -162,7 +147,7 @@ module contract_owner::bg12 {
         shuffled: &vector<elgamal::Ciphertext>,
         proof: &Proof
     ): bool {
-        let n = vector::length(original);
+        let n = original.length();
         fiat_shamir_transform::append_group_element(trx, &proof.vec_a_cmt);
         let x = fiat_shamir_transform::hash_to_scalar(trx);
         fiat_shamir_transform::append_group_element(trx, &proof.vec_b_cmt);
@@ -170,7 +155,7 @@ module contract_owner::bg12 {
         fiat_shamir_transform::append_raw_bytes(trx, b"NUDGE");
         let z = fiat_shamir_transform::hash_to_scalar(trx);
         let neg_z = group::scalar_neg(&z);
-        let vec_neg_z = vector::map(vector::range(0, n), |_| neg_z);
+        let vec_neg_z = vector::range(0, n).map(|_| neg_z);
         let vec_neg_z_cmt =
             pederson_commitment::vec_commit(
                 pedersen_ctxt, &group::scalar_from_u64(0), &vec_neg_z
@@ -182,20 +167,17 @@ module contract_owner::bg12 {
             );
         let tmp_product = group::scalar_from_u64(1);
         let x_powers = powers_of_x(&x, n);
-        vector::for_each(
-            vector::range(0, n),
-            |i| {
-                let item =
-                    group::scalar_sub(
-                        &group::scalar_add(
-                            &group::scalar_mul(&y, &group::scalar_from_u64(i + 1)),
-                            &x_powers[i]
-                        ),
-                        &z
-                    );
-                tmp_product = group::scalar_mul(&tmp_product, &item);
-            }
-        );
+        vector::range(0, n).for_each(|i| {
+            let item =
+                group::scalar_sub(
+                    &group::scalar_add(
+                        &group::scalar_mul(&y, &group::scalar_from_u64(i + 1)),
+                        &x_powers[i]
+                    ),
+                    &z
+                );
+            tmp_product = group::scalar_mul(&tmp_product, &item);
+        });
         let trx_branch = *trx;
         let tmp_ciph = elgamal::weird_multi_exp(original, &x_powers);
         product_argument::verify(
@@ -221,8 +203,8 @@ module contract_owner::bg12 {
         let i = 1;
         while (i < n) {
             let new_item = group::scalar_mul(&ret[i - 1], x);
-            vector::push_back(&mut ret, new_item);
-            i = i + 1;
+            ret.push_back(new_item);
+            i += 1;
         };
         ret
     }
@@ -234,23 +216,17 @@ module contract_owner::bg12 {
         let pedersen_ctxt = pederson_commitment::rand_context(52);
         let enc_base = group::rand_element();
         let (_elgamal_dk, ek) = elgamal::key_gen(enc_base);
-        let card_plaintexts = vector::map(vector::range(0, n), |_| group::rand_element());
-        let old_deck = vector::map(
-            vector::range(0, n),
-            |i| elgamal::enc(&ek, &group::rand_scalar(), &card_plaintexts[i])
-        );
+        let card_plaintexts = vector::range(0, n).map(|_| group::rand_element());
+        let old_deck = vector::range(0, n).map(|i| elgamal::enc(&ek, &group::rand_scalar(), &card_plaintexts[i]));
 
-        let rerandomizers = vector::map(vector::range(0, n), |_| group::rand_scalar());
+        let rerandomizers = vector::range(0, n).map(|_| group::rand_scalar());
         let permutation = randomness::permutation(n);
-        let new_deck = vector::map(
-            vector::range(0, n),
-            |i| {
-                elgamal::ciphertext_add(
-                    &old_deck[permutation[i]],
-                    &elgamal::enc(&ek, &rerandomizers[i], &group::group_identity())
-                )
-            }
-        );
+        let new_deck = vector::range(0, n).map(|i| {
+            elgamal::ciphertext_add(
+                &old_deck[permutation[i]],
+                &elgamal::enc(&ek, &rerandomizers[i], &group::group_identity())
+            )
+        });
 
         let trx = fiat_shamir_transform::new_transcript();
         fiat_shamir_transform::append_raw_bytes(&mut trx, b"SOME_TESTING_PREFIX");

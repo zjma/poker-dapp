@@ -3,28 +3,25 @@ module contract_owner::utils {
     use std::vector;
 
     public fun decode_u64(buf: vector<u8>): (vector<u64>, u64, vector<u8>) {
-        let buf_len = vector::length(&buf);
+        let buf_len = buf.length();
         if (buf_len < 8) return (vector[182413], 0, buf);
 
         let ret = 0;
         let i = 0;
         while (i < 8) {
-            ret = ret + ((buf[i] as u64) << (8 * (i as u8)));
-            i = i + 1;
+            ret += ((buf[i] as u64) << (8 * (i as u8)));
+            i += 1;
         };
 
-        let buf = vector::slice(&buf, 8, buf_len);
+        let buf = buf.slice(8, buf_len);
         (vector[], ret, buf)
     }
 
     /// NOTE: client needs to implement this.
     public fun encode_u64(x: u64): vector<u8> {
-        vector::map(
-            vector::range(0, 8),
-            |i| {
-                (((x >> ((i * 8) as u8)) & 0xff) as u8)
-            }
-        )
+        vector::range(0, 8).map(|i| {
+            (((x >> ((i * 8) as u8)) & 0xff) as u8)
+        })
     }
 
     const SUITE_TEXTS: vector<vector<u8>> = vector[b"S", b"H", b"D", b"C"];
@@ -47,7 +44,7 @@ module contract_owner::utils {
         let suite = card_val / 13;
         let number = card_val % 13;
         let ret = SUITE_TEXTS[suite];
-        vector::append(&mut ret, NUMBER_TEXTS[number]);
+        ret.append(NUMBER_TEXTS[number]);
         utf8(ret)
     }
 }

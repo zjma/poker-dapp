@@ -91,9 +91,9 @@ module contract_owner::poker_room {
     public(friend) entry fun create(
         host: &signer, allowed_players: vector<address>
     ) {
-        let player_livenesses = vector::map_ref(&allowed_players, |_| false);
-        let player_chips = vector::map_ref<address, u64>(&allowed_players, |_| 0);
-        let num_players = vector::length(&allowed_players);
+        let player_livenesses = allowed_players.map_ref(|_| false);
+        let player_chips = allowed_players.map_ref::<address, u64>(|_| 0);
+        let num_players = allowed_players.length();
         let room = PokerRoomState {
             num_players,
             last_button_position: num_players - 1,
@@ -123,9 +123,7 @@ module contract_owner::poker_room {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__WAITING_FOR_PLAYERS, 174045);
         let player_addr = address_of(player);
-        let (found, player_idx) = vector::index_of(
-            &room.expected_player_addresses, &player_addr
-        );
+        let (found, player_idx) = room.expected_player_addresses.index_of(&player_addr);
         assert!(found, 174046);
         room.player_livenesses[player_idx] = true;
         room.player_chips[player_idx] = 25000;
@@ -146,11 +144,11 @@ module contract_owner::poker_room {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__DKG_IN_PROGRESS, 174737);
         assert!(room.num_dkgs_done == dkg_id, 174738);
-        let dkg_session = table::borrow_mut(&mut room.dkg_sessions, dkg_id);
+        let dkg_session = room.dkg_sessions.borrow_mut(dkg_id);
         let (errors, contribution, remainder) =
             dkg_v0::decode_contribution(contribution_bytes);
-        assert!(vector::is_empty(&errors), 174739);
-        assert!(vector::is_empty(&remainder), 174740);
+        assert!(errors.is_empty(), 174739);
+        assert!(remainder.is_empty(), 174740);
         dkg_v0::process_contribution(player, dkg_session, contribution);
     }
 
@@ -172,11 +170,11 @@ module contract_owner::poker_room {
             180918
         );
         assert!(room.num_shuffles_done == shuffle_idx, 180919);
-        let shuffle = table::borrow_mut(&mut room.shuffle_sessions, shuffle_idx);
+        let shuffle = room.shuffle_sessions.borrow_mut(shuffle_idx);
         let (errors, contribution, remainder) =
             shuffle::decode_contribution(contribution_bytes);
-        assert!(vector::is_empty(&errors), 180920);
-        assert!(vector::is_empty(&remainder), 180921);
+        assert!(errors.is_empty(), 180920);
+        assert!(remainder.is_empty(), 180921);
         shuffle::process_contribution(player, shuffle, contribution);
     }
 
@@ -195,11 +193,11 @@ module contract_owner::poker_room {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS, 124642);
         assert!(room.num_games_done == game_idx, 124643);
-        let game = table::borrow_mut(&mut room.games, game_idx);
+        let game = room.games.borrow_mut(game_idx);
         let (errors, contribution, remainder) =
             reencryption::decode_reencyption(reencyption_bytes);
-        assert!(vector::is_empty(&errors), 124644);
-        assert!(vector::is_empty(&remainder), 124645);
+        assert!(errors.is_empty(), 124644);
+        assert!(remainder.is_empty(), 124645);
         game::process_private_dealing_reencryption(
             player, game, dealing_idx, contribution
         );
@@ -219,11 +217,11 @@ module contract_owner::poker_room {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS, 124642);
         assert!(room.num_games_done == game_idx, 124643);
-        let game = table::borrow_mut(&mut room.games, game_idx);
+        let game = room.games.borrow_mut(game_idx);
         let (errors, contribution, remainder) =
             threshold_scalar_mul::decode_contribution(contribution_bytes);
-        assert!(vector::is_empty(&errors), 124644);
-        assert!(vector::is_empty(&remainder), 124645);
+        assert!(errors.is_empty(), 124644);
+        assert!(remainder.is_empty(), 124645);
         game::process_private_dealing_contribution(
             player, game, dealing_idx, contribution
         );
@@ -243,11 +241,11 @@ module contract_owner::poker_room {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS, 124642);
         assert!(room.num_games_done == game_idx, 124643);
-        let game = table::borrow_mut(&mut room.games, game_idx);
+        let game = room.games.borrow_mut(game_idx);
         let (errors, contribution, remainder) =
             threshold_scalar_mul::decode_contribution(contribution_bytes);
-        assert!(vector::is_empty(&errors), 124644);
-        assert!(vector::is_empty(&remainder), 124645);
+        assert!(errors.is_empty(), 124644);
+        assert!(remainder.is_empty(), 124645);
         game::process_public_opening_contribution(player, game, opening_idx, contribution);
     }
 
@@ -264,7 +262,7 @@ module contract_owner::poker_room {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS, 120142);
         assert!(room.num_games_done == game_idx, 120143);
-        let game = table::borrow_mut(&mut room.games, game_idx);
+        let game = room.games.borrow_mut(game_idx);
         game::process_bet_action(player, game, bet);
     }
 
@@ -282,10 +280,10 @@ module contract_owner::poker_room {
     ) acquires PokerRoomState {
         let (errors, reenc_private_state, remainder) =
             reencryption::decode_private_state(private_card_revealing_bytes);
-        assert!(vector::is_empty(&errors), 102202);
-        assert!(vector::is_empty(&remainder), 102203);
+        assert!(errors.is_empty(), 102202);
+        assert!(remainder.is_empty(), 102203);
         let room = borrow_global_mut<PokerRoomState>(room);
-        let game = table::borrow_mut(&mut room.games, game_idx);
+        let game = room.games.borrow_mut(game_idx);
         game::process_showdown_reveal(player, game, dealing_idx, reenc_private_state);
     }
 
@@ -295,63 +293,58 @@ module contract_owner::poker_room {
     public(friend) entry fun state_update(room_addr: address) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room_addr);
         if (room.state == STATE__WAITING_FOR_PLAYERS) {
-            if (vector::all(&room.player_livenesses, |liveness| *liveness)) {
+            if (room.player_livenesses.all(|liveness| *liveness)) {
                 start_dkg(room);
             }
         } else if (room.state == STATE__DKG_IN_PROGRESS) {
-            let cur_dkg = table::borrow_mut(&mut room.dkg_sessions, room.num_dkgs_done);
+            let cur_dkg = room.dkg_sessions.borrow_mut(room.num_dkgs_done);
             dkg_v0::state_update(cur_dkg);
             if (dkg_v0::succeeded(cur_dkg)) {
-                room.num_dkgs_done = room.num_dkgs_done + 1;
+                room.num_dkgs_done += 1;
                 start_shuffle(room);
             } else if (dkg_v0::failed(cur_dkg)) {
                 punish_culprits(room, dkg_v0::get_culprits(cur_dkg));
-                room.num_dkgs_done = room.num_dkgs_done + 1;
+                room.num_dkgs_done += 1;
                 start_dkg(room);
             } else {
                 // DKG is still in progress...
             }
         } else if (room.state == STATE__SHUFFLE_IN_PROGRESS) {
             let cur_shuffle =
-                table::borrow_mut(&mut room.shuffle_sessions, room.num_shuffles_done);
+                room.shuffle_sessions.borrow_mut(room.num_shuffles_done);
             shuffle::state_update(cur_shuffle);
             if (shuffle::succeeded(cur_shuffle)) {
-                room.num_shuffles_done = room.num_shuffles_done + 1;
+                room.num_shuffles_done += 1;
                 start_game_and_shuffle_together(room);
             } else if (shuffle::failed(cur_shuffle)) {
                 let culprit = shuffle::get_culprit(cur_shuffle);
                 punish_culprits(room, vector[culprit]);
-                room.num_shuffles_done = room.num_shuffles_done + 1;
+                room.num_shuffles_done += 1;
                 start_dkg(room);
             } else {
                 // Shuffle still in progress...
             }
         } else if (room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS) {
-            let cur_game = table::borrow_mut(&mut room.games, room.num_games_done);
+            let cur_game = room.games.borrow_mut(room.num_games_done);
             let cur_shuffle =
-                table::borrow_mut(&mut room.shuffle_sessions, room.num_shuffles_done);
+                room.shuffle_sessions.borrow_mut(room.num_shuffles_done);
             shuffle::state_update(cur_shuffle);
             game::state_update(cur_game);
             if (game::succeeded(cur_game)) {
                 // Apply the game result.
                 let (players, new_chip_amounts) = game::get_ending_chips(cur_game);
-                let n = vector::length(&players);
-                vector::for_each(
-                    vector::range(0, n),
-                    |i| {
-                        let (found, player_idx) = vector::index_of(
-                            &room.expected_player_addresses, &players[i]
-                        );
-                        assert!(found, 192724);
-                        room.player_chips[player_idx] = new_chip_amounts[i];
-                    }
-                );
-                room.num_games_done = room.num_games_done + 1;
+                let n = players.length();
+                vector::range(0, n).for_each(|i| {
+                    let (found, player_idx) = room.expected_player_addresses.index_of(&players[i]);
+                    assert!(found, 192724);
+                    room.player_chips[player_idx] = new_chip_amounts[i];
+                });
+                room.num_games_done += 1;
                 if (shuffle::succeeded(cur_shuffle)) {
-                    room.num_shuffles_done = room.num_shuffles_done + 1;
+                    room.num_shuffles_done += 1;
                     start_game_and_shuffle_together(room);
                 } else if (shuffle::failed(cur_shuffle)) {
-                    room.num_shuffles_done = room.num_shuffles_done + 1;
+                    room.num_shuffles_done += 1;
                     let culprit = shuffle::get_culprit(cur_shuffle);
                     punish_culprits(room, vector[culprit]);
                     start_dkg(room);
@@ -360,9 +353,9 @@ module contract_owner::poker_room {
                 }
             } else if (game::failed(cur_game)) {
                 // Since we need a new DKG, we don't care about the x+1 shuffle any more, even if it has succeeded/failed.
-                room.num_shuffles_done = room.num_shuffles_done + 1;
+                room.num_shuffles_done += 1;
                 punish_culprits(room, game::get_culprits(cur_game));
-                room.num_games_done = room.num_games_done + 1;
+                room.num_games_done += 1;
                 start_dkg(room);
             } else {
                 // Gand is in progress...
@@ -377,20 +370,20 @@ module contract_owner::poker_room {
         let room = borrow_global<PokerRoomState>(room);
         let cur_game =
             if (room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS) {
-                *table::borrow(&room.games, room.num_games_done)
+                *room.games.borrow(room.num_games_done)
             } else {
                 game::dummy_session()
             };
         let cur_dkg_session =
             if (room.state == STATE__DKG_IN_PROGRESS) {
-                *table::borrow(&room.dkg_sessions, room.num_dkgs_done)
+                *room.dkg_sessions.borrow(room.num_dkgs_done)
             } else {
                 dkg_v0::dummy_session()
             };
         let cur_shuffle_session =
             if (room.state == STATE__SHUFFLE_IN_PROGRESS
                 || room.state == STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS) {
-                *table::borrow(&room.shuffle_sessions, room.num_shuffles_done)
+                *room.shuffle_sessions.borrow(room.num_shuffles_done)
             } else {
                 shuffle::dummy_session()
             };
@@ -402,7 +395,7 @@ module contract_owner::poker_room {
             player_chips: room.player_chips,
             last_button_position: room.last_button_position,
             state: room.state,
-            cur_game: cur_game,
+            cur_game,
             num_games_done: room.num_games_done,
             num_dkgs_done: room.num_dkgs_done,
             num_shuffles_done: room.num_shuffles_done,
@@ -422,51 +415,36 @@ module contract_owner::poker_room {
     //
 
     fun start_dkg(room: &mut PokerRoomState) {
-        let alive_player_idxs = vector::filter(
-            vector::range(0, room.num_players),
+        let alive_player_idxs = vector::range(0, room.num_players).filter(
             |idx| room.player_livenesses[*idx] && room.player_chips[*idx] > 0
         );
-        let alive_players = vector::map(
-            alive_player_idxs, |idx| room.expected_player_addresses[idx]
-        );
+        let alive_players = alive_player_idxs.map(|idx| room.expected_player_addresses[idx]);
         if (room.num_dkgs_done >= 1) {
-            let last_dkg = table::borrow(&room.dkg_sessions, room.num_dkgs_done - 1);
+            let last_dkg = room.dkg_sessions.borrow(room.num_dkgs_done - 1);
             let last_dkg_contributors = dkg_v0::get_contributors(last_dkg);
             assert!(&last_dkg_contributors != &alive_players, 310223);
         };
         let new_dkg_id = room.num_dkgs_done;
         let new_dkg = dkg_v0::new_session(alive_players);
-        table::add(&mut room.dkg_sessions, new_dkg_id, new_dkg);
+        room.dkg_sessions.add(new_dkg_id, new_dkg);
         room.state = STATE__DKG_IN_PROGRESS;
     }
 
     fun start_shuffle(room: &mut PokerRoomState) {
-        let last_dkg = table::borrow(&room.dkg_sessions, room.num_dkgs_done - 1);
+        let last_dkg = room.dkg_sessions.borrow(room.num_dkgs_done - 1);
         let last_dkg_contributors = dkg_v0::get_contributors(last_dkg);
-        let alive_player_idxs = vector::filter(
-            vector::range(0, room.num_players),
+        let alive_player_idxs = vector::range(0, room.num_players).filter(
             |idx| room.player_livenesses[*idx] && room.player_chips[*idx] > 0
         );
-        let alive_players = vector::map(
-            alive_player_idxs, |idx| room.expected_player_addresses[idx]
-        );
+        let alive_players = alive_player_idxs.map(|idx| room.expected_player_addresses[idx]);
         assert!(&last_dkg_contributors == &alive_players, 311540);
 
         let now_secs = timestamp::now_seconds();
         let secret_info = dkg_v0::get_shared_secret_public_info(last_dkg);
         let (agg_ek, _ek_shares) = dkg_v0::unpack_shared_secret_public_info(secret_info);
-        let card_reprs = vector::map(
-            vector::range(0, 52),
-            |_| group::rand_element()
-        );
-        let initial_ciphertexts = vector::map_ref(
-            &card_reprs,
-            |plain| elgamal::enc(&agg_ek, &group::scalar_from_u64(0), plain)
-        );
-        let deadlines = vector::map(
-            vector::range(0, room.num_players),
-            |i| now_secs + 5 * (i + 1)
-        );
+        let card_reprs = vector::range(0, 52).map(|_| group::rand_element());
+        let initial_ciphertexts = card_reprs.map_ref(|plain| elgamal::enc(&agg_ek, &group::scalar_from_u64(0), plain));
+        let deadlines = vector::range(0, room.num_players).map(|i| now_secs + 5 * (i + 1));
         let new_shuffle =
             shuffle::new_session(
                 agg_ek,
@@ -475,37 +453,27 @@ module contract_owner::poker_room {
                 deadlines
             );
         let new_shuffle_id = room.num_shuffles_done;
-        table::add(&mut room.shuffle_sessions, new_shuffle_id, new_shuffle);
+        room.shuffle_sessions.add(new_shuffle_id, new_shuffle);
         room.state = STATE__SHUFFLE_IN_PROGRESS;
     }
 
     fun start_game_and_shuffle_together(room: &mut PokerRoomState) {
-        let last_dkg = table::borrow(&room.dkg_sessions, room.num_dkgs_done - 1);
+        let last_dkg = room.dkg_sessions.borrow(room.num_dkgs_done - 1);
         let last_dkg_contributors = dkg_v0::get_contributors(last_dkg);
-        let alive_player_idxs = vector::filter(
-            vector::range(0, room.num_players),
+        let alive_player_idxs = vector::range(0, room.num_players).filter(
             |idx| room.player_livenesses[*idx] && room.player_chips[*idx] > 0
         );
-        let alive_players = vector::map(
-            alive_player_idxs, |idx| room.expected_player_addresses[idx]
-        );
+        let alive_players = alive_player_idxs.map(|idx| room.expected_player_addresses[idx]);
         assert!(&last_dkg_contributors == &alive_players, 311540);
 
         let secret_info = dkg_v0::get_shared_secret_public_info(last_dkg);
-        let last_shuffle = table::borrow(
-            &room.shuffle_sessions, room.num_shuffles_done - 1
-        );
-        let card_reprs = vector::map(
-            shuffle::input_cloned(last_shuffle),
-            |ciph| {
-                let (_, _, c_1) = elgamal::unpack_ciphertext(ciph);
-                c_1 // The ciphertexts were initially generated with 0-randomizers, so c_1 is equal to the plaintext.
-            }
-        );
+        let last_shuffle = room.shuffle_sessions.borrow(room.num_shuffles_done - 1);
+        let card_reprs = shuffle::input_cloned(last_shuffle).map(|ciph| {
+            let (_, _, c_1) = elgamal::unpack_ciphertext(ciph);
+            c_1 // The ciphertexts were initially generated with 0-randomizers, so c_1 is equal to the plaintext.
+        });
         let shuffled_deck = shuffle::result_cloned(last_shuffle);
-        let alive_player_chips = vector::map(
-            alive_player_idxs, |idx| room.player_chips[idx]
-        );
+        let alive_player_chips = alive_player_idxs.map(|idx| room.player_chips[idx]);
         let new_game_id = room.num_games_done;
         //TODO: calculate who is the BUTTON.
         let new_game =
@@ -516,22 +484,13 @@ module contract_owner::poker_room {
                 card_reprs,
                 shuffled_deck
             );
-        table::add(&mut room.games, new_game_id, new_game);
+        room.games.add(new_game_id, new_game);
 
         let now_secs = timestamp::now_seconds();
         let (agg_ek, _) = dkg_v0::unpack_shared_secret_public_info(secret_info);
-        let card_reprs = vector::map(
-            vector::range(0, 52),
-            |_| group::rand_element()
-        );
-        let initial_ciphertexts = vector::map_ref(
-            &card_reprs,
-            |plain| elgamal::enc(&agg_ek, &group::scalar_from_u64(0), plain)
-        );
-        let deadlines = vector::map(
-            vector::range(0, room.num_players),
-            |i| now_secs + 5 * (i + 1)
-        );
+        let card_reprs = vector::range(0, 52).map(|_| group::rand_element());
+        let initial_ciphertexts = card_reprs.map_ref(|plain| elgamal::enc(&agg_ek, &group::scalar_from_u64(0), plain));
+        let deadlines = vector::range(0, room.num_players).map(|i| now_secs + 5 * (i + 1));
         let new_shuffle_id = room.num_shuffles_done;
         let new_shuffle =
             shuffle::new_session(
@@ -540,7 +499,7 @@ module contract_owner::poker_room {
                 alive_players,
                 deadlines
             );
-        table::add(&mut room.shuffle_sessions, new_shuffle_id, new_shuffle);
+        room.shuffle_sessions.add(new_shuffle_id, new_shuffle);
 
         room.state = STATE__GAME_AND_NEXT_SHUFFLE_IN_PROGRESS;
     }
@@ -549,20 +508,15 @@ module contract_owner::poker_room {
     fun punish_culprits(
         room: &mut PokerRoomState, troublemakers: vector<address>
     ) {
-        vector::for_each(
-            troublemakers,
-            |player_addr| {
-                let (found, player_idx) = vector::index_of(
-                    &room.expected_player_addresses, &player_addr
-                );
-                assert!(found, 192725);
-                room.player_livenesses[player_idx] = false;
-                let player_chip_amount = &mut room.player_chips[player_idx];
-                let chips_to_burn = min(*player_chip_amount, room.misbehavior_penalty);
-                *player_chip_amount = *player_chip_amount - chips_to_burn;
-                room.burned_chips = room.burned_chips + chips_to_burn;
-            }
-        );
+        troublemakers.for_each(|player_addr| {
+            let (found, player_idx) = room.expected_player_addresses.index_of(&player_addr);
+            assert!(found, 192725);
+            room.player_livenesses[player_idx] = false;
+            let player_chip_amount = &mut room.player_chips[player_idx];
+            let chips_to_burn = min(*player_chip_amount, room.misbehavior_penalty);
+            *player_chip_amount -= chips_to_burn;
+            room.burned_chips += chips_to_burn;
+        });
     }
 
     #[test_only]

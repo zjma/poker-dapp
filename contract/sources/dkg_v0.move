@@ -78,13 +78,13 @@ module contract_owner::dkg_v0 {
         buf: vector<u8>
     ): (vector<u64>, VerifiableContribution, vector<u8>) {
         let (errors, public_point, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 132607);
+        if (!errors.is_empty()) {
+            errors.push_back(132607);
             return (errors, dummy_contribution(), buf);
         };
         let (errors, proof, buf) = sigma_dlog::decode_proof(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 132608);
+        if (!errors.is_empty()) {
+            errors.push_back(132608);
             return (errors, dummy_contribution(), buf);
         };
         let ret = VerifiableContribution { public_point, proof };
@@ -93,24 +93,21 @@ module contract_owner::dkg_v0 {
 
     public fun encode_contribution(obj: &VerifiableContribution): vector<u8> {
         let buf = vector[];
-        vector::append(&mut buf, group::encode_element(&obj.public_point));
-        vector::append(&mut buf, sigma_dlog::encode_proof(&obj.proof));
+        buf.append(group::encode_element(&obj.public_point));
+        buf.append(sigma_dlog::encode_proof(&obj.proof));
         buf
     }
 
     #[lint::allow_unsafe_randomness]
     public fun new_session(expected_contributors: vector<address>): DKGSession {
-        let num_players = vector::length(&expected_contributors);
+        let num_players = expected_contributors.length();
         DKGSession {
             base_point: group::rand_element(),
             expected_contributors,
             deadline: timestamp::now_seconds() + 10,
             state: STATE__IN_PROGRESS,
-            contributions: vector::map(
-                vector::range(0, num_players),
-                |_| option::none()
-            ),
-            contribution_still_needed: vector::length(&expected_contributors),
+            contributions: vector::range(0, num_players).map(|_| option::none()),
+            contribution_still_needed: expected_contributors.length(),
             agg_public_point: group::group_identity(),
             culprits: vector[]
         }
@@ -137,28 +134,20 @@ module contract_owner::dkg_v0 {
     public fun state_update(dkg_session: &mut DKGSession) {
         if (dkg_session.state == STATE__IN_PROGRESS) {
             if (dkg_session.contribution_still_needed == 0) {
-                vector::for_each_ref(
-                    &dkg_session.contributions,
-                    |contri| {
-                        let contribution = *option::borrow(contri);
-                        group::element_add_assign(
-                            &mut dkg_session.agg_public_point,
-                            &contribution.public_point
-                        );
-                    }
-                );
+                dkg_session.contributions.for_each_ref(|contri| {
+                    let contribution = *contri.borrow();
+                    group::element_add_assign(
+                        &mut dkg_session.agg_public_point,
+                        &contribution.public_point
+                    );
+                });
                 dkg_session.state = STATE__SUCCEEDED;
             } else if (timestamp::now_seconds() >= dkg_session.deadline) {
-                let n = vector::length(&dkg_session.expected_contributors);
-                let culprit_idxs = vector::filter(
-                    vector::range(0, n),
-                    |idx| {
-                        option::is_none(&dkg_session.contributions[*idx])
-                    }
-                );
-                let culprits = vector::map(
-                    culprit_idxs, |idx| dkg_session.expected_contributors[idx]
-                );
+                let n = dkg_session.expected_contributors.length();
+                let culprit_idxs = vector::range(0, n).filter(|idx| {
+                    dkg_session.contributions[*idx].is_none()
+                });
+                let culprits = culprit_idxs.map(|idx| dkg_session.expected_contributors[idx]);
                 dkg_session.state = STATE__TIMED_OUT;
                 dkg_session.culprits = culprits;
             }
@@ -172,24 +161,19 @@ module contract_owner::dkg_v0 {
     ) {
         //TODO: verify contribution
         let contributor_addr = address_of(contributor);
-        let (found, contributor_idx) = vector::index_of(
-            &session.expected_contributors, &contributor_addr
-        );
+        let (found, contributor_idx) = session.expected_contributors.index_of(&contributor_addr);
         assert!(found, 124130);
-        session.contribution_still_needed = session.contribution_still_needed - 1;
-        option::fill(&mut session.contributions[contributor_idx], contribution);
+        session.contribution_still_needed -= 1;
+        session.contributions[contributor_idx].fill(contribution);
     }
 
     public fun get_shared_secret_public_info(session: &DKGSession): SharedSecretPublicInfo {
         assert!(session.state == STATE__SUCCEEDED, 193709);
         let agg_ek = elgamal::make_enc_key(session.base_point, session.agg_public_point);
-        let ek_shares = vector::map_ref(
-            &session.contributions,
-            |contri| {
-                let contribution = *option::borrow(contri);
-                elgamal::make_enc_key(session.base_point, contribution.public_point)
-            }
-        );
+        let ek_shares = session.contributions.map_ref(|contri| {
+            let contribution = *contri.borrow();
+            elgamal::make_enc_key(session.base_point, contribution.public_point)
+        });
         SharedSecretPublicInfo { agg_ek, ek_shares }
     }
 
@@ -206,7 +190,7 @@ module contract_owner::dkg_v0 {
     }
 
     public fun get_threshold(secret_info: &SharedSecretPublicInfo): u64 {
-        vector::length(&secret_info.ek_shares)
+        secret_info.ek_shares.length()
     }
 
     /// Given the shares of a threshold scalar multiplication,compute the scalar-mul result.
@@ -215,12 +199,9 @@ module contract_owner::dkg_v0 {
         _secret_info: &SharedSecretPublicInfo, shares: vector<Option<group::Element>>
     ): group::Element {
         let ret = group::group_identity();
-        vector::for_each(
-            shares,
-            |share| {
-                group::element_add_assign(&mut ret, &option::extract(&mut share));
-            }
-        );
+        shares.for_each(|share| {
+            group::element_add_assign(&mut ret, &share.extract());
+        });
         ret
     }
 
@@ -270,17 +251,14 @@ module contract_owner::dkg_v0 {
     public fun reconstruct_secret(
         public_info: &SharedSecretPublicInfo, shares: vector<Option<SecretShare>>
     ): group::Scalar {
-        let n = vector::length(&public_info.ek_shares);
-        assert!(n == vector::length(&shares), 162205);
+        let n = public_info.ek_shares.length();
+        assert!(n == shares.length(), 162205);
         let agg = group::scalar_from_u64(0);
-        vector::for_each(
-            shares,
-            |share| {
-                let share = option::extract(&mut share);
-                let s = unpack_secret_share(share);
-                agg = group::scalar_add(&agg, &s);
-            }
-        );
+        shares.for_each(|share| {
+            let share = share.extract();
+            let s = unpack_secret_share(share);
+            agg = group::scalar_add(&agg, &s);
+        });
         agg
     }
 }

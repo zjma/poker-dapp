@@ -5,7 +5,7 @@ module contract_owner::poker_room_examples {
     #[test_only]
     use std::string::utf8;
     #[test_only]
-    use std::vector::{for_each, range};
+    use std::vector::range;
     #[test_only]
     use aptos_std::debug::print;
     #[test_only]
@@ -252,72 +252,63 @@ module contract_owner::poker_room_examples {
         assert!(is_in_game(&room, 0), 999);
         let cur_game = cur_game(&room);
         assert!(game::is_dealing_private_cards(cur_game), 999);
-        for_each(
-            range(0, 6),
-            |i| {
-                let game_0_deal_i_scalar_mul_session =
-                    reencryption::borrow_scalar_mul_session(
-                        game::borrow_private_dealing_session(cur_game, i)
-                    );
-                let game_0_deal_i_player_share =
-                    threshold_scalar_mul::generate_contribution(
-                        &alice,
-                        game_0_deal_i_scalar_mul_session,
-                        &dkg_0_alice_secret_share
-                    );
-                process_private_dealing_contribution(
+        range(0, 6).for_each(|i| {
+            let game_0_deal_i_scalar_mul_session =
+                reencryption::borrow_scalar_mul_session(
+                    game::borrow_private_dealing_session(cur_game, i)
+                );
+            let game_0_deal_i_player_share =
+                threshold_scalar_mul::generate_contribution(
                     &alice,
-                    host_addr,
-                    0,
-                    i,
-                    threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
+                    game_0_deal_i_scalar_mul_session,
+                    &dkg_0_alice_secret_share
                 );
-            }
-        );
-        for_each(
-            range(0, 6),
-            |i| {
-                let game_0_deal_i_scalar_mul_session =
-                    reencryption::borrow_scalar_mul_session(
-                        game::borrow_private_dealing_session(cur_game, i)
-                    );
-                let game_0_deal_i_player_share =
-                    threshold_scalar_mul::generate_contribution(
-                        &bob,
-                        game_0_deal_i_scalar_mul_session,
-                        &dkg_0_bob_secret_share
-                    );
-                process_private_dealing_contribution(
+            process_private_dealing_contribution(
+                &alice,
+                host_addr,
+                0,
+                i,
+                threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
+            );
+        });
+        range(0, 6).for_each(|i| {
+            let game_0_deal_i_scalar_mul_session =
+                reencryption::borrow_scalar_mul_session(
+                    game::borrow_private_dealing_session(cur_game, i)
+                );
+            let game_0_deal_i_player_share =
+                threshold_scalar_mul::generate_contribution(
                     &bob,
-                    host_addr,
-                    0,
-                    i,
-                    threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
+                    game_0_deal_i_scalar_mul_session,
+                    &dkg_0_bob_secret_share
                 );
-            }
-        );
-        for_each(
-            range(0, 6),
-            |i| {
-                let game_0_deal_i_scalar_mul_session =
-                    reencryption::borrow_scalar_mul_session(
-                        game::borrow_private_dealing_session(cur_game, i)
-                    );
-                let game_0_deal_i_player_share =
-                    threshold_scalar_mul::generate_contribution(
-                        &eric,
-                        game_0_deal_i_scalar_mul_session,
-                        &dkg_0_eric_secret_share
-                    );
-                process_private_dealing_contribution(
+            process_private_dealing_contribution(
+                &bob,
+                host_addr,
+                0,
+                i,
+                threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
+            );
+        });
+        range(0, 6).for_each(|i| {
+            let game_0_deal_i_scalar_mul_session =
+                reencryption::borrow_scalar_mul_session(
+                    game::borrow_private_dealing_session(cur_game, i)
+                );
+            let game_0_deal_i_player_share =
+                threshold_scalar_mul::generate_contribution(
                     &eric,
-                    host_addr,
-                    0,
-                    i,
-                    threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
+                    game_0_deal_i_scalar_mul_session,
+                    &dkg_0_eric_secret_share
                 );
-            }
-        );
+            process_private_dealing_contribution(
+                &eric,
+                host_addr,
+                0,
+                i,
+                threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
+            );
+        });
 
         state_update(host_addr);
 
@@ -497,60 +488,51 @@ module contract_owner::poker_room_examples {
         assert!(game::is_dealing_community_cards(cur_game(&room)), 999);
 
         print(&utf8(b"Everyone does his card opening duty."));
-        for_each(
-            vector[0, 1, 2],
-            |opening_idx| {
-                let scalar_mul_session =
-                    game::borrow_public_opening_session(cur_game(&room), opening_idx);
-                let share =
-                    threshold_scalar_mul::generate_contribution(
-                        &bob, scalar_mul_session, &dkg_0_bob_secret_share
-                    );
-                process_public_opening_contribution(
-                    &bob,
-                    host_addr,
-                    0,
-                    opening_idx,
-                    threshold_scalar_mul::encode_contribution(&share)
+        vector[0, 1, 2].for_each(|opening_idx| {
+            let scalar_mul_session =
+                game::borrow_public_opening_session(cur_game(&room), opening_idx);
+            let share =
+                threshold_scalar_mul::generate_contribution(
+                    &bob, scalar_mul_session, &dkg_0_bob_secret_share
                 );
-            }
-        );
-        for_each(
-            vector[0, 1, 2],
-            |opening_idx| {
-                let scalar_mul_session =
-                    game::borrow_public_opening_session(cur_game(&room), opening_idx);
-                let share =
-                    threshold_scalar_mul::generate_contribution(
-                        &eric, scalar_mul_session, &dkg_0_eric_secret_share
-                    );
-                process_public_opening_contribution(
-                    &eric,
-                    host_addr,
-                    0,
-                    opening_idx,
-                    threshold_scalar_mul::encode_contribution(&share)
+            process_public_opening_contribution(
+                &bob,
+                host_addr,
+                0,
+                opening_idx,
+                threshold_scalar_mul::encode_contribution(&share)
+            );
+        });
+        vector[0, 1, 2].for_each(|opening_idx| {
+            let scalar_mul_session =
+                game::borrow_public_opening_session(cur_game(&room), opening_idx);
+            let share =
+                threshold_scalar_mul::generate_contribution(
+                    &eric, scalar_mul_session, &dkg_0_eric_secret_share
                 );
-            }
-        );
-        for_each(
-            vector[0, 1, 2],
-            |opening_idx| {
-                let scalar_mul_session =
-                    game::borrow_public_opening_session(cur_game(&room), opening_idx);
-                let share =
-                    threshold_scalar_mul::generate_contribution(
-                        &alice, scalar_mul_session, &dkg_0_alice_secret_share
-                    );
-                process_public_opening_contribution(
-                    &alice,
-                    host_addr,
-                    0,
-                    opening_idx,
-                    threshold_scalar_mul::encode_contribution(&share)
+            process_public_opening_contribution(
+                &eric,
+                host_addr,
+                0,
+                opening_idx,
+                threshold_scalar_mul::encode_contribution(&share)
+            );
+        });
+        vector[0, 1, 2].for_each(|opening_idx| {
+            let scalar_mul_session =
+                game::borrow_public_opening_session(cur_game(&room), opening_idx);
+            let share =
+                threshold_scalar_mul::generate_contribution(
+                    &alice, scalar_mul_session, &dkg_0_alice_secret_share
                 );
-            }
-        );
+            process_public_opening_contribution(
+                &alice,
+                host_addr,
+                0,
+                opening_idx,
+                threshold_scalar_mul::encode_contribution(&share)
+            );
+        });
 
         state_update(host_addr);
 

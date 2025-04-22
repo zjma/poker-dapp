@@ -160,7 +160,7 @@ module contract_owner::game {
         card_reprs: vector<group::Element>,
         shuffled_deck: vector<elgamal::Ciphertext>
     ): Session {
-        let num_players = vector::length(&players);
+        let num_players = players.length();
 
         let session = Session {
             num_players,
@@ -169,15 +169,13 @@ module contract_owner::game {
             expected_small_blind: 125,
             expected_big_blind: 250,
             chips_in_hand: chips,
-            bets: vector::map(vector::range(0, num_players), |_| 0),
-            fold_statuses: vector::map(vector::range(0, num_players), |_| false),
-            no_more_action_needed: vector::map(vector::range(0, num_players), |_| false),
+            bets: vector::range(0, num_players).map(|_| 0),
+            fold_statuses: vector::range(0, num_players).map(|_| false),
+            no_more_action_needed: vector::range(0, num_players).map(|_| false),
             min_raise_step: 0,
             card_reprs,
             shuffled_deck,
-            revealed_private_cards: vector::map(
-                vector::range(0, num_players * 2), |_| CARD__UNREVEALED
-            ),
+            revealed_private_cards: vector::range(0, num_players * 2).map(|_| CARD__UNREVEALED),
             state: STATE__DEALING_PRIVATE_CARDS,
             current_action_player_idx: 0,
             current_action_deadline: 0,
@@ -190,31 +188,28 @@ module contract_owner::game {
         };
 
         let now_secs = timestamp::now_seconds();
-        session.private_dealing_sessions = vector::map(
-            vector::range(0, session.num_players * 2),
-            |card_idx| {
-                let dest_player_idx = card_goes_to(&session, card_idx);
-                reencryption::new_session(
-                    session.shuffled_deck[card_idx],
-                    session.players[dest_player_idx],
-                    session.players,
-                    session.secret_info,
-                    now_secs + 5,
-                    now_secs + 10
-                )
-            }
-        );
+        session.private_dealing_sessions = vector::range(0, session.num_players * 2).map(|card_idx| {
+            let dest_player_idx = card_goes_to(&session, card_idx);
+            reencryption::new_session(
+                session.shuffled_deck[card_idx],
+                session.players[dest_player_idx],
+                session.players,
+                session.secret_info,
+                now_secs + 5,
+                now_secs + 10
+            )
+        });
 
         session
     }
 
     fun num_folded(game: &Session): u64 {
-        vector::length(&vector::filter(game.fold_statuses, |folded| *folded))
+        game.fold_statuses.filter(|folded| *folded).length()
     }
 
     fun highest_bet(game: &Session): u64 {
         let ret = 0;
-        vector::for_each(game.bets, |bet| {
+        game.bets.for_each(|bet| {
             ret = max(ret, bet);
         });
         ret
@@ -234,21 +229,14 @@ module contract_owner::game {
 
     fun calc_powers_and_distribute_chips(game: &mut Session) {
         let players_sorted_by_powers_desc = vector::range(0, game.num_players); //TODO: calc real power.
-        vector::for_each(
-            players_sorted_by_powers_desc,
-            |winner_idx| {
-                let winner_bet = game.bets[winner_idx];
-                vector::for_each(
-                    vector::range(0, game.num_players),
-                    |loser_idx| {
-                        let diff = min(winner_bet, game.bets[loser_idx]);
-                        game.bets[loser_idx] = game.bets[loser_idx] - diff;
-                        game.chips_in_hand[winner_idx] =
-                            game.chips_in_hand[winner_idx] + diff;
-                    }
-                );
-            }
-        );
+        players_sorted_by_powers_desc.for_each(|winner_idx| {
+            let winner_bet = game.bets[winner_idx];
+            vector::range(0, game.num_players).for_each(|loser_idx| {
+                let diff = min(winner_bet, game.bets[loser_idx]);
+                game.bets[loser_idx] -= diff;
+                game.chips_in_hand[winner_idx] += diff;
+            });
+        });
     }
 
     public fun get_ending_chips(game: &Session): (vector<address>, vector<u64>) {
@@ -258,11 +246,8 @@ module contract_owner::game {
 
     public fun get_culprits(game: &Session): vector<address> {
         assert!(game.state == STATE__FAILED, 184545);
-        let culprit_idxs = vector::filter(
-            vector::range(0, game.num_players),
-            |player_idx| game.blames[*player_idx]
-        );
-        vector::map(culprit_idxs, |idx| game.players[idx])
+        let culprit_idxs = vector::range(0, game.num_players).filter(|player_idx| game.blames[*player_idx]);
+        culprit_idxs.map(|idx| game.players[idx])
     }
 
     fun get_small_blind_player_idx(game: &Session): u64 {
@@ -278,29 +263,21 @@ module contract_owner::game {
             let num_dealings = game.num_players * 2;
             let num_successes = 0;
             let num_failures = 0;
-            let blames = vector::map(vector::range(0, game.num_players), |_| false);
-            vector::for_each(
-                vector::range(0, num_dealings),
-                |dealing_idx| {
-                    let deal_session = &mut game.private_dealing_sessions[dealing_idx];
-                    reencryption::state_update(deal_session);
-                    if (reencryption::succeeded(deal_session)) {
-                        num_successes = num_successes + 1;
-                    } else if (reencryption::failed(deal_session)) {
-                        num_failures = num_failures + 1;
-                        vector::for_each_reverse(
-                            reencryption::get_culprits(deal_session),
-                            |culprit| {
-                                let (player_found, player_idx) = vector::index_of(
-                                    &game.players, &culprit
-                                );
-                                assert!(player_found, 261052);
-                                blames[player_idx] = true;
-                            }
-                        );
-                    };
-                }
-            );
+            let blames = vector::range(0, game.num_players).map(|_| false);
+            vector::range(0, num_dealings).for_each(|dealing_idx| {
+                let deal_session = &mut game.private_dealing_sessions[dealing_idx];
+                reencryption::state_update(deal_session);
+                if (reencryption::succeeded(deal_session)) {
+                    num_successes += 1;
+                } else if (reencryption::failed(deal_session)) {
+                    num_failures += 1;
+                    reencryption::get_culprits(deal_session).for_each_reverse(|culprit| {
+                        let (player_found, player_idx) = game.players.index_of(&culprit);
+                        assert!(player_found, 261052);
+                        blames[player_idx] = true;
+                    });
+                };
+            });
             if (num_successes == num_dealings) {
                 // Private card dealing is done.
                 let sb_player_idx = get_small_blind_player_idx(game);
@@ -311,9 +288,7 @@ module contract_owner::game {
                 let actual_bb_amount =
                     min(game.expected_big_blind, game.chips_in_hand[bb_player_idx]);
                 move_chips_to_pot(game, bb_player_idx, actual_bb_amount);
-                game.no_more_action_needed = vector::map(
-                    vector::range(0, game.num_players), |_| false
-                );
+                game.no_more_action_needed = vector::range(0, game.num_players).map(|_| false);
                 game.no_more_action_needed[bb_player_idx] = true;
                 game.no_more_action_needed[sb_player_idx] = player_is_all_in(
                     game, sb_player_idx
@@ -350,9 +325,7 @@ module contract_owner::game {
                 mark_as_fold(game, idx);
             };
             if (game.completed_action_is_raise) {
-                game.no_more_action_needed = vector::map(
-                    vector::range(0, game.num_players), |_| false
-                );
+                game.no_more_action_needed = vector::range(0, game.num_players).map(|_| false);
             };
             game.no_more_action_needed[game.current_action_player_idx] = true;
 
@@ -369,7 +342,7 @@ module contract_owner::game {
                 calc_powers_and_distribute_chips(game);
                 game.state = STATE__SUCCEEDED;
             } else {
-                let num_public_cards_opened = vector::length(&game.public_opening_sessions);
+                let num_public_cards_opened = game.public_opening_sessions.length();
                 if (5 == num_public_cards_opened) {
                     // This is the final betting round. Showdown should follow.
                     game.state = STATE__SHOWDOWN;
@@ -384,9 +357,7 @@ module contract_owner::game {
                 }
             }
         } else if (game.state == STATE__OPENING_COMMUNITY_CARDS) {
-            let num_opening_sessions_created = vector::length(
-                &game.public_opening_sessions
-            );
+            let num_opening_sessions_created = game.public_opening_sessions.length();
             let (opening_idx_begin, opening_idx_end) =
                 if (num_opening_sessions_created == 3) { (0, 3) }
                 else {
@@ -395,60 +366,45 @@ module contract_owner::game {
 
             let num_successes = 0;
             let num_failures = 0;
-            let blames = vector::map(vector::range(0, game.num_players), |_| false);
-            vector::for_each(
-                vector::range(opening_idx_begin, opening_idx_end),
-                |opening_idx| {
-                    let cur_opening_session =
-                        &mut game.public_opening_sessions[opening_idx];
-                    threshold_scalar_mul::state_update(cur_opening_session);
-                    if (threshold_scalar_mul::succeeded(cur_opening_session)) {
-                        num_successes = num_successes + 1;
-                    } else if (threshold_scalar_mul::failed(cur_opening_session)) {
-                        num_failures = num_failures + 1;
-                        vector::for_each(
-                            threshold_scalar_mul::get_culprits(cur_opening_session),
-                            |culprit| {
-                                let (found, player_idx) = vector::index_of(
-                                    &game.players, &culprit
-                                );
-                                assert!(found, 272424);
-                                blames[player_idx] = true;
-                            }
-                        );
-                    }
+            let blames = vector::range(0, game.num_players).map(|_| false);
+            vector::range(opening_idx_begin, opening_idx_end).for_each(|opening_idx| {
+                let cur_opening_session =
+                    &mut game.public_opening_sessions[opening_idx];
+                threshold_scalar_mul::state_update(cur_opening_session);
+                if (threshold_scalar_mul::succeeded(cur_opening_session)) {
+                    num_successes += 1;
+                } else if (threshold_scalar_mul::failed(cur_opening_session)) {
+                    num_failures += 1;
+                    threshold_scalar_mul::get_culprits(cur_opening_session).for_each(|culprit| {
+                        let (found, player_idx) = game.players.index_of(&culprit);
+                        assert!(found, 272424);
+                        blames[player_idx] = true;
+                    });
                 }
-            );
+            });
 
             if (num_successes == opening_idx_end - opening_idx_begin) {
                 // All succeeded.
 
                 // Compute the publicly revealed cards and store them.
-                vector::for_each(
-                    vector::range(opening_idx_begin, opening_idx_end),
-                    |opening_idx| {
-                        let scalar_mul_result =
-                            threshold_scalar_mul::get_result(
-                                &game.public_opening_sessions[opening_idx]
-                            );
-                        let (_, _, c_1) =
-                            elgamal::unpack_ciphertext(
-                                game.shuffled_deck[game.num_players * 2 + opening_idx]
-                            );
-                        let revealed_card_repr =
-                            group::element_sub(&c_1, &scalar_mul_result);
-                        let (found, card) = vector::index_of(
-                            &game.card_reprs, &revealed_card_repr
+                vector::range(opening_idx_begin, opening_idx_end).for_each(|opening_idx| {
+                    let scalar_mul_result =
+                        threshold_scalar_mul::get_result(
+                            &game.public_opening_sessions[opening_idx]
                         );
-                        assert!(found, 143939);
-                        vector::push_back(&mut game.publicly_opened_cards, card);
-                    }
-                );
+                    let (_, _, c_1) =
+                        elgamal::unpack_ciphertext(
+                            game.shuffled_deck[game.num_players * 2 + opening_idx]
+                        );
+                    let revealed_card_repr =
+                        group::element_sub(&c_1, &scalar_mul_result);
+                    let (found, card) = game.card_reprs.index_of(&revealed_card_repr);
+                    assert!(found, 143939);
+                    game.publicly_opened_cards.push_back(card);
+                });
 
                 // Figore out what to do next.
-                game.no_more_action_needed = vector::map(
-                    vector::range(0, game.num_players), |_| false
-                );
+                game.no_more_action_needed = vector::range(0, game.num_players).map(|_| false);
                 let ideally_first_to_take_action = get_small_blind_player_idx(game);
                 let (actor_found, actor_idx) =
                     find_next_action_needed(game, ideally_first_to_take_action);
@@ -474,14 +430,11 @@ module contract_owner::game {
                 // While some succeeded, the others are in progress...
             }
         } else if (game.state == STATE__SHOWDOWN) {
-            let every_active_player_revealed = vector::all(
-                &vector::range(0, game.num_players * 2),
-                |card_idx| {
-                    let owner = card_goes_to(game, *card_idx);
-                    game.fold_statuses[owner]
-                        || game.revealed_private_cards[*card_idx] != CARD__UNREVEALED
-                }
-            );
+            let every_active_player_revealed = vector::range(0, game.num_players * 2).all(|card_idx| {
+                let owner = card_goes_to(game, *card_idx);
+                game.fold_statuses[owner]
+                    || game.revealed_private_cards[*card_idx] != CARD__UNREVEALED
+            });
             if (every_active_player_revealed
                 || now_secs >= game.current_action_deadline) {
                 calc_powers_and_distribute_chips(game);
@@ -492,14 +445,14 @@ module contract_owner::game {
 
     fun initiate_public_card_opening(game: &mut Session, deadline: u64) {
         let card_idx = game.num_players * 2
-            + vector::length(&game.public_opening_sessions);
+            + game.public_opening_sessions.length();
         let card_to_open = game.shuffled_deck[card_idx];
         let (_, c_0, _) = elgamal::unpack_ciphertext(card_to_open);
         let opening_session =
             threshold_scalar_mul::new_session(
                 c_0, game.secret_info, game.players, deadline
             );
-        vector::push_back(&mut game.public_opening_sessions, opening_session);
+        game.public_opening_sessions.push_back(opening_session);
         game.state = STATE__OPENING_COMMUNITY_CARDS;
     }
 
@@ -556,7 +509,7 @@ module contract_owner::game {
         let _player_idx = get_player_idx_or_abort(game, player);
         let session = game.private_dealing_sessions[dealing_idx];
         let card_repr = reencryption::reveal(&session, reenc_private_state);
-        let (found, card) = vector::index_of(&game.card_reprs, &card_repr);
+        let (found, card) = game.card_reprs.index_of(&card_repr);
         assert!(found, 104629);
         game.revealed_private_cards[dealing_idx] = card;
     }
@@ -633,9 +586,9 @@ module contract_owner::game {
         game: &mut Session, player_idx: u64, amount: u64
     ) {
         let in_hand = &mut game.chips_in_hand[player_idx];
-        *in_hand = *in_hand - amount;
+        *in_hand -= amount;
         let invested = &mut game.bets[player_idx];
-        *invested = *invested + amount;
+        *invested += amount;
     }
 
     fun find_next_action_needed(
@@ -684,19 +637,19 @@ module contract_owner::game {
     #[test_only]
     public fun is_dealing_community_cards(game: &Session): bool {
         game.state == STATE__OPENING_COMMUNITY_CARDS
-            && 3 == vector::length(&game.public_opening_sessions)
+            && 3 == game.public_opening_sessions.length()
     }
 
     #[test_only]
     public fun is_opening_4th_community_card(game: &Session): bool {
         game.state == STATE__OPENING_COMMUNITY_CARDS
-            && 4 == vector::length(&game.public_opening_sessions)
+            && 4 == game.public_opening_sessions.length()
     }
 
     #[test_only]
     public fun is_opening_5th_community_card(game: &Session): bool {
         game.state == STATE__OPENING_COMMUNITY_CARDS
-            && 5 == vector::length(&game.public_opening_sessions)
+            && 5 == game.public_opening_sessions.length()
     }
 
     #[test_only]
@@ -707,28 +660,28 @@ module contract_owner::game {
     #[test_only]
     public fun is_phase_1_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
-            && 0 == vector::length(&game.public_opening_sessions)
+            && 0 == game.public_opening_sessions.length()
             && whose_turn == game.players[game.current_action_player_idx]
     }
 
     #[test_only]
     public fun is_phase_2_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
-            && 3 == vector::length(&game.public_opening_sessions)
+            && 3 == game.public_opening_sessions.length()
             && whose_turn == game.players[game.current_action_player_idx]
     }
 
     #[test_only]
     public fun is_phase_3_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
-            && 4 == vector::length(&game.public_opening_sessions)
+            && 4 == game.public_opening_sessions.length()
             && whose_turn == game.players[game.current_action_player_idx]
     }
 
     #[test_only]
     public fun is_phase_4_betting(game: &Session, whose_turn: address): bool {
         game.state == STATE__PLAYER_BETTING
-            && 5 == vector::length(&game.public_opening_sessions)
+            && 5 == game.public_opening_sessions.length()
             && whose_turn == game.players[game.current_action_player_idx]
     }
 
@@ -747,7 +700,7 @@ module contract_owner::game {
 
     fun get_player_idx_or_abort(game: &Session, player: &signer): u64 {
         let addr = address_of(player);
-        let (player_found, idx) = vector::index_of(&game.players, &addr);
+        let (player_found, idx) = game.players.index_of(&addr);
         assert!(player_found, 102640);
         idx
     }
@@ -763,7 +716,7 @@ module contract_owner::game {
             reencryption::reveal(
                 &session.private_dealing_sessions[deal_idx], player_private_state
             );
-        let (found, card_val) = vector::index_of(&session.card_reprs, &plaintext);
+        let (found, card_val) = session.card_reprs.index_of(&plaintext);
         assert!(found, 310350);
         card_val
     }

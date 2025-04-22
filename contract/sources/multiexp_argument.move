@@ -1,10 +1,11 @@
 module contract_owner::multiexp_argument {
-    use std::vector;
     use contract_owner::fiat_shamir_transform;
     use contract_owner::pederson_commitment;
     use contract_owner::utils;
     use contract_owner::elgamal;
     use contract_owner::group;
+    #[test_only]
+    use std::vector;
     #[test_only]
     use aptos_framework::randomness;
 
@@ -38,38 +39,38 @@ module contract_owner::multiexp_argument {
 
     public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
         let (errors, cmt_a0, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 243333);
+        if (!errors.is_empty()) {
+            errors.push_back(243333);
             return (errors, dummy_proof(), buf);
         };
 
         let (errors, b_cmt_0, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 243334);
+        if (!errors.is_empty()) {
+            errors.push_back(243334);
             return (errors, dummy_proof(), buf);
         };
 
         let (errors, b_cmt_1, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 243335);
+        if (!errors.is_empty()) {
+            errors.push_back(243335);
             return (errors, dummy_proof(), buf);
         };
 
         let (errors, e_0, buf) = elgamal::decode_ciphertext(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 243336);
+        if (!errors.is_empty()) {
+            errors.push_back(243336);
             return (errors, dummy_proof(), buf);
         };
 
         let (errors, e_1, buf) = elgamal::decode_ciphertext(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 243337);
+        if (!errors.is_empty()) {
+            errors.push_back(243337);
             return (errors, dummy_proof(), buf);
         };
 
         let (errors, a_vec_len, buf) = utils::decode_u64(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 243338);
+        if (!errors.is_empty()) {
+            errors.push_back(243338);
             return (errors, dummy_proof(), buf);
         };
 
@@ -77,37 +78,37 @@ module contract_owner::multiexp_argument {
         let i = 0;
         while (i < a_vec_len) {
             let (errors, scalar, remainder) = group::decode_scalar(buf);
-            if (!vector::is_empty(&errors)) {
-                vector::push_back(&mut errors, i);
-                vector::push_back(&mut errors, 243339);
+            if (!errors.is_empty()) {
+                errors.push_back(i);
+                errors.push_back(243339);
                 return (errors, dummy_proof(), buf);
             };
             buf = remainder;
-            vector::push_back(&mut a_vec, scalar);
-            i = i + 1;
+            a_vec.push_back(scalar);
+            i += 1;
         };
 
         let (errors, r, buf) = group::decode_scalar(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 243340);
+        if (!errors.is_empty()) {
+            errors.push_back(243340);
             return (errors, dummy_proof(), buf);
         };
 
         let (errors, b, buf) = group::decode_scalar(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 243341);
+        if (!errors.is_empty()) {
+            errors.push_back(243341);
             return (errors, dummy_proof(), buf);
         };
 
         let (errors, s, buf) = group::decode_scalar(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 243342);
+        if (!errors.is_empty()) {
+            errors.push_back(243342);
             return (errors, dummy_proof(), buf);
         };
 
         let (errors, tau, buf) = group::decode_scalar(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 243343);
+        if (!errors.is_empty()) {
+            errors.push_back(243343);
             return (errors, dummy_proof(), buf);
         };
 
@@ -118,22 +119,19 @@ module contract_owner::multiexp_argument {
 
     public fun encode_proof(proof: &Proof): vector<u8> {
         let buf = group::encode_element(&proof.cmt_a0);
-        vector::append(&mut buf, group::encode_element(&proof.b_cmt_0));
-        vector::append(&mut buf, group::encode_element(&proof.b_cmt_1));
-        vector::append(&mut buf, elgamal::encode_ciphertext(&proof.e_0));
-        vector::append(&mut buf, elgamal::encode_ciphertext(&proof.e_1));
-        let a_vec_len = vector::length(&proof.a_vec);
-        vector::append(&mut buf, utils::encode_u64(a_vec_len));
-        vector::for_each_ref(
-            &proof.a_vec,
-            |val| {
-                vector::append(&mut buf, group::encode_scalar(val));
-            }
-        );
-        vector::append(&mut buf, group::encode_scalar(&proof.r));
-        vector::append(&mut buf, group::encode_scalar(&proof.b));
-        vector::append(&mut buf, group::encode_scalar(&proof.s));
-        vector::append(&mut buf, group::encode_scalar(&proof.tau));
+        buf.append(group::encode_element(&proof.b_cmt_0));
+        buf.append(group::encode_element(&proof.b_cmt_1));
+        buf.append(elgamal::encode_ciphertext(&proof.e_0));
+        buf.append(elgamal::encode_ciphertext(&proof.e_1));
+        let a_vec_len = proof.a_vec.length();
+        buf.append(utils::encode_u64(a_vec_len));
+        proof.a_vec.for_each_ref(|val| {
+            buf.append(group::encode_scalar(val));
+        });
+        buf.append(group::encode_scalar(&proof.r));
+        buf.append(group::encode_scalar(&proof.b));
+        buf.append(group::encode_scalar(&proof.s));
+        buf.append(group::encode_scalar(&proof.tau));
         buf
     }
 
@@ -152,33 +150,27 @@ module contract_owner::multiexp_argument {
         rho: &group::Scalar
     ): Proof {
         let (enc_base, _) = elgamal::unpack_enc_key(*ek);
-        let n = vector::length(vec_a);
-        let vec_a_0 = vector::map(vector::range(0, n), |_| group::rand_scalar());
+        let n = vec_a.length();
+        let vec_a_0 = vector::range(0, n).map(|_| group::rand_scalar());
         let r_0 = group::rand_scalar();
         let b_vec = vector[group::rand_scalar(), group::scalar_from_u64(0)];
         let s_vec = vector[group::rand_scalar(), group::scalar_from_u64(0)];
         let tau_vec = vector[group::rand_scalar(), *rho];
         let vec_a_0_cmt = pederson_commitment::vec_commit(pedersen_ctxt, &r_0, &vec_a_0);
-        let b_cmt_vec = vector::map(
-            vector::range(0, 2),
-            |k| pederson_commitment::vec_commit(
-                pedersen_ctxt, &s_vec[k], &vector[b_vec[k]]
-            )
-        );
-        let e_vec = vector::map(
-            vector::range(0, 2),
-            |k| {
-                let msg = group::scale_element(&enc_base, &b_vec[k]);
-                let chunk0 = elgamal::enc(ek, &tau_vec[k], &msg);
-                let chunk1 =
-                    if (k == 0) {
-                        elgamal::weird_multi_exp(vec_c, &vec_a_0)
-                    } else {
-                        elgamal::weird_multi_exp(vec_c, vec_a)
-                    };
-                elgamal::ciphertext_add(&chunk0, &chunk1)
-            }
-        );
+        let b_cmt_vec = vector::range(0, 2).map(|k| pederson_commitment::vec_commit(
+            pedersen_ctxt, &s_vec[k], &vector[b_vec[k]]
+        ));
+        let e_vec = vector::range(0, 2).map(|k| {
+            let msg = group::scale_element(&enc_base, &b_vec[k]);
+            let chunk0 = elgamal::enc(ek, &tau_vec[k], &msg);
+            let chunk1 =
+                if (k == 0) {
+                    elgamal::weird_multi_exp(vec_c, &vec_a_0)
+                } else {
+                    elgamal::weird_multi_exp(vec_c, vec_a)
+                };
+            elgamal::ciphertext_add(&chunk0, &chunk1)
+        });
         fiat_shamir_transform::append_group_element(trx, &vec_a_0_cmt);
         fiat_shamir_transform::append_group_element(trx, &b_cmt_vec[0]);
         fiat_shamir_transform::append_raw_bytes(
@@ -190,15 +182,12 @@ module contract_owner::multiexp_argument {
         );
 
         let x = fiat_shamir_transform::hash_to_scalar(trx);
-        let a_out_vec = vector::map(
-            vector::range(0, n),
-            |i| {
-                group::scalar_add(
-                    &vec_a_0[i],
-                    &group::scalar_mul(vector::borrow(vec_a, i), &x)
-                )
-            }
-        );
+        let a_out_vec = vector::range(0, n).map(|i| {
+            group::scalar_add(
+                &vec_a_0[i],
+                &group::scalar_mul(vec_a.borrow(i), &x)
+            )
+        });
 
         let r_out = group::scalar_add(&r_0, &group::scalar_mul(r, &x));
         let b_out = group::scalar_add(&b_vec[0], &group::scalar_mul(&b_vec[1], &x));
@@ -282,17 +271,14 @@ module contract_owner::multiexp_argument {
         let elgamal_base = group::rand_element();
         let (_dk, ek) = elgamal::key_gen(elgamal_base);
         let r = group::rand_scalar();
-        let vec_a = vector::map(vector::range(0, n), |_| group::rand_scalar());
+        let vec_a = vector::range(0, n).map(|_| group::rand_scalar());
         let vec_a_cmt = pederson_commitment::vec_commit(&pedersen_ctxt, &r, &vec_a);
         let rho = group::rand_scalar();
-        let vec_c = vector::map(
-            vector::range(0, n),
-            |_| {
-                let randomizer = group::rand_scalar();
-                let rand_msg = group::rand_element();
-                elgamal::enc(&ek, &randomizer, &rand_msg)
-            }
-        );
+        let vec_c = vector::range(0, n).map(|_| {
+            let randomizer = group::rand_scalar();
+            let rand_msg = group::rand_element();
+            elgamal::enc(&ek, &randomizer, &rand_msg)
+        });
         let c =
             elgamal::ciphertext_add(
                 &elgamal::enc(&ek, &rho, &group::group_identity()),

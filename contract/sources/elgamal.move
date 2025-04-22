@@ -1,6 +1,5 @@
 /// ElGamal encryption instantiated with bls12-381 G1.
 module contract_owner::elgamal {
-    use std::vector;
     use contract_owner::group;
     #[test_only]
     use aptos_framework::randomness;
@@ -25,13 +24,13 @@ module contract_owner::elgamal {
 
     public fun decode_enc_key(buf: vector<u8>): (vector<u64>, EncKey, vector<u8>) {
         let (errors, enc_base, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 172708);
+        if (!errors.is_empty()) {
+            errors.push_back(172708);
             return (errors, dummy_enc_key(), buf);
         };
         let (errors, public_point, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 172709);
+        if (!errors.is_empty()) {
+            errors.push_back(172709);
             return (errors, dummy_enc_key(), buf);
         };
         let ret = EncKey { enc_base, public_point };
@@ -41,8 +40,8 @@ module contract_owner::elgamal {
     /// NOTE: client needs to implement this.
     public fun encode_enc_key(ek: &EncKey): vector<u8> {
         let buf = vector[];
-        vector::append(&mut buf, group::encode_element(&ek.enc_base));
-        vector::append(&mut buf, group::encode_element(&ek.public_point));
+        buf.append(group::encode_element(&ek.enc_base));
+        buf.append(group::encode_element(&ek.public_point));
         buf
     }
 
@@ -102,17 +101,13 @@ module contract_owner::elgamal {
         ciphs: &vector<Ciphertext>, scalars: &vector<group::Scalar>
     ): Ciphertext {
         let acc = Ciphertext {
-            enc_base: vector::borrow(ciphs, 0).enc_base,
+            enc_base: ciphs.borrow(0).enc_base,
             c_0: group::group_identity(),
             c_1: group::group_identity()
         };
-        vector::zip_ref(
-            ciphs,
-            scalars,
-            |ciph, scalar| {
-                acc = ciphertext_add(&acc, &ciphertext_mul(ciph, scalar))
-            }
-        );
+        ciphs.zip_ref(scalars, |ciph, scalar| {
+            acc = ciphertext_add(&acc, &ciphertext_mul(ciph, scalar))
+        });
         acc
     }
 
@@ -134,19 +129,19 @@ module contract_owner::elgamal {
     /// NOTE: client needs to implement this.
     public fun encode_ciphertext(obj: &Ciphertext): vector<u8> {
         let buf = vector[];
-        vector::append(&mut buf, group::encode_element(&obj.enc_base));
-        vector::append(&mut buf, group::encode_element(&obj.c_0));
-        vector::append(&mut buf, group::encode_element(&obj.c_1));
+        buf.append(group::encode_element(&obj.enc_base));
+        buf.append(group::encode_element(&obj.c_0));
+        buf.append(group::encode_element(&obj.c_1));
         buf
     }
 
     public fun decode_ciphertext(buf: vector<u8>): (vector<u64>, Ciphertext, vector<u8>) {
         let (errors, enc_base, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) return (vector[123129], dummy_ciphertext(), buf);
+        if (!errors.is_empty()) return (vector[123129], dummy_ciphertext(), buf);
         let (errors, c_0, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) return (vector[123129], dummy_ciphertext(), buf);
+        if (!errors.is_empty()) return (vector[123129], dummy_ciphertext(), buf);
         let (errors, c_1, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) return (vector[123129], dummy_ciphertext(), buf);
+        if (!errors.is_empty()) return (vector[123129], dummy_ciphertext(), buf);
         let ret = Ciphertext { enc_base, c_0, c_1 };
         (vector[], ret, buf)
     }
@@ -187,8 +182,8 @@ module contract_owner::elgamal {
         let ciphertext = enc(&ek, &r, &plaintext);
         let ciph_bytes = encode_ciphertext(&ciphertext);
         let (errors, ciphertext_another, remainder) = decode_ciphertext(ciph_bytes);
-        assert!(vector::is_empty(&errors), 999);
-        assert!(vector::is_empty(&remainder), 999);
+        assert!(errors.is_empty(), 999);
+        assert!(remainder.is_empty(), 999);
         assert!(ciphertext_another == ciphertext, 999);
         let plaintext_another = dec(&dk, &ciphertext);
         assert!(plaintext_another == plaintext, 999);

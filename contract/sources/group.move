@@ -1,6 +1,5 @@
 /// BLS12-381 G1 utils.
 module contract_owner::group {
-    use std::option;
     use std::vector;
     use aptos_std::bls12381_algebra;
     use aptos_std::crypto_algebra;
@@ -21,14 +20,14 @@ module contract_owner::group {
     }
 
     public fun decode_scalar(buf: vector<u8>): (vector<u64>, Scalar, vector<u8>) {
-        let buf_len = vector::length(&buf);
-        let payload = vector::slice(&buf, 0, 32);
+        let buf_len = buf.length();
+        let payload = buf.slice(0, 32);
         let maybe_inner =
             crypto_algebra::deserialize<bls12381_algebra::Fr, bls12381_algebra::FormatFrLsb>(
                 &payload
             );
-        if (option::is_none(&maybe_inner)) return (vector[115605], dummy_scalar(), buf);
-        let buf = vector::slice(&buf, 32, buf_len);
+        if (maybe_inner.is_none()) return (vector[115605], dummy_scalar(), buf);
+        let buf = buf.slice(32, buf_len);
         let ret = Scalar { bytes: payload };
         (vector[], ret, buf)
     }
@@ -43,13 +42,10 @@ module contract_owner::group {
     /// NOTE: client needs to implement this.
     public fun rand_scalar(): Scalar {
         let rand_scalar_val = randomness::u256_range(0, Q);
-        let bytes = vector::map(
-            vector::range(0, 32),
-            |idx| {
-                let idx = (idx as u8);
-                (((rand_scalar_val >> (idx * 8)) & 0xff) as u8)
-            }
-        );
+        let bytes = vector::range(0, 32).map(|idx| {
+            let idx = (idx as u8);
+            (((rand_scalar_val >> (idx * 8)) & 0xff) as u8)
+        });
         Scalar { bytes }
     }
 
@@ -69,35 +65,26 @@ module contract_owner::group {
 
     public fun scalar_from_little_endian_bytes_mod_q(bytes: vector<u8>): Scalar {
         let ret = 0;
-        vector::for_each(
-            bytes,
-            |byte| {
-                vector::for_each(
-                    u8_to_little_endian_bits(byte),
-                    |bit| {
-                        ret = safe_add_mod(ret, ret, Q);
-                        if (bit) {
-                            ret = safe_add_mod(ret, 1, Q);
-                        }
-                    }
-                );
-            }
-        );
+        bytes.for_each(|byte| {
+            u8_to_little_endian_bits(byte).for_each(|bit| {
+                ret = safe_add_mod(ret, ret, Q);
+                if (bit) {
+                    ret = safe_add_mod(ret, 1, Q);
+                }
+            });
+        });
         Scalar { bytes: u256_to_little_endian_bytes(ret) }
     }
 
     fun u8_to_little_endian_bits(x: u8): vector<bool> {
-        vector::map(vector::range(0, 8), |i| ((x >> (i as u8)) & 1) > 0)
+        vector::range(0, 8).map(|i| ((x >> (i as u8)) & 1) > 0)
     }
 
     fun u256_to_little_endian_bytes(x: u256): vector<u8> {
-        vector::map(
-            vector::range(0, 32),
-            |i| {
-                let shift = ((8 * i) as u8);
-                (((x >> shift) & 0xff) as u8)
-            }
-        )
+        vector::range(0, 32).map(|i| {
+            let shift = ((8 * i) as u8);
+            (((x >> shift) & 0xff) as u8)
+        })
     }
 
     fun safe_add_mod(a: u256, b: u256, m: u256): u256 {
@@ -169,15 +156,15 @@ module contract_owner::group {
     }
 
     public fun decode_element(buf: vector<u8>): (vector<u64>, Element, vector<u8>) {
-        let buf_len = vector::length(&buf);
+        let buf_len = buf.length();
         if (buf_len < 48) return (vector[110509], dummy_element(), buf);
-        let payload = vector::slice(&buf, 0, 48);
+        let payload = buf.slice(0, 48);
         let maybe_inner =
             crypto_algebra::deserialize<bls12381_algebra::G1, bls12381_algebra::FormatG1Compr>(
                 &payload
             );
-        if (option::is_none(&maybe_inner)) return (vector[110510], dummy_element(), buf);
-        let buf = vector::slice(&buf, 48, buf_len);
+        if (maybe_inner.is_none()) return (vector[110510], dummy_element(), buf);
+        let buf = buf.slice(48, buf_len);
         let ret = Element { bytes: payload };
         (vector[], ret, buf)
     }
@@ -192,12 +179,9 @@ module contract_owner::group {
 
     public fun element_sum(elements: vector<Element>): Element {
         let acc = group_identity();
-        vector::for_each(
-            elements,
-            |element| {
-                element_add_assign(&mut acc, &element);
-            }
-        );
+        elements.for_each(|element| {
+            element_add_assign(&mut acc, &element);
+        });
         acc
     }
 
@@ -208,8 +192,8 @@ module contract_owner::group {
     }
 
     public fun msm(elements: &vector<Element>, scalars: &vector<Scalar>): Element {
-        let inner_elements = vector::map_ref(elements, |e| element_to_inner(e));
-        let inner_scalars = vector::map_ref(scalars, |s| scalar_to_inner(s));
+        let inner_elements = elements.map_ref(|e| element_to_inner(e));
+        let inner_scalars = scalars.map_ref(|s| scalar_to_inner(s));
         let inner_ret = crypto_algebra::multi_scalar_mul(
             &inner_elements, &inner_scalars
         );
@@ -221,7 +205,7 @@ module contract_owner::group {
             crypto_algebra::deserialize<bls12381_algebra::Fr, bls12381_algebra::FormatFrLsb>(
                 &scalar.bytes
             );
-        option::extract(&mut maybe)
+        maybe.extract()
     }
 
     fun scalar_from_inner(
@@ -239,7 +223,7 @@ module contract_owner::group {
             crypto_algebra::deserialize<bls12381_algebra::G1, bls12381_algebra::FormatG1Compr>(
                 &element.bytes
             );
-        option::extract(&mut maybe)
+        maybe.extract()
     }
 
     fun element_from_inner(
@@ -265,8 +249,8 @@ module contract_owner::group {
 
         let e0_bytes = encode_element(&e0);
         let (errors, e0_another, remainder) = decode_element(e0_bytes);
-        assert!(vector::is_empty(&errors), 999);
-        assert!(vector::is_empty(&remainder), 999);
+        assert!(errors.is_empty(), 999);
+        assert!(remainder.is_empty(), 999);
         assert!(e0_another == e0, 999);
 
         let s7 = scalar_from_u64(7);
@@ -281,8 +265,8 @@ module contract_owner::group {
         let s0 = rand_scalar();
         let s0_bytes = encode_scalar(&s0);
         let (errors, s0_another, remainder) = decode_scalar(s0_bytes);
-        assert!(vector::is_empty(&errors), 999);
-        assert!(vector::is_empty(&remainder), 999);
+        assert!(errors.is_empty(), 999);
+        assert!(remainder.is_empty(), 999);
         assert!(s0_another == s0, 999);
     }
 }
