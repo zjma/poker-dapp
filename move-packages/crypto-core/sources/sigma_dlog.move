@@ -7,7 +7,7 @@ module crypto_core::sigma_dlog {
 
     struct Proof has copy, drop, store {
         t: group::Element,
-        s: group::Scalar
+        s: group::Scalar,
     }
 
     public fun dummy_proof(): Proof {

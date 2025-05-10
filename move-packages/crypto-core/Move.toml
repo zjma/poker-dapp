@@ -3,10 +3,7 @@ name = "CryptoCore"
 version = "1.0.0"
 
 [addresses]
-crypto_core = "_"
-
-[dev-addresses]
-crypto_core = "0x123"  # For testing
+crypto_core = "0x123"
 
 [dependencies.AptosFramework]
 git = "https://github.com/aptos-labs/aptos-framework.git"

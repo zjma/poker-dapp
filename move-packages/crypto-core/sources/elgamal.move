@@ -2,15 +2,21 @@
 module crypto_core::elgamal {
     use crypto_core::group;
     #[test_only]
+    use std::vector;
+    #[test_only]
+    use aptos_std::debug;
+    #[test_only]
+    use aptos_std::debug::print;
+    #[test_only]
     use aptos_framework::randomness;
+    #[test_only]
+    use crypto_core::group::{rand_element, rand_scalar, encode_element, encode_scalar};
 
     struct Ciphertext has copy, drop, store {
         enc_base: group::Element,
         c_0: group::Element,
         c_1: group::Element
     }
-
-    struct Plaintext has drop, store {}
 
     struct DecKey has copy, drop, store {
         enc_base: group::Element,
@@ -21,7 +27,35 @@ module crypto_core::elgamal {
         enc_base: group::Element,
         public_point: group::Element
     }
+    
+    public fun dummy_dec_key(): DecKey {
+        DecKey {
+            enc_base: group::dummy_element(),
+            private_scalar: group::dummy_scalar(),
+        }
+    }
+    
+    public fun decode_dec_key(buf: vector<u8>): (vector<u64>, DecKey, vector<u8>) {
+        let (errors, enc_base, buf) = group::decode_element(buf);
+        if (!errors.is_empty()) {
+            errors.push_back(240835);
+            return (errors, dummy_dec_key(), buf);
+        };
+        let (errors, private_scalar, buf) = group::decode_scalar(buf);
+        if (!errors.is_empty()) {
+            errors.push_back(240836);
+            return (errors, dummy_dec_key(), buf);
+        };
+        let ret = DecKey { enc_base, private_scalar };
+        (vector[], ret, buf)
+    }
 
+    public fun encode_dec_key(obj: &DecKey): vector<u8> {
+        let buf = group::encode_element(&obj.enc_base);
+        buf.append(group::encode_scalar(&obj.private_scalar));
+        buf
+    }
+    
     public fun decode_enc_key(buf: vector<u8>): (vector<u64>, EncKey, vector<u8>) {
         let (errors, enc_base, buf) = group::decode_element(buf);
         if (!errors.is_empty()) {
@@ -187,5 +221,28 @@ module crypto_core::elgamal {
         assert!(ciphertext_another == ciphertext, 999);
         let plaintext_another = dec(&dk, &ciphertext);
         assert!(plaintext_another == plaintext, 999);
+    }
+
+    #[lint::allow_unsafe_randomness]
+    #[test(fx = @0x1)]
+    fun basic(fx: signer) {
+        randomness::initialize_for_testing(&fx);
+        let enc_base = group::rand_element();
+        let (dk, ek) = key_gen(enc_base);
+        let msgs = vector[rand_element(), rand_element(), rand_element()];
+        let randomizers = vector[rand_scalar(), rand_scalar(), rand_scalar()];
+        let ciphertexts = vector::zip_map_ref(&msgs, &randomizers, |msg, randomizer| enc(&ek, randomizer, msg));
+        let scalars = vector[rand_scalar(), rand_scalar(), rand_scalar()];
+        let agg_ciphertext = weird_multi_exp(&ciphertexts, &scalars);
+        let agg_msg = dec(&dk, &agg_ciphertext);
+        assert!(group::msm(&msgs, &scalars) == agg_msg, 999);
+        print(&encode_dec_key(&dk));
+        print(&encode_enc_key(&ek));
+        print(&msgs.map_ref(|msg|encode_element(msg)));
+        print(&randomizers.map_ref(|r|encode_scalar(r)));
+        print(&ciphertexts.map_ref(|c|encode_ciphertext(c)));
+        print(&scalars.map_ref(|s|encode_scalar(s)));
+        print(&encode_ciphertext(&agg_ciphertext));
+        print(&encode_element(&agg_msg));
     }
 }

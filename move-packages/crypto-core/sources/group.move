@@ -1,9 +1,14 @@
 /// BLS12-381 G1 utils.
 module crypto_core::group {
     use std::vector;
+    use std::vector::range;
     use aptos_std::bls12381_algebra;
     use aptos_std::crypto_algebra;
     use aptos_framework::randomness;
+    #[test_only]
+    use aptos_std::debug;
+    #[test_only]
+    use aptos_std::debug::print;
 
     const Q: u256 = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001;
 
@@ -63,10 +68,10 @@ module crypto_core::group {
         scalar_from_inner(&inner)
     }
 
-    public fun scalar_from_little_endian_bytes_mod_q(bytes: vector<u8>): Scalar {
+    public fun scalar_from_big_endian_bytes_mod_q(bytes: vector<u8>): Scalar {
         let ret = 0;
         bytes.for_each(|byte| {
-            u8_to_little_endian_bits(byte).for_each(|bit| {
+            u8_to_big_endian_bits(byte).for_each(|bit| {
                 ret = safe_add_mod(ret, ret, Q);
                 if (bit) {
                     ret = safe_add_mod(ret, 1, Q);
@@ -76,8 +81,8 @@ module crypto_core::group {
         Scalar { bytes: u256_to_little_endian_bytes(ret) }
     }
 
-    fun u8_to_little_endian_bits(x: u8): vector<bool> {
-        vector::range(0, 8).map(|i| ((x >> (i as u8)) & 1) > 0)
+    fun u8_to_big_endian_bits(x: u8): vector<bool> {
+        range(0, 8).map(|i| ((x >> (7-i as u8)) & 1) > 0)
     }
 
     fun u256_to_little_endian_bytes(x: u256): vector<u8> {
@@ -268,5 +273,18 @@ module crypto_core::group {
         assert!(errors.is_empty(), 999);
         assert!(remainder.is_empty(), 999);
         assert!(s0_another == s0, 999);
+    }
+
+    #[test(fx = @0x1)]
+    fun basic(fx: signer) {
+        randomness::initialize_for_testing(&fx);
+        let (errors, point_a, rem) = decode_element(x"85ba9eae97029dee22680d4506d85d87146dbcc0b7b797d71500489eb23e0b399b5d8af1925f8871a7c2dc9f65a87209");
+        assert!(errors.is_empty(), 999);
+        assert!(rem.is_empty(), 999);
+        let (errors, scalar_b, rem) = decode_scalar(x"e57e6c4d3f6c645d69549f0c62aebfb77ebbcf29d2a8f0cd597d4ecd8ed56458");
+        assert!(errors.is_empty(), 999);
+        assert!(rem.is_empty(), 999);
+        let point_c = scale_element(&point_a, &scalar_b);
+        assert!(x"ac39b219f3915eb90a4917931abbd5cf57709473bbc57f2169a311de51b397b882c29a1ba8fbf581ca12c388d69eecec" == encode_element(&point_c), 999);
     }
 }

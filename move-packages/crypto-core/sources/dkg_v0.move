@@ -135,6 +135,7 @@ module crypto_core::dkg_v0 {
         if (dkg_session.state == STATE__IN_PROGRESS) {
             if (dkg_session.contribution_still_needed == 0) {
                 dkg_session.contributions.for_each_ref(|contri| {
+                    let contri: &Option<VerifiableContribution> = contri;
                     let contribution = *contri.borrow();
                     group::element_add_assign(
                         &mut dkg_session.agg_public_point,
@@ -171,6 +172,7 @@ module crypto_core::dkg_v0 {
         assert!(session.state == STATE__SUCCEEDED, 193709);
         let agg_ek = elgamal::make_enc_key(session.base_point, session.agg_public_point);
         let ek_shares = session.contributions.map_ref(|contri| {
+            let contri: &Option<VerifiableContribution> = contri;
             let contribution = *contri.borrow();
             elgamal::make_enc_key(session.base_point, contribution.public_point)
         });

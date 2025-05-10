@@ -7,9 +7,5 @@ CryptoCore = { local = "../crypto-core" }
 AptosFramework = { git = "https://github.com/aptos-labs/aptos-framework.git", rev = "mainnet", subdir = "aptos-framework" }
 
 [addresses]
-crypto_core = "_"  # Will be filled with crypto-core's address
-poker_game = "_"
-
-[dev-addresses]
-crypto_core = "0x123"  # For testing
-poker_game = "0x234"  # For testing 
+crypto_core = "0x123"  # Will be filled with crypto-core's address
+poker_game = "0x234"

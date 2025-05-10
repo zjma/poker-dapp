@@ -86,6 +86,7 @@ module crypto_core::threshold_scalar_mul {
             let threshold = dkg_v0::get_threshold(&session.secret_info);
             if (num_shares >= threshold) {
                 let scalar_mul_shares = session.contributions.map_ref(|maybe_contri| {
+                    let maybe_contri: &Option<VerifiableContribution> = maybe_contri;
                     if (maybe_contri.is_some()) {
                         let contri = maybe_contri.borrow();
                         option::some(contri.payload)

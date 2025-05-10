@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poker DApp</title>
+    <style>
+        #test-btn {
+            top: 50px; /* Converted from 5% of a 1000px height */
+            left: 50px; /* Converted from 5% of a 1000px width */
+            width: 100px; /* Converted from 10% of a 1000px width */
+            height: 100px; /* Converted from 10% of a 1000px height */
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="game-content" style="width: 1000px; height: 600px;">
+            <!-- Initial State -->
+            <div id="lobby-view">
+                <button class="game-button" id="create-table-btn">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+                    </svg>
+                    Create Table
+                </button>
+                <button class="game-button" id="find-table-btn">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+                    </svg>
+                    Find Table
+                </button>
+            </div>
+
+            <!-- In-Game State -->
+            <div id="table-view" style="position:absolute; top: 0px; left: 0px; width: 1000px; height: 600px;">
+                <button id="test-btn" style="position: absolute; top: 50px; left: 50px; width: 100px; height: 100px;">TEST</button>
+                <div id="room-address" style="position: absolute; top: 0px; display: flex; justify-content: center; width: 1000px; height: 100px; align-items: center; font-size: 1.5rem; font-weight: bold; font-family: monospace;">0xffffffff</div>
+                <div id="player-0-box" class="player-box" style="position: absolute; top: 100px; left: 420px;">
+                    <div id="player-0-addr" class="player-box-element">0xaaaa...fff0</div>
+                    <div id="player-0-chips-in-hand" class="player-box-element">999</div>
+                    <div id="player-0-private-cards-area" class="private-cards-area">
+                        <div id="p0-card-0" class="card-slot private-card-0-holder card">A♠</div>
+                        <div id="p0-card-1" class="card-slot private-card-1-holder card red-suit">K♦</div>
+                        <div id="p0-fold-flag" class="fold-flag" style="display: none;">FOLD</div>
+                    </div>
+                    <div id="dealer-light-0" class="dealer-button">D</div>
+                    <div id="player-0-bet" class="current-bet">50</div>
+                </div>
+                <div id="player-1-box" class="player-box" style="position: absolute; top: 130px; left: 600px;">
+                    <div id="player-1-addr" class="player-box-element">0xaaaa...fff1</div>
+                    <div id="player-1-chips-in-hand" class="player-box-element">888</div>
+                    <div id="player-1-private-cards-area" class="private-cards-area">
+                        <div id="p1-card-0" class="card-slot private-card-0-holder card">A♠</div>
+                        <div id="p1-card-1" class="card-slot private-card-1-holder card red-suit">K♦</div>
+                        <div id="p1-fold-flag" class="fold-flag" style="display: none;">FOLD</div>
+                    </div>
+                    <div id="dealer-light-1" class="dealer-button">D</div>
+                    <div id="player-1-bet" class="current-bet">50</div>
+                </div>
+                <div id="player-2-box" class="player-box" style="position: absolute; top: 200px; left: 780px;">
+                    <div id="player-2-addr" class="player-box-element">0xaaaa...fff2</div>
+                    <div id="player-2-chips-in-hand" class="player-box-element">45</div>
+                    <div id="player-2-private-cards-area" class="private-cards-area">
+                        <div id="p2-card-0" class="card-slot private-card-0-holder card-back">A♠</div>
+                        <div id="p2-card-1" class="card-slot private-card-1-holder card-back">K♦</div>
+                        <div id="p2-fold-flag" class="fold-flag" style="display: none;">FOLD</div>
+                    </div>
+                    <div id="dealer-light-2" class="dealer-button">D</div>
+                    <div id="player-2-bet" class="current-bet">50</div>
+                </div>
+                <div id="player-3-box" class="player-box" style="position: absolute; top: 340px; left: 800px;">
+                    <div id="player-3-addr" class="player-box-element">0xaaaa...fff3</div>
+                    <div id="player-3-chips-in-hand" class="player-box-element">56</div>
+                    <div id="dealer-light-3" class="dealer-button">D</div>
+                    <div id="player-3-bet" class="current-bet">50</div>
+                    <div id="player-3-private-cards-area" class="private-cards-area">
+                        <div id="p3-card-0" class="card-slot private-card-0-holder card-back">A♠</div>
+                        <div id="p3-card-1" class="card-slot private-card-1-holder card-back">K♦</div>
+                        <div id="p3-fold-flag" class="fold-flag" style="display: none;">FOLD</div>
+                    </div>
+                </div>
+                <div id="player-7-box" class="player-box" style="position: absolute; top: 340px; left: 40px;">
+                    <div id="player-7-addr" class="player-box-element">0xaaaa...fff7</div>
+                    <div id="player-7-chips-in-hand" class="player-box-element">90</div>
+                    <div id="dealer-light-7" class="dealer-button">D</div>
+                    <div id="player-7-bet" class="current-bet">50</div>
+                    <div id="player-7-private-cards-area" class="private-cards-area">
+                        <div id="p7-card-0" class="card-slot private-card-0-holder card-back">A♠</div>
+                        <div id="p7-card-1" class="card-slot private-card-1-holder card-back">K♦</div>
+                        <div id="p7-fold-flag" class="fold-flag" style="display: none;">FOLD</div>
+                    </div>
+                </div>
+                <div id="player-8-box" class="player-box" style="position: absolute; top: 200px; left: 60px;">
+                    <div id="player-8-addr" class="player-box-element">0xaaaa...fff8</div>
+                    <div id="player-8-chips-in-hand" class="player-box-element">30</div>
+                    <div id="dealer-light-8" class="dealer-button">D</div>
+                    <div id="player-8-bet" class="current-bet">50</div>
+                    <div id="player-8-private-cards-area" class="private-cards-area">
+                        <div id="p8-card-0" class="card-slot private-card-0-holder card-back">A♠</div>
+                        <div id="p8-card-1" class="card-slot private-card-1-holder card-back">K♦</div>
+                        <div id="p8-fold-flag" class="fold-flag" style="display: none;">FOLD</div>
+                    </div>
+                </div>
+                <div id="player-9-box" class="player-box" style="position: absolute; top: 130px; left: 240px;">
+                    <div id="player-9-addr" class="player-box-element">0xaaaa...fff9</div>
+                    <div id="player-9-chips-in-hand">120</div>
+                    <div id="dealer-light-9" class="dealer-button">D</div>
+                    <div id="player-9-bet" class="current-bet">50</div>
+                    <div id="player-9-private-cards-area" class="private-cards-area">
+                        <div id="p9-card-0" class="card-slot private-card-0-holder card-back">A♠</div>
+                        <div id="p9-card-1" class="card-slot private-card-1-holder card-back">K♦</div>
+                        <div id="p9-fold-flag" class="fold-flag" style="display: none;">FOLD</div>
+                    </div>
+                </div>
+            </div>
+            <div id="community-card-0" class="card-slot community-card-0-holder card">A♠</div>
+            <div id="community-card-1" class="card-slot community-card-1-holder card">K♦</div>
+            <div id="community-card-2" class="card-slot community-card-2-holder card red-suit">2♦</div>
+            <div id="community-card-3" class="card-slot community-card-3-holder card reveal-animation">K♦</div>
+            <div id="community-card-4" class="card-slot community-card-4-holder card-back"></div>
+            <div id="total-in-pot-value" style="position: absolute; height: 40px; width: 100px; top: 400px; left: 450px; text-align: center; justify-content: center; align-items: center;">10000</div>
+            <div id="my-box">
+                <div id="my-addr">0xaaaa...fff0</div>
+                <div id="my-chips-in-hand">999</div>
+                <div id="my-current-bet">50</div>
+                <div id="my-private-cards-area" class="private-cards-area">
+                    <div id="my-card-0" class="card-slot card">K♠</div>
+                    <div id="my-card-1" class="card-slot card red-suit">K♦</div>
+                    <div id="my-fold-flag" class="fold-flag">FOLD</div>
+                </div>
+                <button id="fold-btn">FOLD</button>
+                <input type="range" id="my-bet-amount" min="29" max="100" value="50">
+                <button id="bet-btn">CHECK</button>    
+                <div id="my-dealer-light" class="dealer-button">D</div>
+            </div>
+        </div>
+        <div class="status-bar">
+            <div id="contract-status">TBD</div>
+            <div id="cur-account-status">TBD</div>
+            <div id="balance-status">TBD</div>
+        </div>
+    </div>
+
+    <!-- Login Dialog -->
+    <div id="login-dialog" class="dialog-overlay" style="display: none;">
+        <div class="dialog-content">
+            <h2>Welcome!</h2>
+            <div class="dialog-actions">
+                <button id="saved-account-btn" class="dialog-button primary"></button>
+                <button id="new-account-btn" class="dialog-button primary">Create New Account</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Table Dialog -->
+    <div id="host-dialog" class="dialog-overlay" style="display: none;">
+        <div class="dialog-content">
+            <h2>Create Table</h2>
+            <div class="dialog-form">
+                <div class="form-group">
+                    <label for="allowed-addresses">Allowed Accounts (one per line)</label>
+                    <textarea id="allowed-addresses" class="form-input" rows="5" placeholder="Enter addresses that can join the game">0x11
+0x22</textarea>
+                </div>
+            </div>
+            <div class="dialog-actions">
+                <button id="start-game-btn" class="dialog-button primary">Create</button>
+                <button id="cancel-host-btn" class="dialog-button secondary">Back</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html> 

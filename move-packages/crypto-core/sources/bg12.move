@@ -52,7 +52,8 @@ module crypto_core::bg12 {
 
     /// NOTE: client needs to implement this.
     public fun encode_proof(proof: &Proof): vector<u8> {
-        let buf = group::encode_element(&proof.vec_a_cmt);
+        let buf = vector[];
+        buf.append(group::encode_element(&proof.vec_a_cmt));
         buf.append(group::encode_element(&proof.vec_b_cmt));
         buf.append(multiexp_argument::encode_proof(&proof.multiexp_proof));
         buf.append(product_argument::encode_proof(&proof.product_proof));
