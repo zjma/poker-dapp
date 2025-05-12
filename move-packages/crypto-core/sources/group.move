@@ -5,10 +5,9 @@ module crypto_core::group {
     use aptos_std::bls12381_algebra;
     use aptos_std::crypto_algebra;
     use aptos_framework::randomness;
+    use crypto_core::utils;
     #[test_only]
-    use aptos_std::debug;
-    #[test_only]
-    use aptos_std::debug::print;
+    use std::bcs;
 
     const Q: u256 = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001;
 
@@ -20,19 +19,22 @@ module crypto_core::group {
         bytes: vector<u8>
     }
 
-    public fun encode_scalar(obj: &Scalar): vector<u8> {
-        obj.bytes
-    }
-
     public fun decode_scalar(buf: vector<u8>): (vector<u64>, Scalar, vector<u8>) {
+        let (errors, num_bytes, buf) = utils::decode_uleb128(buf);
+        if (!errors.is_empty()) {
+            errors.push_back(115603);
+            return (errors, dummy_scalar(), buf);
+        };
+        if (num_bytes != 32) return (vector[115604], dummy_scalar(), buf);
         let buf_len = buf.length();
+        if (buf_len < 32) return (vector[115605], dummy_scalar(), buf);
         let payload = buf.slice(0, 32);
         let maybe_inner =
             crypto_algebra::deserialize<bls12381_algebra::Fr, bls12381_algebra::FormatFrLsb>(
                 &payload
             );
-        if (maybe_inner.is_none()) return (vector[115605], dummy_scalar(), buf);
-        let buf = buf.slice(32, buf_len);
+        if (maybe_inner.is_none()) return (vector[115606], dummy_scalar(), buf);
+        let buf = buf.slice(32, buf.length());
         let ret = Scalar { bytes: payload };
         (vector[], ret, buf)
     }
@@ -161,6 +163,12 @@ module crypto_core::group {
     }
 
     public fun decode_element(buf: vector<u8>): (vector<u64>, Element, vector<u8>) {
+        let (errors, num_bytes, buf) = utils::decode_uleb128(buf);
+        if (!errors.is_empty()) {
+            errors.push_back(110507);
+            return (errors, dummy_element(), buf);
+        };
+        if (num_bytes != 48) return (vector[110508], dummy_element(), buf);
         let buf_len = buf.length();
         if (buf_len < 48) return (vector[110509], dummy_element(), buf);
         let payload = buf.slice(0, 48);
@@ -172,10 +180,6 @@ module crypto_core::group {
         let buf = buf.slice(48, buf_len);
         let ret = Element { bytes: payload };
         (vector[], ret, buf)
-    }
-
-    public fun encode_element(obj: &Element): vector<u8> {
-        obj.bytes
     }
 
     public fun dummy_element(): Element {
@@ -252,7 +256,7 @@ module crypto_core::group {
         assert!(e0 == element_sub(&e0, &ei), 999);
         assert!(e0 == element_add(&e0, &ei), 999);
 
-        let e0_bytes = encode_element(&e0);
+        let e0_bytes = bcs::to_bytes(&e0);
         let (errors, e0_another, remainder) = decode_element(e0_bytes);
         assert!(errors.is_empty(), 999);
         assert!(remainder.is_empty(), 999);
@@ -268,7 +272,7 @@ module crypto_core::group {
         assert!(group_identity() == element_sub(&e0_doubled, &e0_doubled), 999);
 
         let s0 = rand_scalar();
-        let s0_bytes = encode_scalar(&s0);
+        let s0_bytes = bcs::to_bytes(&s0);
         let (errors, s0_another, remainder) = decode_scalar(s0_bytes);
         assert!(errors.is_empty(), 999);
         assert!(remainder.is_empty(), 999);
@@ -278,13 +282,13 @@ module crypto_core::group {
     #[test(fx = @0x1)]
     fun basic(fx: signer) {
         randomness::initialize_for_testing(&fx);
-        let (errors, point_a, rem) = decode_element(x"85ba9eae97029dee22680d4506d85d87146dbcc0b7b797d71500489eb23e0b399b5d8af1925f8871a7c2dc9f65a87209");
+        let (errors, point_a, rem) = decode_element(x"3085ba9eae97029dee22680d4506d85d87146dbcc0b7b797d71500489eb23e0b399b5d8af1925f8871a7c2dc9f65a87209");
         assert!(errors.is_empty(), 999);
         assert!(rem.is_empty(), 999);
-        let (errors, scalar_b, rem) = decode_scalar(x"e57e6c4d3f6c645d69549f0c62aebfb77ebbcf29d2a8f0cd597d4ecd8ed56458");
+        let (errors, scalar_b, rem) = decode_scalar(x"20e57e6c4d3f6c645d69549f0c62aebfb77ebbcf29d2a8f0cd597d4ecd8ed56458");
         assert!(errors.is_empty(), 999);
         assert!(rem.is_empty(), 999);
         let point_c = scale_element(&point_a, &scalar_b);
-        assert!(x"ac39b219f3915eb90a4917931abbd5cf57709473bbc57f2169a311de51b397b882c29a1ba8fbf581ca12c388d69eecec" == encode_element(&point_c), 999);
+        assert!(x"30ac39b219f3915eb90a4917931abbd5cf57709473bbc57f2169a311de51b397b882c29a1ba8fbf581ca12c388d69eecec" == bcs::to_bytes(&point_c), 999);
     }
 }

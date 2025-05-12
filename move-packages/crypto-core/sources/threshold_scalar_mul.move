@@ -163,18 +163,6 @@ module crypto_core::threshold_scalar_mul {
         (vector[], ret, buf)
     }
 
-    public fun encode_contribution(obj: &VerifiableContribution): vector<u8> {
-        let buf = vector[];
-        buf.append(group::encode_element(&obj.payload));
-        if (obj.proof.is_some()) {
-            buf.push_back(1);
-            buf.append(sigma_dlog_eq::encode_proof(obj.proof.borrow()));
-        } else {
-            buf.push_back(0);
-        };
-        buf
-    }
-
     #[lint::allow_unsafe_randomness]
     #[test_only]
     /// NOTE: client needs to implement this.

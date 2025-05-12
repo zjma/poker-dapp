@@ -45,7 +45,7 @@ module crypto_core::product_argument {
             errors.push_back(211911);
             return (errors, dummy_proof(), buf);
         };
-        let (errors, vec_a_tilde_len, buf) = utils::decode_u64(buf);
+        let (errors, vec_a_tilde_len, buf) = utils::decode_uleb128(buf);
         if (!errors.is_empty()) {
             errors.push_back(211912);
             return (errors, dummy_proof(), buf);
@@ -56,7 +56,7 @@ module crypto_core::product_argument {
         while (i < vec_a_tilde_len) {
             let (errors, scalar, remainder) = group::decode_scalar(buf);
             if (!errors.is_empty()) {
-                errors.push_back(i);
+                errors.push_back(i as u64);
                 errors.push_back(211913);
                 return (errors, dummy_proof(), buf);
             };
@@ -65,7 +65,7 @@ module crypto_core::product_argument {
             i += 1;
         };
 
-        let (errors, vec_b_tilde_len, buf) = utils::decode_u64(buf);
+        let (errors, vec_b_tilde_len, buf) = utils::decode_uleb128(buf);
         if (!errors.is_empty()) {
             errors.push_back(211914);
             return (errors, dummy_proof(), buf);
@@ -76,7 +76,7 @@ module crypto_core::product_argument {
         while (i < vec_b_tilde_len) {
             let (errors, scalar, remainder) = group::decode_scalar(buf);
             if (!errors.is_empty()) {
-                errors.push_back(i);
+                errors.push_back(i as u64);
                 errors.push_back(211915);
                 return (errors, dummy_proof(), buf);
             };
@@ -108,25 +108,6 @@ module crypto_core::product_argument {
         };
 
         (vector[], ret, buf)
-    }
-
-    public fun encode_proof(proof: &Proof): vector<u8> {
-        let buf = group::encode_element(&proof.vec_d_cmt);
-        buf.append(group::encode_element(&proof.cmt_2));
-        buf.append(group::encode_element(&proof.cmt_3));
-        let vec_a_tilde_len = proof.vec_a_tilde.length();
-        buf.append(utils::encode_u64(vec_a_tilde_len));
-        proof.vec_a_tilde.for_each_ref(|scalar| {
-            buf.append(group::encode_scalar(scalar));
-        });
-        let vec_b_tilde_len = proof.vec_b_tilde.length();
-        buf.append(utils::encode_u64(vec_b_tilde_len));
-        proof.vec_b_tilde.for_each_ref(|scalar| {
-            buf.append(group::encode_scalar(scalar));
-        });
-        buf.append(group::encode_scalar(&proof.r_tilde));
-        buf.append(group::encode_scalar(&proof.s_tilde));
-        buf
     }
 
     #[lint::allow_unsafe_randomness]

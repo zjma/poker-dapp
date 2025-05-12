@@ -40,7 +40,7 @@ module crypto_core::shuffle {
     public fun decode_contribution(
         buf: vector<u8>
     ): (vector<u64>, VerifiableContribution, vector<u8>) {
-        let (errors, num_items, buf) = utils::decode_u64(buf);
+        let (errors, num_items, buf) = utils::decode_uleb128(buf);
         if (!errors.is_empty()) {
             errors.push_back(182920);
             return (errors, dummy_contribution(), buf);
@@ -50,7 +50,7 @@ module crypto_core::shuffle {
         while (i < num_items) {
             let (errors, ciphertext, remainder) = elgamal::decode_ciphertext(buf);
             if (!errors.is_empty()) {
-                errors.push_back(i);
+                errors.push_back(i as u64);
                 errors.push_back(182921);
                 return (errors, dummy_contribution(), buf);
             };
@@ -75,22 +75,6 @@ module crypto_core::shuffle {
         };
         let ret = VerifiableContribution { new_ciphertexts, proof };
         (vector[], ret, buf)
-    }
-
-    public fun encode_contribution(obj: &VerifiableContribution): vector<u8> {
-        let buf = vector[];
-        let num_ciphs = obj.new_ciphertexts.length();
-        buf.append(utils::encode_u64(num_ciphs));
-        obj.new_ciphertexts.for_each_ref(|ciph| {
-            buf.append(elgamal::encode_ciphertext(ciph));
-        });
-        if (obj.proof.is_some()) {
-            buf.push_back(1);
-            buf.append(bg12::encode_proof(obj.proof.borrow()));
-        } else {
-            buf.push_back(0);
-        };
-        buf
     }
 
     struct Session has copy, drop, store {

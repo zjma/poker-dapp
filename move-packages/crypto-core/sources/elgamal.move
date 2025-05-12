@@ -2,15 +2,13 @@
 module crypto_core::elgamal {
     use crypto_core::group;
     #[test_only]
+    use std::bcs;
+    #[test_only]
     use std::vector;
-    #[test_only]
-    use aptos_std::debug;
-    #[test_only]
-    use aptos_std::debug::print;
     #[test_only]
     use aptos_framework::randomness;
     #[test_only]
-    use crypto_core::group::{rand_element, rand_scalar, encode_element, encode_scalar};
+    use crypto_core::group::{rand_element, rand_scalar};
 
     struct Ciphertext has copy, drop, store {
         enc_base: group::Element,
@@ -50,12 +48,6 @@ module crypto_core::elgamal {
         (vector[], ret, buf)
     }
 
-    public fun encode_dec_key(obj: &DecKey): vector<u8> {
-        let buf = group::encode_element(&obj.enc_base);
-        buf.append(group::encode_scalar(&obj.private_scalar));
-        buf
-    }
-    
     public fun decode_enc_key(buf: vector<u8>): (vector<u64>, EncKey, vector<u8>) {
         let (errors, enc_base, buf) = group::decode_element(buf);
         if (!errors.is_empty()) {
@@ -69,14 +61,6 @@ module crypto_core::elgamal {
         };
         let ret = EncKey { enc_base, public_point };
         (vector[], ret, buf)
-    }
-
-    /// NOTE: client needs to implement this.
-    public fun encode_enc_key(ek: &EncKey): vector<u8> {
-        let buf = vector[];
-        buf.append(group::encode_element(&ek.enc_base));
-        buf.append(group::encode_element(&ek.public_point));
-        buf
     }
 
     public fun dummy_enc_key(): EncKey {
@@ -160,15 +144,6 @@ module crypto_core::elgamal {
         }
     }
 
-    /// NOTE: client needs to implement this.
-    public fun encode_ciphertext(obj: &Ciphertext): vector<u8> {
-        let buf = vector[];
-        buf.append(group::encode_element(&obj.enc_base));
-        buf.append(group::encode_element(&obj.c_0));
-        buf.append(group::encode_element(&obj.c_1));
-        buf
-    }
-
     public fun decode_ciphertext(buf: vector<u8>): (vector<u64>, Ciphertext, vector<u8>) {
         let (errors, enc_base, buf) = group::decode_element(buf);
         if (!errors.is_empty()) return (vector[123129], dummy_ciphertext(), buf);
@@ -214,7 +189,7 @@ module crypto_core::elgamal {
         let plaintext = group::rand_element();
         let r = group::rand_scalar();
         let ciphertext = enc(&ek, &r, &plaintext);
-        let ciph_bytes = encode_ciphertext(&ciphertext);
+        let ciph_bytes = bcs::to_bytes(&ciphertext);
         let (errors, ciphertext_another, remainder) = decode_ciphertext(ciph_bytes);
         assert!(errors.is_empty(), 999);
         assert!(remainder.is_empty(), 999);
@@ -236,13 +211,5 @@ module crypto_core::elgamal {
         let agg_ciphertext = weird_multi_exp(&ciphertexts, &scalars);
         let agg_msg = dec(&dk, &agg_ciphertext);
         assert!(group::msm(&msgs, &scalars) == agg_msg, 999);
-        print(&encode_dec_key(&dk));
-        print(&encode_enc_key(&ek));
-        print(&msgs.map_ref(|msg|encode_element(msg)));
-        print(&randomizers.map_ref(|r|encode_scalar(r)));
-        print(&ciphertexts.map_ref(|c|encode_ciphertext(c)));
-        print(&scalars.map_ref(|s|encode_scalar(s)));
-        print(&encode_ciphertext(&agg_ciphertext));
-        print(&encode_element(&agg_msg));
     }
 }

@@ -1,4 +1,5 @@
 module crypto_core::multiexp_argument {
+    use std::bcs;
     use crypto_core::fiat_shamir_transform;
     use crypto_core::pederson_commitment;
     use crypto_core::utils;
@@ -68,7 +69,7 @@ module crypto_core::multiexp_argument {
             return (errors, dummy_proof(), buf);
         };
 
-        let (errors, a_vec_len, buf) = utils::decode_u64(buf);
+        let (errors, a_vec_len, buf) = utils::decode_uleb128(buf);
         if (!errors.is_empty()) {
             errors.push_back(243338);
             return (errors, dummy_proof(), buf);
@@ -79,7 +80,7 @@ module crypto_core::multiexp_argument {
         while (i < a_vec_len) {
             let (errors, scalar, remainder) = group::decode_scalar(buf);
             if (!errors.is_empty()) {
-                errors.push_back(i);
+                errors.push_back(i as u64);
                 errors.push_back(243339);
                 return (errors, dummy_proof(), buf);
             };
@@ -115,24 +116,6 @@ module crypto_core::multiexp_argument {
         let ret = Proof { cmt_a0, b_cmt_0, b_cmt_1, e_0, e_1, a_vec, r, b, s, tau };
 
         (vector[], ret, buf)
-    }
-
-    public fun encode_proof(proof: &Proof): vector<u8> {
-        let buf = group::encode_element(&proof.cmt_a0);
-        buf.append(group::encode_element(&proof.b_cmt_0));
-        buf.append(group::encode_element(&proof.b_cmt_1));
-        buf.append(elgamal::encode_ciphertext(&proof.e_0));
-        buf.append(elgamal::encode_ciphertext(&proof.e_1));
-        let a_vec_len = proof.a_vec.length();
-        buf.append(utils::encode_u64(a_vec_len));
-        proof.a_vec.for_each_ref(|val| {
-            buf.append(group::encode_scalar(val));
-        });
-        buf.append(group::encode_scalar(&proof.r));
-        buf.append(group::encode_scalar(&proof.b));
-        buf.append(group::encode_scalar(&proof.s));
-        buf.append(group::encode_scalar(&proof.tau));
-        buf
     }
 
     #[lint::allow_unsafe_randomness]
@@ -174,11 +157,11 @@ module crypto_core::multiexp_argument {
         fiat_shamir_transform::append_group_element(trx, &vec_a_0_cmt);
         fiat_shamir_transform::append_group_element(trx, &b_cmt_vec[0]);
         fiat_shamir_transform::append_raw_bytes(
-            trx, elgamal::encode_ciphertext(&e_vec[0])
+            trx, bcs::to_bytes(&e_vec[0])
         );
         fiat_shamir_transform::append_group_element(trx, &b_cmt_vec[1]);
         fiat_shamir_transform::append_raw_bytes(
-            trx, elgamal::encode_ciphertext(&e_vec[1])
+            trx, bcs::to_bytes(&e_vec[1])
         );
 
         let x = fiat_shamir_transform::hash_to_scalar(trx);
@@ -227,11 +210,11 @@ module crypto_core::multiexp_argument {
         fiat_shamir_transform::append_group_element(trx, &proof.cmt_a0);
         fiat_shamir_transform::append_group_element(trx, &proof.b_cmt_0);
         fiat_shamir_transform::append_raw_bytes(
-            trx, elgamal::encode_ciphertext(&proof.e_0)
+            trx, bcs::to_bytes(&proof.e_0)
         );
         fiat_shamir_transform::append_group_element(trx, &proof.b_cmt_1);
         fiat_shamir_transform::append_raw_bytes(
-            trx, elgamal::encode_ciphertext(&proof.e_1)
+            trx, bcs::to_bytes(&proof.e_1)
         );
         let x = fiat_shamir_transform::hash_to_scalar(trx);
 

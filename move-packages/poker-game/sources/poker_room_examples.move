@@ -1,5 +1,6 @@
 #[test_only]
 module poker_game::poker_room_examples {
+    use std::bcs;
     #[test_only]
     use poker_game::poker_room::{
         get_room_brief,
@@ -103,7 +104,7 @@ module poker_game::poker_room_examples {
             &eric,
             room_addr,
             0,
-            dkg_v0::encode_contribution(&dkg_0_eric_contribution)
+            bcs::to_bytes(&dkg_0_eric_contribution)
         );
 
         state_update(room_addr);
@@ -115,7 +116,7 @@ module poker_game::poker_room_examples {
             &alice,
             room_addr,
             0,
-            dkg_v0::encode_contribution(&dkg_0_alice_contribution)
+            bcs::to_bytes(&dkg_0_alice_contribution)
         );
 
         state_update(room_addr);
@@ -127,7 +128,7 @@ module poker_game::poker_room_examples {
             &bob,
             room_addr,
             0,
-            dkg_v0::encode_contribution(&dkg_0_bob_contribution)
+            bcs::to_bytes(&dkg_0_bob_contribution)
         );
 
         state_update(room_addr);
@@ -144,7 +145,7 @@ module poker_game::poker_room_examples {
             &alice,
             room_addr,
             0,
-            shuffle::encode_contribution(&game_0_alice_shuffle_contri)
+            bcs::to_bytes(&game_0_alice_shuffle_contri)
         );
 
         state_update(room_addr);
@@ -160,7 +161,7 @@ module poker_game::poker_room_examples {
             &bob,
             room_addr,
             0,
-            shuffle::encode_contribution(&game_0_bob_shuffle_contri)
+            bcs::to_bytes(&game_0_bob_shuffle_contri)
         );
 
         state_update(room_addr);
@@ -176,7 +177,7 @@ module poker_game::poker_room_examples {
             &eric,
             room_addr,
             0,
-            shuffle::encode_contribution(&game_0_eric_shuffle_contri)
+            bcs::to_bytes(&game_0_eric_shuffle_contri)
         );
 
         state_update(room_addr);
@@ -216,42 +217,42 @@ module poker_game::poker_room_examples {
             room_addr,
             0,
             0,
-            reencryption::encode_reencryption(&game_0_deal_0_alice_reenc)
+            bcs::to_bytes(&game_0_deal_0_alice_reenc)
         );
         process_private_dealing_reencryption(
             &alice,
             room_addr,
             0,
             1,
-            reencryption::encode_reencryption(&game_0_deal_1_alice_reenc)
+            bcs::to_bytes(&game_0_deal_1_alice_reenc)
         );
         process_private_dealing_reencryption(
             &bob,
             room_addr,
             0,
             2,
-            reencryption::encode_reencryption(&game_0_deal_2_bob_reenc)
+            bcs::to_bytes(&game_0_deal_2_bob_reenc)
         );
         process_private_dealing_reencryption(
             &bob,
             room_addr,
             0,
             3,
-            reencryption::encode_reencryption(&game_0_deal_3_bob_reenc)
+            bcs::to_bytes(&game_0_deal_3_bob_reenc)
         );
         process_private_dealing_reencryption(
             &eric,
             room_addr,
             0,
             4,
-            reencryption::encode_reencryption(&game_0_deal_4_eric_reenc)
+            bcs::to_bytes(&game_0_deal_4_eric_reenc)
         );
         process_private_dealing_reencryption(
             &eric,
             room_addr,
             0,
             5,
-            reencryption::encode_reencryption(&game_0_deal_5_eric_reenc)
+            bcs::to_bytes(&game_0_deal_5_eric_reenc)
         );
         state_update(room_addr);
         let room = get_room_brief(room_addr);
@@ -276,7 +277,7 @@ module poker_game::poker_room_examples {
                 room_addr,
                 0,
                 i,
-                threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
+                bcs::to_bytes(&game_0_deal_i_player_share)
             );
         });
         range(0, 6).for_each(|i| {
@@ -295,7 +296,7 @@ module poker_game::poker_room_examples {
                 room_addr,
                 0,
                 i,
-                threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
+                bcs::to_bytes(&game_0_deal_i_player_share)
             );
         });
         range(0, 6).for_each(|i| {
@@ -314,7 +315,7 @@ module poker_game::poker_room_examples {
                 room_addr,
                 0,
                 i,
-                threshold_scalar_mul::encode_contribution(&game_0_deal_i_player_share)
+                bcs::to_bytes(&game_0_deal_i_player_share)
             );
         });
 
@@ -414,7 +415,7 @@ module poker_game::poker_room_examples {
             &alice,
             room_addr,
             1,
-            shuffle::encode_contribution(&game_1_alice_shuffle_contri)
+            bcs::to_bytes(&game_1_alice_shuffle_contri)
         );
 
         state_update(room_addr);
@@ -427,7 +428,7 @@ module poker_game::poker_room_examples {
             &bob,
             room_addr,
             1,
-            shuffle::encode_contribution(&game_1_bob_shuffle_contri)
+            bcs::to_bytes(&game_1_bob_shuffle_contri)
         );
 
         state_update(room_addr);
@@ -442,7 +443,7 @@ module poker_game::poker_room_examples {
             &eric,
             room_addr,
             1,
-            shuffle::encode_contribution(&game_1_eric_shuffle_contri)
+            bcs::to_bytes(&game_1_eric_shuffle_contri)
         );
 
         state_update(room_addr);
@@ -508,7 +509,7 @@ module poker_game::poker_room_examples {
                 room_addr,
                 0,
                 opening_idx,
-                threshold_scalar_mul::encode_contribution(&share)
+                bcs::to_bytes(&share)
             );
         });
         vector[0, 1, 2].for_each(|opening_idx| {
@@ -523,7 +524,7 @@ module poker_game::poker_room_examples {
                 room_addr,
                 0,
                 opening_idx,
-                threshold_scalar_mul::encode_contribution(&share)
+                bcs::to_bytes(&share)
             );
         });
         vector[0, 1, 2].for_each(|opening_idx| {
@@ -538,7 +539,7 @@ module poker_game::poker_room_examples {
                 room_addr,
                 0,
                 opening_idx,
-                threshold_scalar_mul::encode_contribution(&share)
+                bcs::to_bytes(&share)
             );
         });
 
@@ -597,7 +598,7 @@ module poker_game::poker_room_examples {
             room_addr,
             0,
             3,
-            threshold_scalar_mul::encode_contribution(&game_0_opening_3_alice_share)
+            bcs::to_bytes(&game_0_opening_3_alice_share)
         );
         let game_0_opening_3_bob_share =
             threshold_scalar_mul::generate_contribution(
@@ -608,7 +609,7 @@ module poker_game::poker_room_examples {
             room_addr,
             0,
             3,
-            threshold_scalar_mul::encode_contribution(&game_0_opening_3_bob_share)
+            bcs::to_bytes(&game_0_opening_3_bob_share)
         );
         let game_0_opening_3_eric_share =
             threshold_scalar_mul::generate_contribution(
@@ -619,7 +620,7 @@ module poker_game::poker_room_examples {
             room_addr,
             0,
             3,
-            threshold_scalar_mul::encode_contribution(&game_0_opening_3_eric_share)
+            bcs::to_bytes(&game_0_opening_3_eric_share)
         );
 
         state_update(room_addr);
@@ -664,7 +665,7 @@ module poker_game::poker_room_examples {
             room_addr,
             0,
             4,
-            threshold_scalar_mul::encode_contribution(&game_0_opening_4_eric_share)
+            bcs::to_bytes(&game_0_opening_4_eric_share)
         );
         let game_0_opening_4_alice_share =
             threshold_scalar_mul::generate_contribution(
@@ -675,7 +676,7 @@ module poker_game::poker_room_examples {
             room_addr,
             0,
             4,
-            threshold_scalar_mul::encode_contribution(&game_0_opening_4_alice_share)
+            bcs::to_bytes(&game_0_opening_4_alice_share)
         );
         let game_0_opening_4_bob_share =
             threshold_scalar_mul::generate_contribution(
@@ -686,7 +687,7 @@ module poker_game::poker_room_examples {
             room_addr,
             0,
             4,
-            threshold_scalar_mul::encode_contribution(&game_0_opening_4_bob_share)
+            bcs::to_bytes(&game_0_opening_4_bob_share)
         );
 
         state_update(room_addr);
@@ -720,28 +721,28 @@ module poker_game::poker_room_examples {
             room_addr,
             0,
             4,
-            reencryption::encode_private_state(&game_0_deal_4_eric_secret)
+            bcs::to_bytes(&game_0_deal_4_eric_secret)
         );
         process_showdown_reveal(
             &eric,
             room_addr,
             0,
             5,
-            reencryption::encode_private_state(&game_0_deal_5_eric_secret)
+            bcs::to_bytes(&game_0_deal_5_eric_secret)
         );
         process_showdown_reveal(
             &bob,
             room_addr,
             0,
             3,
-            reencryption::encode_private_state(&game_0_deal_3_bob_secret)
+            bcs::to_bytes(&game_0_deal_3_bob_secret)
         );
         process_showdown_reveal(
             &bob,
             room_addr,
             0,
             2,
-            reencryption::encode_private_state(&game_0_deal_2_bob_secret)
+            bcs::to_bytes(&game_0_deal_2_bob_secret)
         );
 
         state_update(room_addr);

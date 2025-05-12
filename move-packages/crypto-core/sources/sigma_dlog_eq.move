@@ -19,15 +19,6 @@ module crypto_core::sigma_dlog_eq {
         }
     }
 
-    /// NOTE: client needs to implement this.
-    public fun encode_proof(proof: &Proof): vector<u8> {
-        let buf = vector[];
-        buf.append(group::encode_element(&proof.t0));
-        buf.append(group::encode_element(&proof.t1));
-        buf.append(group::encode_scalar(&proof.s));
-        buf
-    }
-
     public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
         let (errors, t0, buf) = group::decode_element(buf);
         if (!errors.is_empty()) {

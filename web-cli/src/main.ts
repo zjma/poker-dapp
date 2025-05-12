@@ -5,7 +5,7 @@ import * as dkg_v0 from './crypto/dkg_v0';
 // Global constants
 const config = new AptosConfig({ network: Network.DEVNET });
 const aptos = new Aptos(config);
-const CONTRACT_ADDRESS = '0xe1c3d0c879e4b08bac16c0328dece7c31ac4c6b50074f3dd23ef42bf9e73c1e4';
+const CONTRACT_ADDRESS = '0xdf2d83322e35bba41bdcdee91f7c96837cb8504d1acd2deefbc55f65e028a1ba';
 
 interface SavedAccount {
     address: string;

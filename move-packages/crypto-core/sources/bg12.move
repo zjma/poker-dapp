@@ -50,16 +50,6 @@ module crypto_core::bg12 {
         (vector[], ret, buf)
     }
 
-    /// NOTE: client needs to implement this.
-    public fun encode_proof(proof: &Proof): vector<u8> {
-        let buf = vector[];
-        buf.append(group::encode_element(&proof.vec_a_cmt));
-        buf.append(group::encode_element(&proof.vec_b_cmt));
-        buf.append(multiexp_argument::encode_proof(&proof.multiexp_proof));
-        buf.append(product_argument::encode_proof(&proof.product_proof));
-        buf
-    }
-
     #[lint::allow_unsafe_randomness]
     #[test_only]
     /// NOTE: client needs to implement this.

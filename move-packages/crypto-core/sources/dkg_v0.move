@@ -101,18 +101,6 @@ module crypto_core::dkg_v0 {
         (vector[], ret, buf)
     }
 
-    public fun encode_contribution(obj: &VerifiableContribution): vector<u8> {
-        let buf = vector[];
-        buf.append(group::encode_element(&obj.public_point));
-        if (obj.proof.is_some()) {
-            buf.append(x"01");
-            buf.append(sigma_dlog::encode_proof(obj.proof.borrow()));
-        } else {
-            buf.append(x"00");
-        };
-        buf
-    }
-
     const INF: u64 = 999999999;
 
     #[lint::allow_unsafe_randomness]

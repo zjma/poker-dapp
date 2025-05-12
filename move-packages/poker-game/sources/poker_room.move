@@ -2,11 +2,11 @@
 /// - a host creates a Poker room and defines the users allowed to join and play;
 /// - players join and play.
 module poker_game::poker_room {
-    use std::bcs;
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
     use std::vector;
+    use aptos_std::debug::print;
     use aptos_std::math64::min;
     use aptos_std::table;
     use aptos_std::table::Table;
@@ -97,7 +97,7 @@ module poker_game::poker_room {
 
     #[view]
     public fun about(): std::string::String {
-        std::string::utf8(b"v0.0.4")
+        std::string::utf8(b"v0.0.5")
     }
 
     #[randomness]
@@ -190,6 +190,7 @@ module poker_game::poker_room {
         let shuffle = room.shuffle_sessions.borrow_mut(shuffle_idx);
         let (errors, contribution, remainder) =
             shuffle::decode_contribution(contribution_bytes);
+        print(&errors);
         assert!(errors.is_empty(), 180920);
         assert!(remainder.is_empty(), 180921);
         shuffle::process_contribution(player, shuffle, contribution);

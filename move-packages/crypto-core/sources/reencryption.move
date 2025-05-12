@@ -41,27 +41,6 @@ module crypto_core::reencryption {
         }
     }
 
-    /// NOTE: client needs to implement this.
-    public fun encode_reencryption(obj: &VerifiableReencrpytion): vector<u8> {
-        let buf = vector[];
-        buf.append(group::encode_element(&obj.th));
-        buf.append(group::encode_element(&obj.tsh));
-        buf.append(group::encode_element(&obj.urth));
-        if (obj.proof_t.is_some()) {
-            buf.push_back(1);
-            buf.append(sigma_dlog_eq::encode_proof(obj.proof_t.borrow()));
-        } else {
-            buf.push_back(0);
-        };
-        if (obj.proof_u.is_some()) {
-            buf.push_back(1);
-            buf.append(sigma_dlog::encode_proof(obj.proof_u.borrow()));
-        } else {
-            buf.push_back(0);
-        };
-        buf
-    }
-
     public fun decode_reencyption(
         buf: vector<u8>
     ): (vector<u64>, VerifiableReencrpytion, vector<u8>) {
@@ -261,11 +240,6 @@ module crypto_core::reencryption {
         };
         let ret = RecipientPrivateState { u };
         (vector[], ret, buf)
-    }
-
-    /// NOTE: client needs to implement this.
-    public fun encode_private_state(obj: &RecipientPrivateState): vector<u8> {
-        group::encode_scalar(&obj.u)
     }
 
     #[lint::allow_unsafe_randomness]
