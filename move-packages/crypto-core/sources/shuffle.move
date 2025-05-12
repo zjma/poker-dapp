@@ -27,13 +27,13 @@ module crypto_core::shuffle {
 
     struct VerifiableContribution has copy, drop, store {
         new_ciphertexts: vector<elgamal::Ciphertext>,
-        proof: bg12::Proof
+        proof: Option<bg12::Proof>,
     }
 
     public fun dummy_contribution(): VerifiableContribution {
         VerifiableContribution {
             new_ciphertexts: vector[],
-            proof: bg12::dummy_proof()
+            proof: option::none(),
         }
     }
 
@@ -58,10 +58,20 @@ module crypto_core::shuffle {
             new_ciphertexts.push_back(ciphertext);
             i += 1;
         };
-        let (errors, proof, buf) = bg12::decode_proof(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(182922);
-            return (errors, dummy_contribution(), buf);
+        let buflen = buf.length();
+        if (buflen == 0) return (vector[182922], dummy_contribution(), buf);
+        let has_proof = buf[0] > 0;
+        let buf = buf.slice(1, buflen);
+        let proof = if (has_proof) {
+            let (errors, proof, remainder) = bg12::decode_proof(buf);
+            buf = remainder;
+            if (!errors.is_empty()) {
+                errors.push_back(182923);
+                return (errors, dummy_contribution(), buf);
+            };
+            option::some(proof)
+        } else {
+            option::none()
         };
         let ret = VerifiableContribution { new_ciphertexts, proof };
         (vector[], ret, buf)
@@ -74,7 +84,12 @@ module crypto_core::shuffle {
         obj.new_ciphertexts.for_each_ref(|ciph| {
             buf.append(elgamal::encode_ciphertext(ciph));
         });
-        buf.append(bg12::encode_proof(&obj.proof));
+        if (obj.proof.is_some()) {
+            buf.push_back(1);
+            buf.append(bg12::encode_proof(obj.proof.borrow()));
+        } else {
+            buf.push_back(0);
+        };
         buf
     }
 
@@ -175,17 +190,19 @@ module crypto_core::shuffle {
             } else {
                 &session.contributions[idx - 1].new_ciphertexts
             };
-        assert!(
-            bg12::verify(
-                &session.enc_key,
-                &session.pedersen_ctxt,
-                &mut trx,
-                original,
-                &contribution.new_ciphertexts,
-                &contribution.proof
-            ),
-            180102
-        );
+        if (contribution.proof.is_some()) {
+            assert!(
+                bg12::verify(
+                    &session.enc_key,
+                    &session.pedersen_ctxt,
+                    &mut trx,
+                    original,
+                    &contribution.new_ciphertexts,
+                    contribution.proof.borrow(),
+                ),
+                180102
+            );
+        };
         session.contributions.push_back(contribution);
     }
 
@@ -262,7 +279,7 @@ module crypto_core::shuffle {
                 permutation,
                 &rerandomizers
             );
-        VerifiableContribution { new_ciphertexts, proof }
+        VerifiableContribution { new_ciphertexts, proof: option::some(proof) }
     }
 
     #[test(

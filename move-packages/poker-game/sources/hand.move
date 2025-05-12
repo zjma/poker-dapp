@@ -57,7 +57,8 @@ module poker_game::hand {
         /// respectively.
         card_reprs: vector<group::Element>,
         /// Cards at position [2*i, 1+2*i] will be cards dealt to player i (referred to as "having destintation i").
-        /// Cards at positions [2*n, 2*n+4] will be community cards (referred to as "having destintation community").
+        /// Cards at posit
+        /// ions [2*n, 2*n+4] will be community cards (referred to as "having destintation community").
         /// The remaining cards is referred to as having a void destination.
         shuffled_deck: vector<elgamal::Ciphertext>,
 
@@ -109,6 +110,8 @@ module poker_game::hand {
 
     const CARD__UNREVEALED: u64 = 0xffffffff;
     const PLAYER__NULL: u64 = 0xffffffff;
+
+    const INF: u64 = 999999999;
 
     /// Given a position in the shuffled deck, return:
     /// - `i`, if the card will end up in player `i`'s hand;
@@ -195,8 +198,8 @@ module poker_game::hand {
                 session.players[dest_player_idx],
                 session.players,
                 session.secret_info,
-                now_secs + 5,
-                now_secs + 10
+                now_secs + INF,
+                now_secs + INF + INF,
             )
         });
 
@@ -300,14 +303,14 @@ module poker_game::hand {
                 if (next_player_found) {
                     hand.state = STATE__PLAYER_BETTING;
                     hand.current_action_player_idx = next_player_idx;
-                    hand.current_action_deadline = now_secs + 5;
+                    hand.current_action_deadline = now_secs + INF;
                     hand.current_action_completed = false;
                     hand.completed_action_is_raise = false;
                 } else {
                     // Can skip pre-flop betting.
-                    initiate_public_card_opening(hand, now_secs + 5);
-                    initiate_public_card_opening(hand, now_secs + 5);
-                    initiate_public_card_opening(hand, now_secs + 5);
+                    initiate_public_card_opening(hand, now_secs + INF);
+                    initiate_public_card_opening(hand, now_secs + INF);
+                    initiate_public_card_opening(hand, now_secs + INF);
                     hand.state = STATE__OPENING_COMMUNITY_CARDS;
                 }
             } else if (num_failures == num_dealings) {
@@ -334,7 +337,7 @@ module poker_game::hand {
                 find_next_action_needed(hand, next_player_idx);
             if (next_player_found) {
                 hand.current_action_player_idx = next_player_idx;
-                hand.current_action_deadline = now_secs + 30;
+                hand.current_action_deadline = now_secs + INF;
                 hand.current_action_completed = false;
                 hand.completed_action_is_raise = false;
             } else if (num_folded(hand) == hand.num_players - 1) {
@@ -346,12 +349,12 @@ module poker_game::hand {
                 if (5 == num_public_cards_opened) {
                     // This is the final betting round. Showdown should follow.
                     hand.state = STATE__SHOWDOWN;
-                    hand.current_action_deadline = now_secs + 5;
+                    hand.current_action_deadline = now_secs + INF;
                 } else {
-                    initiate_public_card_opening(hand, now_secs + 5);
+                    initiate_public_card_opening(hand, now_secs + INF);
                     if (0 == num_public_cards_opened) {
-                        initiate_public_card_opening(hand, now_secs + 5);
-                        initiate_public_card_opening(hand, now_secs + 5);
+                        initiate_public_card_opening(hand, now_secs + INF);
+                        initiate_public_card_opening(hand, now_secs + INF);
                     };
                     hand.state = STATE__OPENING_COMMUNITY_CARDS;
                 }
@@ -412,14 +415,14 @@ module poker_game::hand {
                     // A betting round should follow.
                     hand.state = STATE__PLAYER_BETTING;
                     hand.current_action_player_idx = actor_idx;
-                    hand.current_action_deadline = now_secs + 10;
+                    hand.current_action_deadline = now_secs + INF;
                     hand.current_action_completed = false;
                 } else if (num_opening_sessions_created == 5) {
                     // Showdown should follow.
                     hand.state = STATE__SHOWDOWN;
                 } else {
                     // Another community card opening should follow.
-                    initiate_public_card_opening(hand, now_secs + 5);
+                    initiate_public_card_opening(hand, now_secs + INF);
                 };
             } else if (num_successes + num_failures
                 == opening_idx_end - opening_idx_begin) {

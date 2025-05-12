@@ -2,6 +2,7 @@
 /// - a host creates a Poker room and defines the users allowed to join and play;
 /// - players join and play.
 module poker_game::poker_room {
+    use std::bcs;
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
@@ -44,6 +45,7 @@ module poker_game::poker_room {
     /// Winner has been determined.
     const STATE__CLOSED: u64 = 5;
 
+    const INF: u64 = 999999999;
     //
     // //
     // // //
@@ -95,7 +97,7 @@ module poker_game::poker_room {
 
     #[view]
     public fun about(): std::string::String {
-        std::string::utf8(b"v0.0.3")
+        std::string::utf8(b"v0.0.4")
     }
 
     #[randomness]
@@ -230,13 +232,13 @@ module poker_game::poker_room {
         contribution_bytes: vector<u8>
     ) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS, 124642);
-        assert!(room.num_hands_done == hand_idx, 124643);
+        assert!(room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS, 293636);
+        assert!(room.num_hands_done == hand_idx, 293637);
         let hand = room.hands.borrow_mut(hand_idx);
         let (errors, contribution, remainder) =
             threshold_scalar_mul::decode_contribution(contribution_bytes);
-        assert!(errors.is_empty(), 124644);
-        assert!(remainder.is_empty(), 124645);
+        assert!(errors.is_empty(), 293638);
+        assert!(remainder.is_empty(), 293639);
         hand::process_private_dealing_contribution(
             player, hand, dealing_idx, contribution
         );
@@ -254,13 +256,13 @@ module poker_game::poker_room {
         contribution_bytes: vector<u8>
     ) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS, 124642);
-        assert!(room.num_hands_done == hand_idx, 124643);
+        assert!(room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS, 293712);
+        assert!(room.num_hands_done == hand_idx, 293713);
         let hand = room.hands.borrow_mut(hand_idx);
         let (errors, contribution, remainder) =
             threshold_scalar_mul::decode_contribution(contribution_bytes);
-        assert!(errors.is_empty(), 124644);
-        assert!(remainder.is_empty(), 124645);
+        assert!(errors.is_empty(), 293714);
+        assert!(remainder.is_empty(), 293715);
         hand::process_public_opening_contribution(player, hand, opening_idx, contribution);
     }
 
@@ -457,7 +459,7 @@ module poker_game::poker_room {
         let (agg_ek, _ek_shares) = dkg_v0::unpack_shared_secret_public_info(secret_info);
         let card_reprs = vector::range(0, 52).map(|_| group::rand_element());
         let initial_ciphertexts = card_reprs.map_ref(|plain| elgamal::enc(&agg_ek, &group::scalar_from_u64(0), plain));
-        let deadlines = vector::range(0, room.num_players).map(|i| now_secs + 5 * (i + 1));
+        let deadlines = vector::range(0, room.num_players).map(|i| now_secs + INF + i);
         let new_shuffle =
             shuffle::new_session(
                 agg_ek,
@@ -503,7 +505,7 @@ module poker_game::poker_room {
         let (agg_ek, _) = dkg_v0::unpack_shared_secret_public_info(secret_info);
         let card_reprs = vector::range(0, 52).map(|_| group::rand_element());
         let initial_ciphertexts = card_reprs.map_ref(|plain| elgamal::enc(&agg_ek, &group::scalar_from_u64(0), plain));
-        let deadlines = vector::range(0, room.num_players).map(|i| now_secs + 5 * (i + 1));
+        let deadlines = vector::range(0, room.num_players).map(|i| now_secs + INF + i);
         let new_shuffle_id = room.num_shuffles_done;
         let new_shuffle =
             shuffle::new_session(
@@ -567,7 +569,6 @@ module poker_game::poker_room {
         room_brief.cur_shuffle_session.borrow()
     }
 
-    native fun dummy();
     //
     // //
     // // //

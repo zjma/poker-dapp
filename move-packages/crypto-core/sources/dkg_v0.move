@@ -35,7 +35,7 @@ module crypto_core::dkg_v0 {
 
     struct VerifiableContribution has copy, drop, store {
         public_point: group::Element,
-        proof: sigma_dlog::Proof
+        proof: Option<sigma_dlog::Proof>,
     }
 
     struct SecretShare has copy, drop, store {
@@ -63,7 +63,7 @@ module crypto_core::dkg_v0 {
     public fun dummy_contribution(): VerifiableContribution {
         VerifiableContribution {
             public_point: group::dummy_element(),
-            proof: sigma_dlog::dummy_proof()
+            proof: option::none(),
         }
     }
 
@@ -82,10 +82,20 @@ module crypto_core::dkg_v0 {
             errors.push_back(132607);
             return (errors, dummy_contribution(), buf);
         };
-        let (errors, proof, buf) = sigma_dlog::decode_proof(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(132608);
-            return (errors, dummy_contribution(), buf);
+        let buf_len = buf.length();
+        if (buf_len == 0) return (vector[132608], dummy_contribution(), buf);
+        let has_proof = buf[0] > 0;
+        let buf = buf.slice(1, buf_len);
+        let proof = if (has_proof) {
+            let (errors, proof, remainder) = sigma_dlog::decode_proof(buf);
+            buf = remainder;
+            if (!errors.is_empty()) {
+                errors.push_back(132609);
+                return (errors, dummy_contribution(), buf);
+            };
+            option::some(proof)
+        } else {
+            option::none()
         };
         let ret = VerifiableContribution { public_point, proof };
         (vector[], ret, buf)
@@ -94,9 +104,16 @@ module crypto_core::dkg_v0 {
     public fun encode_contribution(obj: &VerifiableContribution): vector<u8> {
         let buf = vector[];
         buf.append(group::encode_element(&obj.public_point));
-        buf.append(sigma_dlog::encode_proof(&obj.proof));
+        if (obj.proof.is_some()) {
+            buf.append(x"01");
+            buf.append(sigma_dlog::encode_proof(obj.proof.borrow()));
+        } else {
+            buf.append(x"00");
+        };
         buf
     }
+
+    const INF: u64 = 999999999;
 
     #[lint::allow_unsafe_randomness]
     public fun new_session(expected_contributors: vector<address>): DKGSession {
@@ -104,7 +121,7 @@ module crypto_core::dkg_v0 {
         DKGSession {
             base_point: group::rand_element(),
             expected_contributors,
-            deadline: timestamp::now_seconds() + 10,
+            deadline: timestamp::now_seconds() + INF,
             state: STATE__IN_PROGRESS,
             contributions: vector::range(0, num_players).map(|_| option::none()),
             contribution_still_needed: expected_contributors.length(),
@@ -158,7 +175,7 @@ module crypto_core::dkg_v0 {
     public fun process_contribution(
         contributor: &signer,
         session: &mut DKGSession,
-        contribution: VerifiableContribution
+        contribution: VerifiableContribution,
     ) {
         //TODO: verify contribution
         let contributor_addr = address_of(contributor);
@@ -222,7 +239,7 @@ module crypto_core::dkg_v0 {
                 &public_point,
                 &private_scalar
             );
-        let contribution = VerifiableContribution { public_point, proof };
+        let contribution = VerifiableContribution { public_point, proof: option::some(proof) };
         (secret_share, contribution)
     }
 

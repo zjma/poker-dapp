@@ -27,8 +27,8 @@ module crypto_core::reencryption {
         th: group::Element,
         tsh: group::Element,
         urth: group::Element,
-        proof_t: sigma_dlog_eq::Proof,
-        proof_u: sigma_dlog::Proof
+        proof_t: Option<sigma_dlog_eq::Proof>,
+        proof_u: Option<sigma_dlog::Proof>,
     }
 
     public fun dummy_reencryption(): VerifiableReencrpytion {
@@ -36,8 +36,8 @@ module crypto_core::reencryption {
             th: group::dummy_element(),
             tsh: group::dummy_element(),
             urth: group::dummy_element(),
-            proof_t: sigma_dlog_eq::dummy_proof(),
-            proof_u: sigma_dlog::dummy_proof()
+            proof_t: option::none(),
+            proof_u: option::none(),
         }
     }
 
@@ -47,8 +47,18 @@ module crypto_core::reencryption {
         buf.append(group::encode_element(&obj.th));
         buf.append(group::encode_element(&obj.tsh));
         buf.append(group::encode_element(&obj.urth));
-        buf.append(sigma_dlog_eq::encode_proof(&obj.proof_t));
-        buf.append(sigma_dlog::encode_proof(&obj.proof_u));
+        if (obj.proof_t.is_some()) {
+            buf.push_back(1);
+            buf.append(sigma_dlog_eq::encode_proof(obj.proof_t.borrow()));
+        } else {
+            buf.push_back(0);
+        };
+        if (obj.proof_u.is_some()) {
+            buf.push_back(1);
+            buf.append(sigma_dlog::encode_proof(obj.proof_u.borrow()));
+        } else {
+            buf.push_back(0);
+        };
         buf
     }
 
@@ -70,17 +80,36 @@ module crypto_core::reencryption {
             errors.push_back(302037);
             return (errors, dummy_reencryption(), buf);
         };
-        let (errors, proof_t, buf) = sigma_dlog_eq::decode_proof(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(302038);
-            return (errors, dummy_reencryption(), buf);
+        let buflen = buf.length();
+        if (buflen == 0) return (vector[302038], dummy_reencryption(), buf);
+        let has_proof_t = buf[0] > 0;
+        let buf = buf.slice(1, buflen);
+        let proof_t = if (has_proof_t) {
+            let (errors, proof_t, remainder) = sigma_dlog_eq::decode_proof(buf);
+            buf = remainder;
+            if (!errors.is_empty()) {
+                errors.push_back(302039);
+                return (errors, dummy_reencryption(), buf);
+            };
+            option::some(proof_t)
+        } else {
+            option::none()
         };
-        let (errors, proof_u, buf) = sigma_dlog::decode_proof(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(302039);
-            return (errors, dummy_reencryption(), buf);
+        let buflen = buf.length();
+        if (buflen == 0) return (vector[302040], dummy_reencryption(), buf);
+        let has_proof_u = buf[0] > 0;
+        let buf = buf.slice(1, buflen);
+        let proof_u = if (has_proof_u) {
+            let (errors, proof_u, remainder) = sigma_dlog::decode_proof(buf);
+            buf = remainder;
+            if (!errors.is_empty()) {
+                errors.push_back(302041);
+                return (errors, dummy_reencryption(), buf);
+            };
+            option::some(proof_u)
+        } else {
+            option::none()
         };
-
         let ret = VerifiableReencrpytion { th, tsh, urth, proof_t, proof_u };
         (vector[], ret, buf)
     }
@@ -131,23 +160,27 @@ module crypto_core::reencryption {
         let (enc_base, pub_element) = elgamal::unpack_enc_key(ek);
         let trx = fiat_shamir_transform::new_transcript();
         let VerifiableReencrpytion { th, tsh, urth, proof_t, proof_u } = reenc;
-        assert!(
-            sigma_dlog_eq::verify(
-                &mut trx,
-                &enc_base,
-                &th,
-                &pub_element,
-                &tsh,
-                &proof_t
-            ),
-            104032
-        );
+        if (proof_t.is_some()) {
+            assert!(
+                sigma_dlog_eq::verify(
+                    &mut trx,
+                    &enc_base,
+                    &th,
+                    &pub_element,
+                    &tsh,
+                    proof_t.borrow(),
+                ),
+                104032
+            );
+        };
         let (_, rh, old_c1) = elgamal::unpack_ciphertext(session.card);
         let rth = group::element_add(&rh, &th);
-        assert!(
-            sigma_dlog::verify(&mut trx, &rth, &urth, &proof_u),
-            104032
-        );
+        if (proof_u.is_some()) {
+            assert!(
+                sigma_dlog::verify(&mut trx, &rth, &urth, proof_u.borrow()),
+                104032
+            );
+        };
         let new_c0 = group::element_add(&rh, &th);
         let new_c1 = group::element_sum(vector[old_c1, urth, tsh]);
         let new_ciph = elgamal::make_ciphertext(enc_base, new_c0, new_c1);
@@ -256,7 +289,7 @@ module crypto_core::reencryption {
         let trx = fiat_shamir_transform::new_transcript();
         let proof_t = sigma_dlog_eq::prove(&mut trx, &enc_base, &th, &old_ek, &tsh, &t);
         let proof_u = sigma_dlog::prove(&mut trx, &rth, &urth, &u);
-        let reenc = VerifiableReencrpytion { th, tsh, urth, proof_t, proof_u };
+        let reenc = VerifiableReencrpytion { th, tsh, urth, proof_t: option::some(proof_t), proof_u: option::some(proof_u) };
         let private_state = RecipientPrivateState { u };
         (private_state, reenc)
     }

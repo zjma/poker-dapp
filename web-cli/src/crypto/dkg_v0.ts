@@ -1,8 +1,9 @@
 import { AccountAddress } from "@aptos-labs/ts-sdk";
 import { Element, Scalar, randScalar, groupIdentity, scaleElement, elementAdd, scalarFromU64, scalarAdd } from './group';
-import { sigmaDLogProve } from './sigma_dlog';
-import { newTranscript } from './fiat_shamir_transform';
+import * as SigmaDLog from './sigma_dlog';
+import * as Utils from '../utils';
 
+import * as Group from './group';
 export type DKGSession = {
     base_point: Element;
     expected_contributors: AccountAddress[];
@@ -15,12 +16,12 @@ export type DKGSession = {
 };
 
 export type VerifiableContribution = {
-    public_point: Element;
-    proof: Uint8Array;
+    publicPoint: Element;
+    proof: SigmaDLog.Proof | null;
 };
 
 export type SecretShare = {
-    private_scalar: Scalar;
+    privateScalar: Scalar;
 };
 
 export type SharedSecretPublicInfo = {
@@ -37,33 +38,21 @@ const STATE_IN_PROGRESS = 0;
 const STATE_SUCCEEDED = 1;
 const STATE_TIMED_OUT = 2;
 
-export function newSession(expected_contributors: AccountAddress[]): DKGSession {
-    return {
-        base_point: groupIdentity(),
-        expected_contributors,
-        deadline: Math.floor(Date.now() / 1000) + 10,
-        state: STATE_IN_PROGRESS,
-        contributions: Array(expected_contributors.length).fill(null),
-        contribution_still_needed: expected_contributors.length,
-        agg_public_point: groupIdentity(),
-        culprits: []
-    };
+export function encodeContribution(contribution: VerifiableContribution): Uint8Array {
+    var buf = Group.encodeElement(contribution.publicPoint);
+    if (contribution.proof) {
+        buf = Utils.concat(buf, new Uint8Array([1]));
+    }
+    return buf;
 }
 
-export function generate(session: DKGSession): { secret_share: SecretShare; contribution: VerifiableContribution } {
-    const private_scalar = randScalar();
-    const secret_share = { private_scalar };
-    const public_point = scaleElement(session.base_point, private_scalar);
+export function generate_contribution(session: DKGSession): { secretShare: SecretShare; contribution: VerifiableContribution } {
+    const privateScalar = randScalar();
+    const secretShare = { privateScalar };
+    const publicPoint = scaleElement(session.base_point, privateScalar);
     
-    const transcript = newTranscript();
-    const proof = sigmaDLogProve(
-        session.base_point,
-        private_scalar,
-        public_point
-    );
-    
-    const contribution = { public_point, proof };
-    return { secret_share, contribution };
+    const contribution = { publicPoint, proof: null };
+    return { secretShare, contribution };
 }
 
 export function succeeded(session: DKGSession): boolean {
@@ -101,7 +90,7 @@ export function getSharedSecretPublicInfo(session: DKGSession): SharedSecretPubl
         }
         return {
             enc_base: session.base_point,
-            public_point: contribution.public_point
+            public_point: contribution.publicPoint
         };
     });
     
@@ -139,7 +128,7 @@ export function reconstructSecret(
         if (!share) {
             throw new Error('Invalid share');
         }
-        agg = scalarAdd(agg, share.private_scalar);
+        agg = scalarAdd(agg, share.privateScalar);
     }
     return agg;
 } 

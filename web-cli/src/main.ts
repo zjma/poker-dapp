@@ -1,10 +1,11 @@
 import './styles.css';
 import { Aptos, AptosConfig, Network, Account, AccountAddress, Ed25519PrivateKey } from "@aptos-labs/ts-sdk";
+import * as dkg_v0 from './crypto/dkg_v0';
 
 // Global constants
 const config = new AptosConfig({ network: Network.DEVNET });
 const aptos = new Aptos(config);
-const CONTRACT_ADDRESS = '0x5f029e0d35407745f47f89d1d0e5bf9ba3c0ca1cce8de0fd0260a56382684b97';
+const CONTRACT_ADDRESS = '0xe1c3d0c879e4b08bac16c0328dece7c31ac4c6b50074f3dd23ef42bf9e73c1e4';
 
 interface SavedAccount {
     address: string;
@@ -38,8 +39,13 @@ class GameApp {
     private tablePolling: any | null;
     private roomAddressLabel: any | null;
     private myBetAmount: HTMLInputElement | null;
+    private allowedBetAmounts: number[] = [0, 100];
     private betBtn: HTMLButtonElement | null;
-    private testBtn: HTMLButtonElement | null;
+    private refreshBtn: HTMLButtonElement | null;
+    private stepBtn: HTMLButtonElement | null;
+    private loadingSpinner: HTMLElement | null = null;
+    private mySitBtn: HTMLButtonElement | null;
+
     constructor() {
         // Initialize UI.
         this.tablePolling = null;
@@ -65,7 +71,7 @@ class GameApp {
         this.tableView = document.getElementById('table-view');
         this.hostDialog = document.getElementById('host-dialog');
         this.startGameBtn = document.getElementById('start-game-btn') as HTMLButtonElement;
-        this.startGameBtn!.addEventListener('click', () => this.handleStartGame());
+        this.startGameBtn!.addEventListener('click', () => this.handleCreateRoom());
         this.cancelHostBtn = document.getElementById('cancel-host-btn') as HTMLButtonElement;
         this.cancelHostBtn!.addEventListener('click', () => this.hideHostDialog());
         this.allowedAddressesInput = document.getElementById('allowed-addresses') as HTMLTextAreaElement;
@@ -74,9 +80,16 @@ class GameApp {
         this.betBtn = document.getElementById('bet-or-raise-btn') as HTMLButtonElement;
         this.myBetAmount = document.getElementById('my-bet-amount') as HTMLInputElement;
         this.myBetAmount!.addEventListener('input', () => this.handleMyBetAmountChange());
-        this.testBtn = document.getElementById('test-btn') as HTMLButtonElement;
-        this.testBtn!.addEventListener('click', () => this.handleTestBtn());
         
+        this.refreshBtn = document.getElementById('refresh-btn') as HTMLButtonElement;
+        this.refreshBtn!.addEventListener('click', () => this.handleRefreshBtn());
+
+        this.stepBtn = document.getElementById('step-btn') as HTMLButtonElement;
+        this.stepBtn!.addEventListener('click', () => this.handleStepBtn());
+
+        this.loadingSpinner = document.getElementById('loading-spinner');
+        this.mySitBtn = document.getElementById('my-sit-button') as HTMLButtonElement;
+        this.mySitBtn!.addEventListener('click', () => this.handleMySit());
         // Check for saved account
         this.loadedAccount = this.loadSavedAccount();
         this.loadedRoom = localStorage.getItem('LAST_ROOM');
@@ -100,12 +113,106 @@ class GameApp {
         // Start poker room polling immediately
         this.startContractPingLoop();
         this.setDisplayNoneForAllGameContentVariants();
-        this.tableView!.style.display = 'flex';
+        this.loginDialog!.style.display = 'flex';
+
     }
-    handleTestBtn(): any {
-        document.getElementById('player-5-box')!.classList.add('player-turn');
-        document.getElementById('player-4-box')!.classList.remove('player-turn');
+    private async handleStepBtn() {
+        const {secretShare, contribution} = dkg_v0.generate_contribution(this.tableBrief!.cur_dkg_session[0]);
+        const txn = await this.client.transaction.build.simple({
+            sender: this.currentAccount!.accountAddress,
+            data: {
+                function: `${CONTRACT_ADDRESS}::poker_room::process_dkg_contribution`,
+                typeArguments: [],
+                functionArguments: [
+                    this.roomAddress!,
+                    parseInt(this.tableBrief!.num_dkgs_done),
+                    dkg_v0.encodeContribution(contribution),
+                ]
+            }
+        });
     }
+
+    private async handleMySit() {
+        const txn = await this.client.transaction.build.simple({
+            sender: this.currentAccount!.accountAddress,
+            data: {
+                function: `${CONTRACT_ADDRESS}::poker_room::join`,
+                typeArguments: [],
+                functionArguments: [this.roomAddress!]
+            }
+        });
+        
+        const signedTxn = this.client.transaction.sign({
+            signer: this.currentAccount!,
+            transaction: txn
+        });
+        var committedTxn: any;
+        try {
+            committedTxn = await this.client.transaction.submit.simple({
+                transaction: txn,
+                senderAuthenticator: signedTxn
+            });
+        } catch (e) {
+            console.error('Error submitting create room transaction:', e);
+            return;
+        }
+
+        this.loadingSpinner!.style.display = 'block';
+
+        const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
+        if (txnResponse.success) {
+            await this.refreshRoomStatus();
+        } else {
+            alert('Error submitting join transaction: ' + txnResponse.vm_status);
+        }
+    }
+
+    private async refreshRoomStatus() {
+        this.loadingSpinner!.style.display = 'block';
+
+        // Construct payload
+        const txn = await this.client.transaction.build.simple({
+            sender: this.currentAccount!.accountAddress,
+            data: {
+                function: `${CONTRACT_ADDRESS}::poker_room::state_update`,
+                typeArguments: [],
+                functionArguments: [this.roomAddress!]
+            }
+        });
+        
+        const signedTxn = this.client.transaction.sign({
+            signer: this.currentAccount!,
+            transaction: txn
+        });
+
+        var committedTxn: any;
+        try {
+            committedTxn = await this.client.transaction.submit.simple({
+                transaction: txn,
+                senderAuthenticator: signedTxn
+            });
+        } catch (e) {
+            alert('Error submitting create room transaction: ' + e);
+            console.error('Error submitting create room transaction:', e);
+            return;
+        }
+
+        // Wait for transaction
+        const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
+        if (!txnResponse.success) {
+            alert('Error submitting state update transaction: ' + txnResponse.vm_status);
+            return;
+        }
+        
+        const roomBrief = await this.fetchRoomStatus();
+        this.updateTableViews(roomBrief);
+        this.loadingSpinner!.style.display = 'none';
+    }
+
+    private async handleRefreshBtn() {
+        await this.refreshRoomStatus();
+    }
+
     private handleMyBetAmountChange(): any {
         const currentValue = parseInt(this.myBetAmount!.value, 10);
         const allowedValues = [29, 40, 50, 60, 70, 80, 90, 100];
@@ -146,6 +253,7 @@ class GameApp {
         this.startBalancePolling();
 
         if (this.loadedRoom) {
+            this.roomAddress = this.loadedRoom;
             this.onEnteringGameRoom();
         } else {
             this.onEnteringLobby();
@@ -175,6 +283,7 @@ class GameApp {
         this.loginDialog!.style.display = 'none';
         this.curAccountLabel!.textContent = `Account: ${newAccount.accountAddress.toString()}`;
         this.balanceLabel!.textContent = `Balance: fetching...`;
+        this.lobbyView!.style.display = 'flex';
         this.startBalancePolling();
     }
 
@@ -190,7 +299,7 @@ class GameApp {
             } catch (error) {
                 this.balanceLabel!.textContent = 'Balance: ERROR';
             }
-            await new Promise(r => setTimeout(r, 5000));
+            await new Promise(r => setTimeout(r, 30000));
         }
     }
 
@@ -210,7 +319,7 @@ class GameApp {
         }
     }
 
-    private async handleStartGame() {
+    private async handleCreateRoom() {
         if (!this.allowedAddressesInput || !this.currentAccount) return;
 
         const addresses = this.allowedAddressesInput.value
@@ -295,6 +404,8 @@ class GameApp {
             return;
         }
 
+        this.roomAddress = normalizedAddress;
+        localStorage.setItem('LAST_ROOM', normalizedAddress);
         // Start polling the room status
         this.onEnteringGameRoom();
     }
@@ -315,44 +426,117 @@ class GameApp {
         return /^(0x)?[0-9a-fA-F]+$/.test(address);
     }
 
-    private createTablePolling() {
-        let shouldStop = false;
-        return {
-            start: async () => {
-                while (!shouldStop) {
-                    try {
-                        const result = await this.client.view({
-                            payload: {
-                                function: `${CONTRACT_ADDRESS}::poker_room::get_room_brief`,
-                                typeArguments: [],
-                                functionArguments: [this.roomAddress!]
-                            }
-                        });
-                        this.tableBrief = result[0];
-                        this.updateTableViews();
-                    } catch (error) {
-                    }
-            
-                    await new Promise(r => setTimeout(r, 5000));
-                }
-            },
-            stop: () => {
-                shouldStop = true;
+    private async fetchRoomStatus() {
+        const result = await this.client.view({
+            payload: {
+                function: `${CONTRACT_ADDRESS}::poker_room::get_room_brief`,
+                typeArguments: [],
+                functionArguments: [this.roomAddress!]
             }
-        };
+        });
+        return result[0];
     }
-    private updateTableViews() {
-        for (let i = 0; i < this.tableBrief.expected_player_addresses.length; i++) {
-            document.getElementById(`player-${i}-addr`)!.textContent = this.tableBrief.expected_player_addresses[i];
-            document.getElementById(`player-${i}-liveness`)!.textContent = this.tableBrief.player_livenesses[i];
-            document.getElementById(`player-${i}-chips-in-hand`)!.textContent = this.tableBrief.player_chips[i];
-            document.getElementById(`player-${i}-chips-in-pot`)!.textContent = '0';
-            document.getElementById(`player-${i}-folded`)!.textContent = 'false';
-            document.getElementById(`player-${i}-private-cards`)!.textContent = '';
-            if (this.tableBrief.expected_player_addresses[i] == this.currentAccount?.accountAddress.toString()) {
-                document.getElementById(`player-${i}-get-seated`)!.textContent = 'Sit here';
+
+    private updateTableViews(roomBrief: any) {
+        console.log(roomBrief);
+        this.roomAddressLabel!.textContent = `${this.roomAddress!}`;
+        var myPlayerIdx = roomBrief.expected_player_addresses.indexOf(this.currentAccount!.accountAddress.toString());
+        if (myPlayerIdx == -1) myPlayerIdx = 0;
+        const numUiSeats = 8;
+        const numPlayers = roomBrief.expected_player_addresses.length;
+        const viewIdxsByPlayerIdx = Array.from({length: numPlayers}, (_, playerIdx) => Math.round((playerIdx + numPlayers - myPlayerIdx) % numPlayers * numUiSeats / numPlayers));
+        for (let rivalNumber = 0; rivalNumber < numUiSeats; rivalNumber++) {
+            const playerIdx = viewIdxsByPlayerIdx.findIndex(viewIdx => viewIdx == rivalNumber);
+            const viewPrefix = rivalNumber == 0 ? 'my' : `rival-${rivalNumber}`;
+            const curBox = document.getElementById(`${viewPrefix}-box`);
+            const awayFlag = document.getElementById(`${viewPrefix}-away-flag`);
+            if (playerIdx == -1) {
+                curBox!.style.display = 'none';
+                awayFlag!.style.display = 'none';
+            } else {
+                curBox!.style.display = 'block';
+                if (roomBrief.player_livenesses[playerIdx]) {
+                    curBox!.classList.remove('player-away');
+                    curBox!.classList.add('player-at-table');   
+                    awayFlag!.style.display = 'none';
+                } else {
+                    curBox!.classList.remove('player-at-table');
+                    curBox!.classList.add('player-away');
+                    awayFlag!.style.display = 'flex';
+                }
+                const curPlayerAddr = roomBrief.expected_player_addresses[playerIdx];
+                document.getElementById(`${viewPrefix}-addr`)!.textContent = rivalNumber == 0 ? "You" : curPlayerAddr.slice(0, 4) + '...' + curPlayerAddr.slice(-4);
+                document.getElementById(`${viewPrefix}-chips-in-hand`)!.textContent = '🪙 ' + (roomBrief.state == '4' ? roomBrief.cur_hand.chips_in_hand[playerIdx] : roomBrief.player_chips[playerIdx]);
+                document.getElementById(`${viewPrefix}-dealer-light`)!.style.display = roomBrief.state == '4' && roomBrief.cur_hand.players[0] == curPlayerAddr? 'block' : 'none';
+                document.getElementById(`${viewPrefix}-bet`)!.textContent = roomBrief.state == '4' ? roomBrief.cur_hand.bets[playerIdx] : '';
+                document.getElementById(`${viewPrefix}-private-cards-area`)!.style.display = 'none';
+                let privateCardsArea = document.getElementById(`${viewPrefix}-private-cards-area`);
+                if (roomBrief.state == '4' && roomBrief.cur_hand.state != '140658') {
+                    privateCardsArea!.style.display = 'block';
+                    for (let privateCardIdx = 0; privateCardIdx < 2; privateCardIdx++) {
+                        const card = roomBrief.cur_hand.revealed_private_cards[playerIdx*2+privateCardIdx];
+                        const cardHolder = document.getElementById(`${viewPrefix}-card-${privateCardIdx}`);
+                        cardHolder!.classList.remove('red-suit');
+                        cardHolder!.classList.remove('card-back');
+                        if (card) {
+                            const cardText = this.cardTextFromCardIdx(card);
+                            cardHolder!.textContent = cardText;
+                            if (cardText[2] == '♥' || cardText[2] == '♦') {
+                                cardHolder!.classList.add('red-suit');
+                            }
+                        } else {
+                            cardHolder!.textContent = '';
+                            cardHolder!.classList.add('card-back');
+                        }
+                    }
+                } else {
+                    privateCardsArea!.style.display = 'none';
+                }
+    
+                if (rivalNumber == 0) {
+                    // Self view
+                    const betControls = document.getElementById(`${viewPrefix}-bet-decision-inputs`);
+                    if (roomBrief.state == '4' && roomBrief.cur_hand.state == '140855' && roomBrief.cur_hand.current_action_player_idx == playerIdx) {
+                        betControls!.style.display = 'block';
+                        const amountInput = document.getElementById(`${viewPrefix}-bet-amount`) as HTMLInputElement;
+                        const maxBetOnTable = roomBrief.cur_hand.bets.reduce((max: number, bet: number) => Math.max(max, bet), 0);
+                        const myBet = roomBrief.cur_hand.bets[playerIdx];
+                        const myChipsInHand = roomBrief.cur_hand.chips_in_hand[playerIdx];
+                        const minToAdd = Math.min(maxBetOnTable - myBet, myChipsInHand);
+                        amountInput!.min = minToAdd.toString();
+                        amountInput!.max = myChipsInHand.toString();
+                        amountInput!.value = minToAdd.toString();
+                        const minRaiseStep = parseInt(roomBrief.cur_hand.min_raise_step());
+                        this.allowedBetAmounts = Array.from({length: myChipsInHand - minToAdd + 1}, (_, i) => minToAdd + i).filter((amount) => amount == minToAdd || amount == myChipsInHand || amount >= minToAdd + minRaiseStep);
+                    } else {
+                        betControls!.style.display = 'none';
+                    }
+
+                    const mySitBtn = document.getElementById(`my-sit-button`);
+                    if (roomBrief.player_livenesses[playerIdx]) {
+                        mySitBtn!.style.display = 'none';
+                    } else {
+                        mySitBtn!.style.display = 'flex';
+                    }
+                }    
             }
         }
+        const inHandPublicInfo = document.getElementById('in-hand-public-info');
+        const dkgOrShuffleInProgressFlag = document.getElementById('dkg-or-shuffle-in-progress-flag');
+        if (roomBrief.state == '4') {
+            inHandPublicInfo!.style.display = 'flex';
+            dkgOrShuffleInProgressFlag!.style.display = 'none';
+        } else {
+            inHandPublicInfo!.style.display = 'none';
+            dkgOrShuffleInProgressFlag!.style.display = 'flex';
+        }
+        
+    }
+
+    private cardTextFromCardIdx(cardIdx: number) {
+        const cardValues = ['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K'];
+        const cardSuits = ['♠', '♥', '♦', '♣'];
+        return cardValues[cardIdx % 13] + cardSuits[Math.floor(cardIdx / 13)];
     }
 
     private async startContractPingLoop() {
@@ -378,15 +562,23 @@ class GameApp {
     private onEnteringGameRoom() {
         // Update views.
         this.setDisplayNoneForAllGameContentVariants();
-        this.tableView!.style.display = 'block';
-        this.roomAddressLabel!.textContent = `Table address: ${this.roomAddress!}`;
-        this.tablePolling = this.createTablePolling();
-        this.tablePolling.start();
+        this.loadingSpinner!.style.display = 'block';
+        this.roomAddressLabel!.textContent = `${this.roomAddress!}`;
+        // this.tablePolling = this.createTablePolling();
+        // this.tablePolling.start();
+        this.fetchRoomStatus().then((roomBrief) => {
+            this.tableBrief = roomBrief;
+            this.updateTableViews(roomBrief);
+            this.setDisplayNoneForAllGameContentVariants();
+            this.tableView!.style.display = 'block';
+        });
+
     }
 
     private setDisplayNoneForAllGameContentVariants() {
         this.lobbyView!.style.display = 'none';
         this.tableView!.style.display = 'none';
+        this.loadingSpinner!.style.display = 'none';
     }
 
     private async handleGetSeated() {

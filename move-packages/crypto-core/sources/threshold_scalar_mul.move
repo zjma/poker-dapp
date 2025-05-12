@@ -23,7 +23,7 @@ module crypto_core::threshold_scalar_mul {
 
     struct VerifiableContribution has copy, drop, store {
         payload: group::Element,
-        proof: sigma_dlog_eq::Proof
+        proof: Option<sigma_dlog_eq::Proof>,
     }
 
     struct Session has copy, drop, store {
@@ -47,7 +47,7 @@ module crypto_core::threshold_scalar_mul {
     public fun dummy_contribution(): VerifiableContribution {
         VerifiableContribution {
             payload: group::dummy_element(),
-            proof: sigma_dlog_eq::dummy_proof()
+            proof: option::none(),
         }
     }
 
@@ -144,10 +144,20 @@ module crypto_core::threshold_scalar_mul {
             errors.push_back(270424);
             return (errors, dummy_contribution(), buf);
         };
-        let (errors, proof, buf) = sigma_dlog_eq::decode_proof(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(270425);
-            return (errors, dummy_contribution(), buf);
+        let buflen = buf.length();
+        if (buflen == 0) return (vector[270425], dummy_contribution(), buf);
+        let has_proof = buf[0] > 0;
+        let buf = buf.slice(1, buflen);
+        let proof = if (has_proof) {
+            let (errors, proof, remainder) = sigma_dlog_eq::decode_proof(buf);
+            buf = remainder;
+            if (!errors.is_empty()) {
+                errors.push_back(270426);
+                return (errors, dummy_contribution(), buf);
+            };
+            option::some(proof)
+        } else {
+            option::none()
         };
         let ret = VerifiableContribution { payload, proof };
         (vector[], ret, buf)
@@ -156,7 +166,12 @@ module crypto_core::threshold_scalar_mul {
     public fun encode_contribution(obj: &VerifiableContribution): vector<u8> {
         let buf = vector[];
         buf.append(group::encode_element(&obj.payload));
-        buf.append(sigma_dlog_eq::encode_proof(&obj.proof));
+        if (obj.proof.is_some()) {
+            buf.push_back(1);
+            buf.append(sigma_dlog_eq::encode_proof(obj.proof.borrow()));
+        } else {
+            buf.push_back(0);
+        };
         buf
     }
 
@@ -184,7 +199,7 @@ module crypto_core::threshold_scalar_mul {
                 &payload,
                 &private_scalar
             );
-        VerifiableContribution { payload, proof }
+        VerifiableContribution { payload, proof: option::some(proof) }
     }
 
     #[test(
