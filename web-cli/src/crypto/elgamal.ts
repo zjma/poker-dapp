@@ -1,143 +1,109 @@
-import { Element, Scalar, decodeElement, decodeScalar, dummyElement, dummyScalar, elementAdd, elementSub, encodeElement, groupIdentity, scaleElement } from './group';
+import { Deserializer, Serializer } from '@aptos-labs/ts-sdk';
+import { Element, Scalar } from './group';
 
-export type Ciphertext = {
-    enc_base: Element;
-    c_0: Element;
-    c_1: Element;
+export class Ciphertext {
+    encBase: Element;
+    c0: Element;
+    c1: Element;
+
+    constructor(encBase: Element, c0: Element, c1: Element) {
+        this.encBase = encBase;
+        this.c0 = c0;
+        this.c1 = c1;
+    }
+
+    static decode(deserializer: Deserializer): Ciphertext {
+        const encBase = Element.decode(deserializer);
+        const c0 = Element.decode(deserializer);
+        const c1 = Element.decode(deserializer);
+        return new Ciphertext(encBase, c0, c1);
+    }
+
+    encode(serializer: Serializer): void {
+        this.encBase.encode(serializer);
+        this.c0.encode(serializer);
+        this.c1.encode(serializer);
+    }
+
+    add(other: Ciphertext): Ciphertext {
+        return new Ciphertext(this.encBase, this.c0.add(other.c0), this.c1.add(other.c1));
+    }
+
+    scale(scalar: Scalar): Ciphertext {
+        return new Ciphertext(this.encBase, this.c0.scale(scalar), this.c1.scale(scalar));
+    }
 };
 
-export type DecKey = {
-    enc_base: Element;
-    private_scalar: Scalar;
+export class DecKey {
+    encBase: Element;
+    privateScalar: Scalar;
+
+    constructor(encBase: Element, privateScalar: Scalar) {
+        this.encBase = encBase;
+        this.privateScalar = privateScalar;
+    }
+
+    static decode(deserializer: Deserializer): DecKey {
+        const encBase = Element.decode(deserializer);
+        const privateScalar = Scalar.decode(deserializer);
+        return new DecKey(encBase, privateScalar);
+    }
+
+    encode(serializer: Serializer): void {
+        this.encBase.encode(serializer);
+        this.privateScalar.encode(serializer);
+    }
 };
 
-export type EncKey = {
-    enc_base: Element;
-    public_point: Element;
+export class EncKey {
+    encBase: Element;
+    publicPoint: Element;
+
+    constructor(encBase: Element, publicPoint: Element) {
+        this.encBase = encBase;
+        this.publicPoint = publicPoint;
+    }
+
+    static decode(deserializer: Deserializer): EncKey {
+        const encBase = Element.decode(deserializer);
+        const publicPoint = Element.decode(deserializer);
+        return new EncKey(encBase, publicPoint);
+    }
+
+    encode(serializer: Serializer): void {
+        this.encBase.encode(serializer);
+        this.publicPoint.encode(serializer);
+    }
 };
-
-export function makeEncKey(enc_base: Element, public_point: Element): EncKey {
-    return { enc_base, public_point };
-}
-
-export function makeCiphertext(
-    enc_base: Element,
-    c_0: Element,
-    c_1: Element
-): Ciphertext {
-    return { enc_base, c_0, c_1 };
-}
 
 export function enc(
     ek: EncKey,
     randomizer: Scalar,
     ptxt: Element
 ): Ciphertext {
-    return {
-        enc_base: ek.enc_base,
-        c_0: scaleElement(ek.enc_base, randomizer),
-        c_1: elementAdd(
-            ptxt,
-            scaleElement(ek.public_point, randomizer)
-        )
-    };
+    return new Ciphertext(
+        ek.encBase,
+        ek.encBase.scale(randomizer),
+        ptxt.add(ek.publicPoint.scale(randomizer))
+    );
 }
 
 export function dec(dk: DecKey, ciph: Ciphertext): Element {
-    const unblinder = scaleElement(ciph.c_0, dk.private_scalar);
-    return elementSub(ciph.c_1, unblinder);
-}
-
-export function ciphertextAdd(a: Ciphertext, b: Ciphertext): Ciphertext {
-    return {
-        enc_base: a.enc_base,
-        c_0: elementAdd(a.c_0, b.c_0),
-        c_1: elementAdd(a.c_1, b.c_1)
-    };
-}
-
-export function ciphertextMul(a: Ciphertext, s: Scalar): Ciphertext {
-    return {
-        enc_base: a.enc_base,
-        c_0: scaleElement(a.c_0, s),
-        c_1: scaleElement(a.c_1, s)
-    };
+    const unblinder = ciph.c0.scale(dk.privateScalar);
+    return ciph.c1.sub(unblinder);
 }
 
 export function weirdMultiExp(
     ciphs: Ciphertext[],
     scalars: Scalar[]
 ): Ciphertext {
-    let acc = makeCiphertext(
-        ciphs[0].enc_base,
-        groupIdentity(),
-        groupIdentity(),
+    let acc = new Ciphertext(
+        ciphs[0].encBase,
+        Element.groupIdentity(),
+        Element.groupIdentity(),
     );
     for (let i = 0; i < ciphs.length; i++) {
-        acc = ciphertextAdd(acc, ciphertextMul(ciphs[i], scalars[i]));
+        acc = acc.add(ciphs[i].scale(scalars[i]));
     }
     return acc;
 }
-
-export function dummyEncKey(): EncKey {
-    return {enc_base: dummyElement(), public_point: dummyElement()};
-}
-
-export function dummyDecKey(): DecKey {
-    return {enc_base: dummyElement(), private_scalar: dummyScalar()};
-}
-
-export function encodeEncKey(ek: EncKey): Uint8Array {
-    const buf = new Uint8Array(ek.enc_base.bytes.length + ek.public_point.bytes.length);
-    buf.set(ek.enc_base.bytes, 0);
-    buf.set(ek.public_point.bytes, ek.enc_base.bytes.length);
-    return buf;
-}
-
-export function decodeEncKey(buf: Uint8Array): {errors: number[], encKey: EncKey, remainder: Uint8Array} {
-    var {errors, element: encBase, remaining} = decodeElement(buf);
-    if (errors.length > 0) {
-        errors.push(172708);
-        return {errors, encKey: dummyEncKey(), remainder: buf};
-    }
-    var {errors, element: publicPoint, remaining} = decodeElement(remaining);
-    if (errors.length > 0) {
-        errors.push(172709);
-        return {errors, encKey: dummyEncKey(), remainder: buf};
-    }
-    return {errors: [], encKey: {enc_base: encBase, public_point: publicPoint}, remainder: remaining};
-}
-
-export function decodeDecKey(buf: Uint8Array): {errors: number[], decKey: DecKey, remainder: Uint8Array} {
-    var {errors, element: enc_base, remaining} = decodeElement(buf);
-    if (errors.length > 0) {
-        errors.push(240835);
-        return {errors, decKey: dummyDecKey(), remainder: buf};
-    }
-    var {errors, scalar: private_scalar, remainder: remainder} = decodeScalar(remaining);
-    if (errors.length > 0) {
-        errors.push(240836);
-        return {errors, decKey: dummyDecKey(), remainder: buf};
-    }
-    return {errors: [], decKey: {enc_base, private_scalar}, remainder};
-}
-
-export function encodeCiphertext(obj: Ciphertext): Uint8Array {
-    const parts = [
-      encodeElement(obj.enc_base),
-      encodeElement(obj.c_0),
-      encodeElement(obj.c_1),
-    ];
-  
-    const totalLength = parts.reduce((sum, p) => sum + p.length, 0);
-    const result = new Uint8Array(totalLength);
-  
-    let offset = 0;
-    for (const part of parts) {
-      result.set(part, offset);
-      offset += part.length;
-    }
-  
-    return result;
-  }
-  

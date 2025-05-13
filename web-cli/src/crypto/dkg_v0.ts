@@ -1,134 +1,150 @@
-import { AccountAddress } from "@aptos-labs/ts-sdk";
-import { Element, Scalar, randScalar, groupIdentity, scaleElement, elementAdd, scalarFromU64, scalarAdd } from './group';
+import { AccountAddress, Deserializer, Serializer } from "@aptos-labs/ts-sdk";
+import { Element, Scalar } from './group';
 import * as SigmaDLog from './sigma_dlog';
-import * as Utils from '../utils';
 
 import * as Group from './group';
-export type DKGSession = {
-    base_point: Element;
-    expected_contributors: AccountAddress[];
-    deadline: number;
-    state: number;
-    contributions: (VerifiableContribution | null)[];
-    contribution_still_needed: number;
-    agg_public_point: Element;
-    culprits: AccountAddress[];
-};
-
-export type VerifiableContribution = {
-    publicPoint: Element;
-    proof: SigmaDLog.Proof | null;
-};
-
-export type SecretShare = {
-    privateScalar: Scalar;
-};
-
-export type SharedSecretPublicInfo = {
-    agg_ek: EncKey;
-    ek_shares: EncKey[];
-};
-
-export type EncKey = {
-    enc_base: Element;
-    public_point: Element;
-};
+import { EncKey } from "./elgamal";
 
 const STATE_IN_PROGRESS = 0;
 const STATE_SUCCEEDED = 1;
 const STATE_TIMED_OUT = 2;
 
-export function encodeContribution(contribution: VerifiableContribution): Uint8Array {
-    var buf = Group.encodeElement(contribution.publicPoint);
-    if (contribution.proof) {
-        buf = Utils.concat(buf, new Uint8Array([1]));
-    }
-    return buf;
-}
+export class DKGSession {
+    basePoint: Element;
+    expectedContributors: AccountAddress[];
+    deadline: number;
+    state: number;
+    contributions: (VerifiableContribution | null)[];
+    contributionStillNeeded: number;
+    aggPublicPoint: Element;
+    culprits: AccountAddress[];
 
-export function generate_contribution(session: DKGSession): { secretShare: SecretShare; contribution: VerifiableContribution } {
-    const privateScalar = randScalar();
-    const secretShare = { privateScalar };
-    const publicPoint = scaleElement(session.base_point, privateScalar);
+    constructor(basePoint: Element, expectedContributors: AccountAddress[], deadline: number, state: number, contributions: (VerifiableContribution | null)[], contributionStillNeeded: number, aggPublicPoint: Element, culprits: AccountAddress[]) {
+        this.basePoint = basePoint;
+        this.expectedContributors = expectedContributors;
+        this.deadline = deadline;
+        this.state = state;
+        this.contributions = contributions;
+        this.contributionStillNeeded = contributionStillNeeded;
+        this.aggPublicPoint = aggPublicPoint;
+        this.culprits = culprits;
+    }
+
+    static dummy(): DKGSession {
+        return new DKGSession(
+            Group.Element.groupIdentity(),
+            [],
+            0,
+            0,
+            [],
+            0,
+            Group.Element.groupIdentity(),
+            [],
+        );
+    }
     
-    const contribution = { publicPoint, proof: null };
+    static decode(deserializer: Deserializer): DKGSession {
+        const basePoint = Group.Element.decode(deserializer);
+        const expectedContributors = deserializer.deserializeVector(AccountAddress);
+        const deadline = Number(deserializer.deserializeU64());
+        const state = Number(deserializer.deserializeU64());
+        const numContributions = deserializer.deserializeUleb128AsU32();
+        const contributions = new Array<VerifiableContribution | null>(numContributions);
+        for (let i = 0; i < numContributions; i++) {
+            const isNull = deserializer.deserializeU8() === 0;
+            contributions[i] = isNull ? null : VerifiableContribution.decode(deserializer);
+        }
+        const contributionStillNeeded = Number(deserializer.deserializeU64());
+        const aggPublicPoint = Group.Element.decode(deserializer);
+        const culprits = deserializer.deserializeVector(AccountAddress);
+        return new DKGSession(basePoint, expectedContributors, deadline, state, contributions, contributionStillNeeded, aggPublicPoint, culprits);
+    }
+
+    encode(serializer: Serializer): void {
+        this.basePoint.encode(serializer);
+        serializer.serializeVector(this.expectedContributors);
+        serializer.serializeU64(this.deadline);
+        serializer.serializeU64(this.state);
+        serializer.serializeU32AsUleb128(this.contributions.length);
+        for (const contribution of this.contributions) {
+            if (contribution === null) {
+                serializer.serializeU8(0);
+            } else {
+                serializer.serializeU8(1);
+                contribution.encode(serializer);
+            }
+        }
+        serializer.serializeU64(this.contributionStillNeeded);
+        this.aggPublicPoint.encode(serializer);
+        serializer.serializeVector(this.culprits);
+    }
+
+    succeeded(): boolean {
+        return this.state === STATE_SUCCEEDED;
+    }
+
+    failed(): boolean {
+        return this.state === STATE_TIMED_OUT;
+    }
+};
+
+export class VerifiableContribution {
+    publicPoint: Element;
+    proof: SigmaDLog.Proof | null;
+
+    constructor(publicPoint: Element, proof: SigmaDLog.Proof | null) {
+        this.publicPoint = publicPoint;
+        this.proof = proof;
+    }
+
+    static decode(deserializer: Deserializer): VerifiableContribution {
+        throw new Error("Function not implemented.");
+    }
+
+    encode(serializer: Serializer): void {
+        throw new Error("Function not implemented.");
+    }
+};
+
+export class SecretShare {
+    privateScalar: Scalar;
+
+    constructor(privateScalar: Scalar) {
+        this.privateScalar = privateScalar;
+    }
+
+    static decode(deserializer: Deserializer): SecretShare {
+        throw new Error("Function not implemented.");
+    }
+
+    encode(serializer: Serializer): void {
+        throw new Error("Function not implemented.");
+    }
+};
+
+export class SharedSecretPublicInfo {
+    agg_ek: EncKey;
+    ek_shares: EncKey[];
+
+    constructor(agg_ek: EncKey, ek_shares: EncKey[]) {
+        this.agg_ek = agg_ek;
+        this.ek_shares = ek_shares;
+    }
+
+    static decode(deserializer: Deserializer): SharedSecretPublicInfo {
+        throw new Error("Function not implemented.");
+    }
+
+    encode(serializer: Serializer): void {
+        throw new Error("Function not implemented.");
+    }
+};
+
+export function generateContribution(session: DKGSession): { secretShare: SecretShare; contribution: VerifiableContribution } {
+    const privateScalar = Scalar.rand();
+    const secretShare = new SecretShare(privateScalar);
+    const publicPoint = session.basePoint.scale(privateScalar);
+    
+    const contribution = new VerifiableContribution(publicPoint, null); //TODO: Implement proof
     return { secretShare, contribution };
 }
-
-export function succeeded(session: DKGSession): boolean {
-    return session.state === STATE_SUCCEEDED;
-}
-
-export function failed(session: DKGSession): boolean {
-    return session.state === STATE_TIMED_OUT;
-}
-
-export function getCulprits(session: DKGSession): AccountAddress[] {
-    return session.culprits;
-}
-
-export function getContributors(session: DKGSession): AccountAddress[] {
-    if (session.state !== STATE_SUCCEEDED) {
-        throw new Error('DKG session has not succeeded');
-    }
-    return session.expected_contributors;
-}
-
-export function getSharedSecretPublicInfo(session: DKGSession): SharedSecretPublicInfo {
-    if (session.state !== STATE_SUCCEEDED) {
-        throw new Error('DKG session has not succeeded');
-    }
-    
-    const agg_ek = {
-        enc_base: session.base_point,
-        public_point: session.agg_public_point
-    };
-    
-    const ek_shares = session.contributions.map(contribution => {
-        if (!contribution) {
-            throw new Error('Invalid contribution');
-        }
-        return {
-            enc_base: session.base_point,
-            public_point: contribution.publicPoint
-        };
-    });
-    
-    return { agg_ek, ek_shares };
-}
-
-export function getThreshold(secret_info: SharedSecretPublicInfo): number {
-    return secret_info.ek_shares.length;
-}
-
-export function aggregateScalarMul(
-    secret_info: SharedSecretPublicInfo,
-    shares: (Element | null)[]
-): Element {
-    let ret = groupIdentity();
-    for (const share of shares) {
-        if (!share) {
-            throw new Error('Invalid share');
-        }
-        ret = elementAdd(ret, share);
-    }
-    return ret;
-}
-
-export function reconstructSecret(
-    public_info: SharedSecretPublicInfo,
-    shares: (SecretShare | null)[]
-): Scalar {
-    if (public_info.ek_shares.length !== shares.length) {
-        throw new Error('Number of shares does not match');
-    }
-    
-    let agg = scalarFromU64(0n);
-    for (const share of shares) {
-        if (!share) {
-            throw new Error('Invalid share');
-        }
-        agg = scalarAdd(agg, share.privateScalar);
-    }
-    return agg;
-} 

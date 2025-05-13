@@ -1,30 +1,29 @@
 import { sha3_512 } from '@noble/hashes/sha3';
-import { Element, Scalar, scalarFromBigEndianBytesModQ } from './group';
-import { bytesToHex } from '@noble/hashes/utils';
+import { Element, Scalar } from './group';
+import { Serializer } from '@aptos-labs/ts-sdk';
 
-export type Transcript = {
+export class Transcript {
     recorded: Uint8Array;
+
+    constructor() {
+        this.recorded = new Uint8Array(0);
+    }
+
+    appendGroupElement(element: Element): void {
+        const serializer = new Serializer();
+        element.encode(serializer);
+        this.appendRawBytes(serializer.toUint8Array());
+    }
+    
+    appendRawBytes(raw: Uint8Array): void {
+        let new_bytes = new Uint8Array(this.recorded.length + raw.length);
+        new_bytes.set(this.recorded);
+        new_bytes.set(raw, this.recorded.length);
+        this.recorded = new_bytes;
+    }
+
+    hashToScalar(): Scalar {
+        const digest = sha3_512(this.recorded);
+        return Scalar.fromBigEndianBytesModQ(digest);
+    }
 };
-
-export function newTranscript(): Transcript {
-    return { recorded: new Uint8Array(0) };
-}
-
-export function appendGroupElement(trx: Transcript, element: Element): void {
-    appendRawBytes(trx, element.bytes);
-}
-
-export function appendRawBytes(trx: Transcript, raw: Uint8Array): void {
-    let new_bytes = new Uint8Array(trx.recorded.length + raw.length);
-    new_bytes.set(trx.recorded);
-    new_bytes.set(raw, trx.recorded.length);
-    trx.recorded = new_bytes;
-}
-
-export function hashToScalar(trx: Transcript): Scalar {
-    const digest = sha3_512(trx.recorded);
-    console.log(bytesToHex(digest));
-    const modq = scalarFromBigEndianBytesModQ(digest);
-    console.log(bytesToHex(modq.bytes));
-    return modq;
-}
