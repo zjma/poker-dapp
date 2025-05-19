@@ -19,6 +19,7 @@ module crypto_core::group {
         bytes: vector<u8>
     }
 
+    /// Gas cost: ~1
     public fun decode_scalar(buf: vector<u8>): (vector<u64>, Scalar, vector<u8>) {
         let (errors, num_bytes, buf) = utils::decode_uleb128(buf);
         if (!errors.is_empty()) {
@@ -47,6 +48,8 @@ module crypto_core::group {
     /// Generate a random scalar.
     ///
     /// NOTE: client needs to implement this.
+    ///
+    /// Gas cost: ~12
     public fun rand_scalar(): Scalar {
         let rand_scalar_val = randomness::u256_range(0, Q);
         let bytes = vector::range(0, 32).map(|idx| {
@@ -108,6 +111,7 @@ module crypto_core::group {
         element_from_inner(&inner)
     }
 
+    /// Gas cost: ~9
     public fun element_add(a: &Element, b: &Element): Element {
         let inner_a = element_to_inner(a);
         let inner_b = element_to_inner(b);
@@ -134,6 +138,7 @@ module crypto_core::group {
         *accumulator = element_sub(accumulator, add_on);
     }
 
+    /// Gas cost: ~14
     public fun scale_element(base: &Element, scalar: &Scalar): Element {
         let inner_b = element_to_inner(base);
         let inner_s = scalar_to_inner(scalar);
@@ -141,6 +146,7 @@ module crypto_core::group {
         element_from_inner(&inner_res)
     }
 
+    /// Gas cost: <1
     public fun scalar_add(a: &Scalar, b: &Scalar): Scalar {
         let inner_a = scalar_to_inner(a);
         let inner_b = scalar_to_inner(b);
@@ -162,6 +168,7 @@ module crypto_core::group {
         scalar_from_inner(&inner_res)
     }
 
+    /// Gas cost: ~5
     public fun decode_element(buf: vector<u8>): (vector<u64>, Element, vector<u8>) {
         let (errors, num_bytes, buf) = utils::decode_uleb128(buf);
         if (!errors.is_empty()) {
@@ -290,5 +297,18 @@ module crypto_core::group {
         assert!(rem.is_empty(), 999);
         let point_c = scale_element(&point_a, &scalar_b);
         assert!(x"30ac39b219f3915eb90a4917931abbd5cf57709473bbc57f2169a311de51b397b882c29a1ba8fbf581ca12c388d69eecec" == bcs::to_bytes(&point_c), 999);
+    }
+
+    #[randomness]
+    entry fun example(stop_after_step: u64) {
+        let (errors, point_a, rem) = decode_element(x"3085ba9eae97029dee22680d4506d85d87146dbcc0b7b797d71500489eb23e0b399b5d8af1925f8871a7c2dc9f65a87209");
+        if (stop_after_step == 0) return;
+        let (errors, scalar_b, rem) = decode_scalar(x"20e57e6c4d3f6c645d69549f0c62aebfb77ebbcf29d2a8f0cd597d4ecd8ed56458");
+        if (stop_after_step == 1) return;
+        let point_c = scale_element(&point_a, &scalar_b);
+        if (stop_after_step == 2) return;
+        let scalar_2b = scalar_add(&scalar_b, &scalar_b);
+        if (stop_after_step == 3) return;
+        let point_2a = element_add(&point_a, &point_a);
     }
 }
