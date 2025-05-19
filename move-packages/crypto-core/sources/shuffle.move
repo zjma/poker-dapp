@@ -4,9 +4,13 @@ module crypto_core::shuffle {
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
+    use std::vector::range;
+    use aptos_framework::object;
+    use aptos_framework::randomness;
     use aptos_framework::timestamp;
+    use crypto_core::group;
     use crypto_core::fiat_shamir_transform;
-    use crypto_core::pederson_commitment;
+    use crypto_core::pedersen_commitment;
     use crypto_core::bg12;
     use crypto_core::utils;
     use crypto_core::elgamal;
@@ -81,7 +85,7 @@ module crypto_core::shuffle {
 
     struct Session has copy, drop, store {
         enc_key: elgamal::EncKey,
-        pedersen_ctxt: pederson_commitment::Context,
+        pedersen_ctxt: pedersen_commitment::Context,
         initial_ciphertexts: vector<elgamal::Ciphertext>,
         allowed_contributors: vector<address>,
         num_contributions_expected: u64,
@@ -96,7 +100,7 @@ module crypto_core::shuffle {
     public fun dummy_session(): Session {
         Session {
             enc_key: elgamal::dummy_enc_key(),
-            pedersen_ctxt: pederson_commitment::dummy_context(),
+            pedersen_ctxt: pedersen_commitment::dummy_context(),
             initial_ciphertexts: vector[],
             allowed_contributors: vector[],
             num_contributions_expected: 0,
@@ -130,7 +134,7 @@ module crypto_core::shuffle {
         let num_items = initial_ciphertexts.length();
         Session {
             enc_key,
-            pedersen_ctxt: pederson_commitment::rand_context(num_items),
+            pedersen_ctxt: pedersen_commitment::rand_context(num_items),
             initial_ciphertexts,
             allowed_contributors,
             num_contributions_expected,
@@ -223,7 +227,6 @@ module crypto_core::shuffle {
     }
 
     #[lint::allow_unsafe_randomness]
-    #[test_only]
     /// NOTE: client needs to implement this.
     public fun generate_contribution_locally(
         contributor: &signer, session: &Session
@@ -316,5 +319,52 @@ module crypto_core::shuffle {
             new_pos
         });
         print(&permutation);
+    }
+
+    #[randomness]
+    entry fun try(me: &signer) {
+        let my_addr = address_of(me);
+        let alice_obj = object::create_object(my_addr);
+        let bob_obj = object::create_object(my_addr);
+        let eric_obj = object::create_object(my_addr);
+        let alice = object::generate_signer(&alice_obj);
+        let bob = object::generate_signer(&bob_obj);
+        let eric = object::generate_signer(&eric_obj);
+        let alice_addr = address_of(&alice);
+        let bob_addr = address_of(&bob);
+        let eric_addr = address_of(&eric);
+
+        let enc_base = group::rand_element();
+        let (dk, ek) = elgamal::key_gen(enc_base);
+        let plaintexts = range(0, 52).map(|_| group::rand_element());
+        let ciphertexts = plaintexts.map_ref(|plain| elgamal::enc(&ek, &group::rand_scalar(), plain));
+        let now_secs = timestamp::now_seconds();
+        let session =
+            new_session(
+                ek,
+                ciphertexts,
+                vector[alice_addr, bob_addr, eric_addr],
+                vector[now_secs + 5, now_secs + 10, now_secs + 15]
+            );
+        assert!(is_waiting_for_contribution(&session, alice_addr), 185955);
+        let alice_contribution = generate_contribution_locally(&alice, &session);
+        process_contribution(&alice, &mut session, alice_contribution);
+        state_update(&mut session);
+        assert!(is_waiting_for_contribution(&session, bob_addr), 185956);
+        let bob_contribution = generate_contribution_locally(&bob, &session);
+        process_contribution(&bob, &mut session, bob_contribution);
+        state_update(&mut session);
+        assert!(is_waiting_for_contribution(&session, eric_addr), 185957);
+        let eric_contribution = generate_contribution_locally(&eric, &session);
+        process_contribution(&eric, &mut session, eric_contribution);
+        state_update(&mut session);
+        assert!(succeeded(&session), 185958);
+        let shuffled_ciphs = result_cloned(&session);
+        let shuffled_plains = shuffled_ciphs.map(|ciph| elgamal::dec(&dk, &ciph));
+        let permutation = plaintexts.map(|plain| {
+            let (found, new_pos) = shuffled_plains.index_of(&plain);
+            assert!(found, 185959);
+            new_pos
+        });
     }
 }

@@ -1,15 +1,16 @@
 /// BLS12-381 G1 utils.
 module crypto_core::group {
     use std::vector;
-    use std::vector::range;
-    use aptos_std::bls12381_algebra;
-    use aptos_std::crypto_algebra;
+    use aptos_std::ristretto255;
     use aptos_framework::randomness;
     use crypto_core::utils;
     #[test_only]
     use std::bcs;
+    #[test_only]
+    use aptos_std::debug::print;
 
-    const Q: u256 = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001;
+    /// Ristretto255 group order.
+    const Q: u256 = 723700557733226221397318656304299424085711635937990760600195093828545425057;
 
     struct Element has copy, drop, store {
         bytes: vector<u8>
@@ -19,7 +20,7 @@ module crypto_core::group {
         bytes: vector<u8>
     }
 
-    /// Gas cost: ~1
+    /// Gas cost: 0.98
     public fun decode_scalar(buf: vector<u8>): (vector<u64>, Scalar, vector<u8>) {
         let (errors, num_bytes, buf) = utils::decode_uleb128(buf);
         if (!errors.is_empty()) {
@@ -30,10 +31,7 @@ module crypto_core::group {
         let buf_len = buf.length();
         if (buf_len < 32) return (vector[115605], dummy_scalar(), buf);
         let payload = buf.slice(0, 32);
-        let maybe_inner =
-            crypto_algebra::deserialize<bls12381_algebra::Fr, bls12381_algebra::FormatFrLsb>(
-                &payload
-            );
+        let maybe_inner = ristretto255::new_scalar_from_bytes(payload);
         if (maybe_inner.is_none()) return (vector[115606], dummy_scalar(), buf);
         let buf = buf.slice(32, buf.length());
         let ret = Scalar { bytes: payload };
@@ -49,8 +47,8 @@ module crypto_core::group {
     ///
     /// NOTE: client needs to implement this.
     ///
-    /// Gas cost: ~12
-    public fun rand_scalar(): Scalar {
+    /// Gas cost: 12
+    public fun rand_scalar_slow(): Scalar {
         let rand_scalar_val = randomness::u256_range(0, Q);
         let bytes = vector::range(0, 32).map(|idx| {
             let idx = (idx as u8);
@@ -59,76 +57,93 @@ module crypto_core::group {
         Scalar { bytes }
     }
 
+    /// Gas cost: 1.11
     #[lint::allow_unsafe_randomness]
-    public fun rand_element(): Element {
-        let inner =
-            crypto_algebra::hash_to<bls12381_algebra::G1, bls12381_algebra::HashG1XmdSha256SswuRo>(
-                &b"RAND_GROUP_ELEMENT_FOR_POKER", &randomness::bytes(32)
-            );
+    public fun rand_scalar(): Scalar {
+        let scalar_inner = ristretto255::new_scalar_from_sha2_512(randomness::bytes(64));
+        scalar_from_inner(&scalar_inner)
+    }
+
+    /// Gas cost: ~13
+    #[lint::allow_unsafe_randomness]
+    public fun rand_element_slow(): Element {
+        let scalar = rand_scalar();
+        let scalar_inner = scalar_to_inner(&scalar);
+        let inner = ristretto255::basepoint_mul(&scalar_inner);
         element_from_inner(&inner)
     }
 
+    /// Gas cost: 1.56
+    #[lint::allow_unsafe_randomness]
+    public fun rand_element(): Element {
+        let point_inner = ristretto255::new_point_from_sha2_512(randomness::bytes(64));
+        element_from_inner(&point_inner)
+    }
+
+    /// Gas cost: ?
     public fun scalar_from_u64(v: u64): Scalar {
-        let inner = crypto_algebra::from_u64<bls12381_algebra::Fr>(v);
+        let inner = ristretto255::new_scalar_from_u64(v);
         scalar_from_inner(&inner)
     }
 
-    public fun scalar_from_big_endian_bytes_mod_q(bytes: vector<u8>): Scalar {
-        let ret = 0;
-        bytes.for_each(|byte| {
-            u8_to_big_endian_bits(byte).for_each(|bit| {
-                ret = safe_add_mod(ret, ret, Q);
-                if (bit) {
-                    ret = safe_add_mod(ret, 1, Q);
-                }
-            });
-        });
-        Scalar { bytes: u256_to_little_endian_bytes(ret) }
-    }
+    // public fun scalar_from_big_endian_bytes_mod_q(bytes: vector<u8>): Scalar {
+    //     let ret = 0;
+    //     bytes.for_each(|byte| {
+    //         u8_to_big_endian_bits(byte).for_each(|bit| {
+    //             ret = safe_add_mod(ret, ret, Q);
+    //             if (bit) {
+    //                 ret = safe_add_mod(ret, 1, Q);
+    //             }
+    //         });
+    //     });
+    //     Scalar { bytes: u256_to_little_endian_bytes(ret) }
+    // }
 
-    fun u8_to_big_endian_bits(x: u8): vector<bool> {
-        range(0, 8).map(|i| ((x >> (7-i as u8)) & 1) > 0)
-    }
+    // fun u8_to_big_endian_bits(x: u8): vector<bool> {
+    //     range(0, 8).map(|i| ((x >> (7-i as u8)) & 1) > 0)
+    // }
 
-    fun u256_to_little_endian_bytes(x: u256): vector<u8> {
-        vector::range(0, 32).map(|i| {
-            let shift = ((8 * i) as u8);
-            (((x >> shift) & 0xff) as u8)
-        })
-    }
+    // fun u256_to_little_endian_bytes(x: u256): vector<u8> {
+    //     vector::range(0, 32).map(|i| {
+    //         let shift = ((8 * i) as u8);
+    //         (((x >> shift) & 0xff) as u8)
+    //     })
+    // }
 
-    fun safe_add_mod(a: u256, b: u256, m: u256): u256 {
-        let a_clone = a;
-        let neg_b = m - b;
-        if (a < neg_b) { a + b }
-        else {
-            a_clone - neg_b
-        }
-    }
+    // fun safe_add_mod(a: u256, b: u256, m: u256): u256 {
+    //     let a_clone = a;
+    //     let neg_b = m - b;
+    //     if (a < neg_b) { a + b }
+    //     else {
+    //         a_clone - neg_b
+    //     }
+    // }
 
     public fun group_identity(): Element {
-        let inner = crypto_algebra::zero<bls12381_algebra::G1>();
+        let inner = ristretto255::point_identity();
         element_from_inner(&inner)
     }
 
-    /// Gas cost: ~9
+    /// Gas cost: 0.68
     public fun element_add(a: &Element, b: &Element): Element {
         let inner_a = element_to_inner(a);
         let inner_b = element_to_inner(b);
-        let inner_sum = crypto_algebra::add(&inner_a, &inner_b);
+        let inner_sum = ristretto255::point_add(&inner_a, &inner_b);
         element_from_inner(&inner_sum)
     }
 
+    /// Gas cost: 0.68
     public fun element_add_assign(
         accumulator: &mut Element, add_on: &Element
     ) {
         *accumulator = element_add(accumulator, add_on);
     }
 
+    /// Gas cost: 0.68
     public fun element_sub(a: &Element, b: &Element): Element {
         let inner_a = element_to_inner(a);
         let inner_b = element_to_inner(b);
-        let inner_diff = crypto_algebra::sub(&inner_a, &inner_b);
+        let inner_diff = ristretto255::point_sub(&inner_a, &inner_b);
         element_from_inner(&inner_diff)
     }
 
@@ -138,53 +153,52 @@ module crypto_core::group {
         *accumulator = element_sub(accumulator, add_on);
     }
 
-    /// Gas cost: ~14
+    /// Gas cost: 2.26
     public fun scale_element(base: &Element, scalar: &Scalar): Element {
         let inner_b = element_to_inner(base);
         let inner_s = scalar_to_inner(scalar);
-        let inner_res = crypto_algebra::scalar_mul(&inner_b, &inner_s);
+        let inner_res = ristretto255::point_mul(&inner_b, &inner_s);
         element_from_inner(&inner_res)
     }
 
-    /// Gas cost: <1
+    /// Gas cost: 0.23
     public fun scalar_add(a: &Scalar, b: &Scalar): Scalar {
         let inner_a = scalar_to_inner(a);
         let inner_b = scalar_to_inner(b);
-        let inner_res = crypto_algebra::add(&inner_a, &inner_b);
+        let inner_res = ristretto255::scalar_add(&inner_a, &inner_b);
         scalar_from_inner(&inner_res)
     }
 
+    /// Gas cost: 0.23
     public fun scalar_sub(a: &Scalar, b: &Scalar): Scalar {
         let inner_a = scalar_to_inner(a);
         let inner_b = scalar_to_inner(b);
-        let inner_res = crypto_algebra::sub(&inner_a, &inner_b);
+        let inner_res = ristretto255::scalar_sub(&inner_a, &inner_b);
         scalar_from_inner(&inner_res)
     }
 
+    /// Gas cost: 0.23
     public fun scalar_mul(a: &Scalar, b: &Scalar): Scalar {
         let inner_a = scalar_to_inner(a);
         let inner_b = scalar_to_inner(b);
-        let inner_res = crypto_algebra::mul(&inner_a, &inner_b);
+        let inner_res = ristretto255::scalar_mul(&inner_a, &inner_b);
         scalar_from_inner(&inner_res)
     }
 
-    /// Gas cost: ~5
+    /// Gas cost: 1.12
     public fun decode_element(buf: vector<u8>): (vector<u64>, Element, vector<u8>) {
         let (errors, num_bytes, buf) = utils::decode_uleb128(buf);
         if (!errors.is_empty()) {
             errors.push_back(110507);
             return (errors, dummy_element(), buf);
         };
-        if (num_bytes != 48) return (vector[110508], dummy_element(), buf);
+        if (num_bytes != 32) return (vector[110508], dummy_element(), buf);
         let buf_len = buf.length();
-        if (buf_len < 48) return (vector[110509], dummy_element(), buf);
-        let payload = buf.slice(0, 48);
-        let maybe_inner =
-            crypto_algebra::deserialize<bls12381_algebra::G1, bls12381_algebra::FormatG1Compr>(
-                &payload
-            );
+        if (buf_len < 32) return (vector[110509], dummy_element(), buf);
+        let payload = buf.slice(0, 32);
+        let maybe_inner = ristretto255::new_compressed_point_from_bytes(payload);
         if (maybe_inner.is_none()) return (vector[110510], dummy_element(), buf);
-        let buf = buf.slice(48, buf_len);
+        let buf = buf.slice(32, buf_len);
         let ret = Element { bytes: payload };
         (vector[], ret, buf)
     }
@@ -203,52 +217,36 @@ module crypto_core::group {
 
     public fun scalar_neg(s: &Scalar): Scalar {
         let s_inner = scalar_to_inner(s);
-        let ret_inner = crypto_algebra::neg(&s_inner);
+        let ret_inner = ristretto255::scalar_neg(&s_inner);
         scalar_from_inner(&ret_inner)
     }
 
+    /// Gas cost: 4+0.6n
     public fun msm(elements: &vector<Element>, scalars: &vector<Scalar>): Element {
         let inner_elements = elements.map_ref(|e| element_to_inner(e));
         let inner_scalars = scalars.map_ref(|s| scalar_to_inner(s));
-        let inner_ret = crypto_algebra::multi_scalar_mul(
-            &inner_elements, &inner_scalars
-        );
+        let inner_ret = ristretto255::multi_scalar_mul(&inner_elements, &inner_scalars);
         element_from_inner(&inner_ret)
     }
 
-    fun scalar_to_inner(scalar: &Scalar): crypto_algebra::Element<bls12381_algebra::Fr> {
-        let maybe =
-            crypto_algebra::deserialize<bls12381_algebra::Fr, bls12381_algebra::FormatFrLsb>(
-                &scalar.bytes
-            );
+    fun scalar_to_inner(scalar: &Scalar): ristretto255::Scalar {
+        let maybe = ristretto255::new_scalar_from_bytes(scalar.bytes);
         maybe.extract()
     }
 
-    fun scalar_from_inner(
-        inner: &crypto_algebra::Element<bls12381_algebra::Fr>
-    ): Scalar {
-        let bytes =
-            crypto_algebra::serialize<bls12381_algebra::Fr, bls12381_algebra::FormatFrLsb>(
-                inner
-            );
+    public fun scalar_from_inner(inner: &ristretto255::Scalar): Scalar {
+        let bytes = ristretto255::scalar_to_bytes(inner);
         Scalar { bytes }
     }
 
-    fun element_to_inner(element: &Element): crypto_algebra::Element<bls12381_algebra::G1> {
-        let maybe =
-            crypto_algebra::deserialize<bls12381_algebra::G1, bls12381_algebra::FormatG1Compr>(
-                &element.bytes
-            );
+    fun element_to_inner(element: &Element): ristretto255::RistrettoPoint {
+        let maybe = ristretto255::new_point_from_bytes(element.bytes);
         maybe.extract()
     }
 
-    fun element_from_inner(
-        inner: &crypto_algebra::Element<bls12381_algebra::G1>
-    ): Element {
-        let bytes =
-            crypto_algebra::serialize<bls12381_algebra::G1, bls12381_algebra::FormatG1Compr>(
-                inner
-            );
+    fun element_from_inner(inner: &ristretto255::RistrettoPoint): Element {
+        let compressed = ristretto255::point_compress(inner);
+        let bytes = ristretto255::point_to_bytes(&compressed);
         Element { bytes }
     }
 
@@ -257,6 +255,9 @@ module crypto_core::group {
     fun general(framework: signer) {
         randomness::initialize_for_testing(&framework);
         let e0 = rand_element();
+        print(&bcs::to_bytes(&e0));
+        let sx = rand_scalar();
+        print(&bcs::to_bytes(&sx));
         let e0_doubled = element_add(&e0, &e0);
         let e0_quadrupled = element_add(&e0_doubled, &e0_doubled);
         let ei = group_identity();
@@ -289,26 +290,13 @@ module crypto_core::group {
     #[test(fx = @0x1)]
     fun basic(fx: signer) {
         randomness::initialize_for_testing(&fx);
-        let (errors, point_a, rem) = decode_element(x"3085ba9eae97029dee22680d4506d85d87146dbcc0b7b797d71500489eb23e0b399b5d8af1925f8871a7c2dc9f65a87209");
+        let (errors, point_a, rem) = decode_element(x"20082267b53c21c9593128b9b0b511ec91423ef8dbc658eaa95f5be1418250e210");
         assert!(errors.is_empty(), 999);
         assert!(rem.is_empty(), 999);
-        let (errors, scalar_b, rem) = decode_scalar(x"20e57e6c4d3f6c645d69549f0c62aebfb77ebbcf29d2a8f0cd597d4ecd8ed56458");
+        let (errors, scalar_b, rem) = decode_scalar(x"20437fd90bce77f32ad3dc57758bd1ccdf1ddc1c1229b41718833f54d476c9c600");
         assert!(errors.is_empty(), 999);
         assert!(rem.is_empty(), 999);
         let point_c = scale_element(&point_a, &scalar_b);
         assert!(x"30ac39b219f3915eb90a4917931abbd5cf57709473bbc57f2169a311de51b397b882c29a1ba8fbf581ca12c388d69eecec" == bcs::to_bytes(&point_c), 999);
-    }
-
-    #[randomness]
-    entry fun example(stop_after_step: u64) {
-        let (errors, point_a, rem) = decode_element(x"3085ba9eae97029dee22680d4506d85d87146dbcc0b7b797d71500489eb23e0b399b5d8af1925f8871a7c2dc9f65a87209");
-        if (stop_after_step == 0) return;
-        let (errors, scalar_b, rem) = decode_scalar(x"20e57e6c4d3f6c645d69549f0c62aebfb77ebbcf29d2a8f0cd597d4ecd8ed56458");
-        if (stop_after_step == 1) return;
-        let point_c = scale_element(&point_a, &scalar_b);
-        if (stop_after_step == 2) return;
-        let scalar_2b = scalar_add(&scalar_b, &scalar_b);
-        if (stop_after_step == 3) return;
-        let point_2a = element_add(&point_a, &point_a);
     }
 }

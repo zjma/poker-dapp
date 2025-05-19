@@ -129,6 +129,7 @@ module crypto_core::reencryption {
         }
     }
 
+    /// Gas cost: 19.72
     public fun process_reencryption(
         player: &signer, session: &mut Session, reenc: VerifiableReencrpytion
     ) {
@@ -166,6 +167,7 @@ module crypto_core::reencryption {
         session.reenc = option::some(new_ciph);
     }
 
+    /// Gas cost: 10.88
     public fun process_scalar_mul_share(
         player: &signer,
         session: &mut Session,

@@ -7,6 +7,8 @@ module crypto_core::threshold_scalar_mul {
     use std::vector;
     use std::vector::range;
     use aptos_framework::timestamp;
+    use crypto_core::elgamal;
+    use crypto_core::fiat_shamir_transform;
     use crypto_core::sigma_dlog_eq;
     use crypto_core::dkg_v0;
     use crypto_core::group;
@@ -107,6 +109,7 @@ module crypto_core::threshold_scalar_mul {
         }
     }
 
+    /// Gas cost: 10.88
     public fun process_contribution(
         contributor: &signer, session: &mut Session, contribution: VerifiableContribution
     ) {
@@ -114,7 +117,15 @@ module crypto_core::threshold_scalar_mul {
         let addr = address_of(contributor);
         let (found, idx) = session.allowed_contributors.index_of(&addr);
         assert!(found, 164508);
-        //TODO: verify contribution
+        if (contribution.proof.is_some()) {
+            let proof = contribution.proof.borrow();
+            let trx = fiat_shamir_transform::new_transcript();
+            let (_, ek_shares) = dkg_v0::unpack_shared_secret_public_info(session.secret_info);
+            let (enc_base, public_point) = elgamal::unpack_enc_key(ek_shares[idx]);
+            assert!(sigma_dlog_eq::verify(&mut trx, &enc_base, &public_point, &session.to_be_scaled, &contribution.payload, proof), 164509);
+        } else {
+            //TODO: enforce proof after debugging
+        };
         session.contributions[idx].fill(contribution);
     }
 

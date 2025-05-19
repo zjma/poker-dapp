@@ -11,6 +11,7 @@ module crypto_core::dkg_v0 {
     use std::signer::address_of;
     use std::vector;
     use aptos_framework::timestamp;
+    use crypto_core::fiat_shamir_transform;
     use crypto_core::sigma_dlog;
     use crypto_core::elgamal::EncKey;
     use crypto_core::elgamal;
@@ -160,15 +161,24 @@ module crypto_core::dkg_v0 {
         }
     }
 
+    /// Gas cost: 5.44
     public fun process_contribution(
         contributor: &signer,
         session: &mut DKGSession,
         contribution: VerifiableContribution,
     ) {
-        //TODO: verify contribution
         let contributor_addr = address_of(contributor);
         let (found, contributor_idx) = session.expected_contributors.index_of(&contributor_addr);
         assert!(found, 124130);
+
+        if (contribution.proof.is_some()) {
+            let proof = contribution.proof.borrow();
+            let trx = fiat_shamir_transform::new_transcript();
+            assert!(sigma_dlog::verify(&mut trx, &session.base_point, &contribution.public_point, proof), 124131);
+        } else {
+            //TODO: enforce proof after debugging
+        };
+
         session.contribution_still_needed -= 1;
         session.contributions[contributor_idx].fill(contribution);
     }
@@ -202,6 +212,8 @@ module crypto_core::dkg_v0 {
 
     /// Given the shares of a threshold scalar multiplication,compute the scalar-mul result.
     /// Assume that any given share is valid and the number of shares given is greater than or equal to the threshold.
+    ///
+    /// Gas cost: 0.68*n
     public fun aggregate_scalar_mul(
         _secret_info: &SharedSecretPublicInfo, shares: vector<Option<group::Element>>
     ): group::Element {

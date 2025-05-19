@@ -1,4 +1,4 @@
-module crypto_core::pederson_commitment {
+module crypto_core::pedersen_commitment {
     use std::vector;
     use crypto_core::group;
 
@@ -18,6 +18,8 @@ module crypto_core::pederson_commitment {
     }
 
     /// NOTE: client needs to implement this.
+    ///
+    /// Gas cost: 4 + 0.6n
     public fun vec_commit(
         context: &Context, randomizer: &group::Scalar, vec: &vector<group::Scalar>
     ): group::Element {

@@ -51,6 +51,7 @@ module crypto_core::sigma_dlog {
         Proof { t, s }
     }
 
+    /// Gas cost: 5.44
     public fun verify(
         trx: &mut fiat_shamir_transform::Transcript,
         b: &group::Element,

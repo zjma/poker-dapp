@@ -1,6 +1,6 @@
 module crypto_core::product_argument {
     use std::vector;
-    use crypto_core::pederson_commitment;
+    use crypto_core::pedersen_commitment;
     use crypto_core::fiat_shamir_transform;
     use crypto_core::utils;
     use crypto_core::group;
@@ -29,6 +29,7 @@ module crypto_core::product_argument {
         }
     }
 
+    /// Gas cost: ~5+2n
     public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
         let (errors, vec_d_cmt, buf) = group::decode_element(buf);
         if (!errors.is_empty()) {
@@ -111,10 +112,9 @@ module crypto_core::product_argument {
     }
 
     #[lint::allow_unsafe_randomness]
-    #[test_only]
     /// NOTE: client needs to implement this.
     public fun prove(
-        pederson_ctxt: &pederson_commitment::Context,
+        pedersen_ctxt: &pedersen_commitment::Context,
         trx: &mut fiat_shamir_transform::Transcript,
         n: u64,
         _vec_a_cmt: &group::Element,
@@ -137,13 +137,13 @@ module crypto_core::product_argument {
         vec_delta.push_back(group::scalar_from_u64(0));
         let s_1 = group::rand_scalar();
         let s_x = group::rand_scalar();
-        let vec_d_cmt = pederson_commitment::vec_commit(pederson_ctxt, &r_d, &vec_d);
+        let vec_d_cmt = pedersen_commitment::vec_commit(pedersen_ctxt, &r_d, &vec_d);
         let vec_2 = vector::range(0, n - 1).map(|i| {
             group::scalar_neg(
                 &group::scalar_mul(&vec_d[i + 1], &vec_delta[i])
             )
         });
-        let cmt_2 = pederson_commitment::vec_commit(pederson_ctxt, &s_1, &vec_2);
+        let cmt_2 = pedersen_commitment::vec_commit(pedersen_ctxt, &s_1, &vec_2);
         let vec_3 = vector::range(0, n - 1).map(|i| {
             let tmp =
                 group::scalar_add(
@@ -152,7 +152,7 @@ module crypto_core::product_argument {
                 );
             group::scalar_sub(&vec_delta[i + 1], &tmp)
         });
-        let cmt_3 = pederson_commitment::vec_commit(pederson_ctxt, &s_x, &vec_3);
+        let cmt_3 = pedersen_commitment::vec_commit(pedersen_ctxt, &s_x, &vec_3);
         fiat_shamir_transform::append_group_element(trx, &vec_d_cmt);
         fiat_shamir_transform::append_group_element(trx, &cmt_2);
         fiat_shamir_transform::append_group_element(trx, &cmt_3);
@@ -183,8 +183,9 @@ module crypto_core::product_argument {
         }
     }
 
+    /// Gas cost: 14.35 + 2*n
     public fun verify(
-        pederson_ctxt: &pederson_commitment::Context,
+        pedersen_ctxt: &pedersen_commitment::Context,
         trx: &mut fiat_shamir_transform::Transcript,
         n: u64,
         vec_a_cmt: &group::Element,
@@ -197,8 +198,8 @@ module crypto_core::product_argument {
         let x = fiat_shamir_transform::hash_to_scalar(trx);
 
         if (group::element_add(&group::scale_element(vec_a_cmt, &x), &proof.vec_d_cmt)
-            != pederson_commitment::vec_commit(
-                pederson_ctxt, &proof.r_tilde, &proof.vec_a_tilde
+            != pedersen_commitment::vec_commit(
+            pedersen_ctxt, &proof.r_tilde, &proof.vec_a_tilde
             ))
             return false;
 
@@ -210,7 +211,7 @@ module crypto_core::product_argument {
         });
 
         if (group::element_add(&group::scale_element(&proof.cmt_3, &x), &proof.cmt_2)
-            != pederson_commitment::vec_commit(pederson_ctxt, &proof.s_tilde, &tmp_vec))
+            != pedersen_commitment::vec_commit(pedersen_ctxt, &proof.s_tilde, &tmp_vec))
             return false;
 
         if (proof.vec_a_tilde[0] != proof.vec_b_tilde[0])
@@ -225,7 +226,7 @@ module crypto_core::product_argument {
     fun completeness(framework: signer) {
         randomness::initialize_for_testing(&framework);
         let n = 52;
-        let pedersen_ctxt = pederson_commitment::rand_context(n);
+        let pedersen_ctxt = pedersen_commitment::rand_context(n);
         let r = group::rand_scalar();
         let vec_a = vector::range(0, n).map(|_| group::rand_scalar());
 
@@ -234,7 +235,7 @@ module crypto_core::product_argument {
             b = group::scalar_mul(&b, val);
         });
 
-        let vec_a_cmt = pederson_commitment::vec_commit(&pedersen_ctxt, &r, &vec_a);
+        let vec_a_cmt = pedersen_commitment::vec_commit(&pedersen_ctxt, &r, &vec_a);
         let trx_prover = fiat_shamir_transform::new_transcript();
         fiat_shamir_transform::append_raw_bytes(
             &mut trx_prover, b"SOME_ARBITRARY_PREFIX"

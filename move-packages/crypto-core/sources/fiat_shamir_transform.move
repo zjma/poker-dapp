@@ -1,8 +1,10 @@
 /// Utils for Fiat-Shamir transformation.
 module crypto_core::fiat_shamir_transform {
     use std::bcs;
+    use std::vector::range;
     use aptos_std::aptos_hash::sha3_512;
     use aptos_std::debug::print;
+    use aptos_std::ristretto255;
     use crypto_core::group;
     #[test_only]
     use aptos_framework::randomness;
@@ -17,6 +19,8 @@ module crypto_core::fiat_shamir_transform {
     }
 
     /// NOTE: client needs to implement this.
+    ///
+    /// Gas cost: 0.07
     public fun append_group_element(
         trx: &mut Transcript, element: &group::Element
     ) {
@@ -29,10 +33,11 @@ module crypto_core::fiat_shamir_transform {
     }
 
     /// NOTE: client needs to implement this.
+    ///
+    /// Gas cost: 0.01*num_elemnts_appended
     public fun hash_to_scalar(trx: &Transcript): group::Scalar {
-        let bytes = sha3_512(trx.recorded);
-        print(&bytes);
-        group::scalar_from_big_endian_bytes_mod_q(bytes)
+        let scalar_inner = ristretto255::new_scalar_from_sha2_512(trx.recorded);
+        group::scalar_from_inner(&scalar_inner)
     }
     
     #[test(fx = @0x1)]

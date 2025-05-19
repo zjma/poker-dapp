@@ -1,7 +1,9 @@
 module crypto_core::multiexp_argument {
     use std::bcs;
+    use std::vector;
+    use std::vector::range;
     use crypto_core::fiat_shamir_transform;
-    use crypto_core::pederson_commitment;
+    use crypto_core::pedersen_commitment;
     use crypto_core::utils;
     use crypto_core::elgamal;
     use crypto_core::group;
@@ -38,6 +40,7 @@ module crypto_core::multiexp_argument {
         }
     }
 
+    /// Gas cost: 13+n
     public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
         let (errors, cmt_a0, buf) = group::decode_element(buf);
         if (!errors.is_empty()) {
@@ -119,11 +122,10 @@ module crypto_core::multiexp_argument {
     }
 
     #[lint::allow_unsafe_randomness]
-    #[test_only]
     /// NOTE: client needs to implement this.
     public fun prove(
         ek: &elgamal::EncKey,
-        pedersen_ctxt: &pederson_commitment::Context,
+        pedersen_ctxt: &pedersen_commitment::Context,
         trx: &mut fiat_shamir_transform::Transcript,
         vec_c: &vector<elgamal::Ciphertext>,
         c: &elgamal::Ciphertext,
@@ -134,16 +136,16 @@ module crypto_core::multiexp_argument {
     ): Proof {
         let (enc_base, _) = elgamal::unpack_enc_key(*ek);
         let n = vec_a.length();
-        let vec_a_0 = vector::range(0, n).map(|_| group::rand_scalar());
+        let vec_a_0 = range(0, n).map(|_| group::rand_scalar());
         let r_0 = group::rand_scalar();
         let b_vec = vector[group::rand_scalar(), group::scalar_from_u64(0)];
         let s_vec = vector[group::rand_scalar(), group::scalar_from_u64(0)];
         let tau_vec = vector[group::rand_scalar(), *rho];
-        let vec_a_0_cmt = pederson_commitment::vec_commit(pedersen_ctxt, &r_0, &vec_a_0);
-        let b_cmt_vec = vector::range(0, 2).map(|k| pederson_commitment::vec_commit(
+        let vec_a_0_cmt = pedersen_commitment::vec_commit(pedersen_ctxt, &r_0, &vec_a_0);
+        let b_cmt_vec = range(0, 2).map(|k| pedersen_commitment::vec_commit(
             pedersen_ctxt, &s_vec[k], &vector[b_vec[k]]
         ));
-        let e_vec = vector::range(0, 2).map(|k| {
+        let e_vec = range(0, 2).map(|k| {
             let msg = group::scale_element(&enc_base, &b_vec[k]);
             let chunk0 = elgamal::enc(ek, &tau_vec[k], &msg);
             let chunk1 =
@@ -193,9 +195,10 @@ module crypto_core::multiexp_argument {
         }
     }
 
+    /// Gas cost: 34.14 + 7.68*n
     public fun verify(
         ek: &elgamal::EncKey,
-        pedersen_ctxt: &pederson_commitment::Context,
+        pedersen_ctxt: &pedersen_commitment::Context,
         trx: &mut fiat_shamir_transform::Transcript,
         vec_c: &vector<elgamal::Ciphertext>,
         c: &elgamal::Ciphertext,
@@ -204,7 +207,7 @@ module crypto_core::multiexp_argument {
     ): bool {
         let (enc_base, _) = elgamal::unpack_enc_key(*ek);
         let b_0_cmt_expected =
-            pederson_commitment::vec_commit(
+            pedersen_commitment::vec_commit(
                 pedersen_ctxt, &group::scalar_from_u64(0), &vector[]
             );
         fiat_shamir_transform::append_group_element(trx, &proof.cmt_a0);
@@ -221,12 +224,12 @@ module crypto_core::multiexp_argument {
         if (b_0_cmt_expected != proof.b_cmt_1) return false;
 
         if (group::element_add(&proof.cmt_a0, &group::scale_element(vec_a_cmt, &x))
-            != pederson_commitment::vec_commit(pedersen_ctxt, &proof.r, &proof.a_vec))
+            != pedersen_commitment::vec_commit(pedersen_ctxt, &proof.r, &proof.a_vec))
             return false;
 
         if (group::element_add(
             &proof.b_cmt_0, &group::scale_element(&proof.b_cmt_1, &x)
-        ) != pederson_commitment::vec_commit(pedersen_ctxt, &proof.s, &vector[proof.b]))
+        ) != pedersen_commitment::vec_commit(pedersen_ctxt, &proof.s, &vector[proof.b]))
             return false;
 
         if (elgamal::ciphertext_add(
@@ -250,12 +253,12 @@ module crypto_core::multiexp_argument {
     fun completeness(framework: signer) {
         randomness::initialize_for_testing(&framework);
         let n = 52;
-        let pedersen_ctxt = pederson_commitment::rand_context(n);
+        let pedersen_ctxt = pedersen_commitment::rand_context(n);
         let elgamal_base = group::rand_element();
         let (_dk, ek) = elgamal::key_gen(elgamal_base);
         let r = group::rand_scalar();
         let vec_a = vector::range(0, n).map(|_| group::rand_scalar());
-        let vec_a_cmt = pederson_commitment::vec_commit(&pedersen_ctxt, &r, &vec_a);
+        let vec_a_cmt = pedersen_commitment::vec_commit(&pedersen_ctxt, &r, &vec_a);
         let rho = group::rand_scalar();
         let vec_c = vector::range(0, n).map(|_| {
             let randomizer = group::rand_scalar();

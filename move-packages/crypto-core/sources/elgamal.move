@@ -4,13 +4,9 @@ module crypto_core::elgamal {
     #[test_only]
     use std::bcs;
     #[test_only]
-    use std::vector;
-    #[test_only]
     use aptos_std::debug::print;
     #[test_only]
     use aptos_framework::randomness;
-    #[test_only]
-    use crypto_core::group::{rand_element, rand_scalar};
 
     struct Ciphertext has copy, drop, store {
         enc_base: group::Element,
@@ -35,7 +31,7 @@ module crypto_core::elgamal {
         }
     }
 
-    /// Gas cost: ~12
+    /// Gas cost: 2.10
     public fun decode_dec_key(buf: vector<u8>): (vector<u64>, DecKey, vector<u8>) {
         let (errors, enc_base, buf) = group::decode_element(buf);
         if (!errors.is_empty()) {
@@ -51,7 +47,7 @@ module crypto_core::elgamal {
         (vector[], ret, buf)
     }
 
-    /// Gas cost: ~11
+    /// Gas cost: 2.24
     public fun decode_enc_key(buf: vector<u8>): (vector<u64>, EncKey, vector<u8>) {
         let (errors, enc_base, buf) = group::decode_element(buf);
         if (!errors.is_empty()) {
@@ -86,7 +82,7 @@ module crypto_core::elgamal {
         Ciphertext { enc_base, c_0, c_1 }
     }
 
-    /// Gas cost: ~37
+    /// Gas cost: 6.20
     public fun enc(
         ek: &EncKey, randomizer: &group::Scalar, ptxt: &group::Element
     ): Ciphertext {
@@ -99,12 +95,13 @@ module crypto_core::elgamal {
         }
     }
 
-    /// Gas cost: 23
+    /// Gas cost: 2.94
     public fun dec(dk: &DecKey, ciph: &Ciphertext): group::Element {
         let unblinder = group::scale_element(&ciph.c_0, &dk.private_scalar);
         group::element_sub(&ciph.c_1, &unblinder)
     }
 
+    /// Gas cost: 1.36
     public fun ciphertext_add(a: &Ciphertext, b: &Ciphertext): Ciphertext {
         Ciphertext {
             enc_base: a.enc_base,
@@ -113,6 +110,7 @@ module crypto_core::elgamal {
         }
     }
 
+    /// Gas cost: 4.52
     public fun ciphertext_mul(a: &Ciphertext, s: &group::Scalar): Ciphertext {
         Ciphertext {
             enc_base: a.enc_base,
@@ -121,7 +119,7 @@ module crypto_core::elgamal {
         }
     }
 
-    /// Gas cost: 136 for size 3.
+    /// Gas cost: 5.88n
     public fun weird_multi_exp(
         ciphs: &vector<Ciphertext>, scalars: &vector<group::Scalar>
     ): Ciphertext {
@@ -151,6 +149,7 @@ module crypto_core::elgamal {
         }
     }
 
+    /// Gas cost: 3.36
     public fun decode_ciphertext(buf: vector<u8>): (vector<u64>, Ciphertext, vector<u8>) {
         let (errors, enc_base, buf) = group::decode_element(buf);
         if (!errors.is_empty()) return (vector[123129], dummy_ciphertext(), buf);
@@ -248,53 +247,5 @@ module crypto_core::elgamal {
         // let agg_ciphertext = weird_multi_exp(&ciphertexts, &scalars);
         // let agg_msg = dec(&dk, &agg_ciphertext);
         // assert!(group::msm(&msgs, &scalars) == agg_msg, 999);
-    }
-
-    #[randomness]
-    entry fun example(stop_after_step: u64) {
-        let (errors, dk, remainder) = decode_dec_key(x"3085ba9eae97029dee22680d4506d85d87146dbcc0b7b797d71500489eb23e0b399b5d8af1925f8871a7c2dc9f65a8720920e57e6c4d3f6c645d69549f0c62aebfb77ebbcf29d2a8f0cd597d4ecd8ed56458");
-        if (stop_after_step == 0) return;
-
-        let (errors, ek, remainder) = decode_enc_key(x"3085ba9eae97029dee22680d4506d85d87146dbcc0b7b797d71500489eb23e0b399b5d8af1925f8871a7c2dc9f65a8720930ac39b219f3915eb90a4917931abbd5cf57709473bbc57f2169a311de51b397b882c29a1ba8fbf581ca12c388d69eecec");
-        if (stop_after_step == 1) return;
-
-        let msgs = vector[
-            x"30b2a87401bbed626666c5bab7d0a6503c04cbb7a91bb42a68f5f52370993658d8bd54e23cd7ae7ddd9a78eec823c0fdc1",
-            x"30a9e85bd1b4f17ef0aadee7a420873ab8c4568c56f91686cd6cc03ab43ade4bf3d2c4a011667ade42c5dad1a8d32d8bf3",
-            x"3092d67fcaac2fc24a4a92a4035fb4d2a64b0cdd5f3e80fb2ddfff640717eaf444fae9da821fac35e922e7014f6bbfacfe",
-        ].map(|buf|{
-            let (errors, element, remainder) = group::decode_element(buf);
-            assert!(errors.is_empty(), 999);
-            assert!(remainder.is_empty(), 999);
-            element
-        });
-
-        if (stop_after_step == 2) return;
-
-        let randomizers = vector[
-            x"2023bcb6a5ec8328bb3772930f2e5f48df3ede9ee6ddabcdefbfe15cb029980311",
-            x"204c55876a65167a1f9d901f3b7e28985f1353f4bc1e36e7c11be7d416fba70c5b",
-            x"2041535947e0e5039cea76bc4960c8e25b1c36f717d16e19a00593a8f7bc5e842c",
-        ].map(|buf|{
-            let (errors, scalar, remainder) = group::decode_scalar(buf);
-            assert!(errors.is_empty(), 999);
-            assert!(remainder.is_empty(), 999);
-            scalar
-        });
-
-        if (stop_after_step == 3) return; // 42
-
-        let ciphertexts = msgs.zip_map_ref(&randomizers, |msg, randomizer| enc(&ek, randomizer, msg));
-
-        if (stop_after_step == 4) return; // 152
-
-        let scalars = vector[group::rand_scalar(), group::rand_scalar(), group::rand_scalar()];
-        if (stop_after_step == 5) return; // 188
-
-        let agg_ciphertext = weird_multi_exp(&ciphertexts, &scalars);
-        if (stop_after_step == 6) return; // 324
-
-        let agg_msg = dec(&dk, &agg_ciphertext);
-        if (stop_after_step == 7) return; // 347
     }
 }

@@ -1,7 +1,8 @@
 module crypto_core::bg12 {
     use std::vector;
+    use aptos_framework::randomness;
     use crypto_core::fiat_shamir_transform;
-    use crypto_core::pederson_commitment;
+    use crypto_core::pedersen_commitment;
     use crypto_core::elgamal;
     use crypto_core::product_argument;
     use crypto_core::multiexp_argument;
@@ -51,11 +52,10 @@ module crypto_core::bg12 {
     }
 
     #[lint::allow_unsafe_randomness]
-    #[test_only]
     /// NOTE: client needs to implement this.
     public fun prove(
         ek: &elgamal::EncKey,
-        pedersen_ctxt: &pederson_commitment::Context,
+        pedersen_ctxt: &pedersen_commitment::Context,
         trx: &mut fiat_shamir_transform::Transcript,
         original: &vector<elgamal::Ciphertext>,
         shuffled: &vector<elgamal::Ciphertext>,
@@ -65,13 +65,13 @@ module crypto_core::bg12 {
         let n = original.length();
         let vec_a = permutation.map(|v| group::scalar_from_u64(v + 1));
         let r = group::rand_scalar();
-        let vec_a_cmt = pederson_commitment::vec_commit(pedersen_ctxt, &r, &vec_a);
+        let vec_a_cmt = pedersen_commitment::vec_commit(pedersen_ctxt, &r, &vec_a);
         fiat_shamir_transform::append_group_element(trx, &vec_a_cmt);
         let x = fiat_shamir_transform::hash_to_scalar(trx);
         let x_powers = powers_of_x(&x, n);
         let vec_b = vector::range(0, n).map(|i| x_powers[permutation[i]]);
         let s = group::rand_scalar();
-        let vec_b_cmt = pederson_commitment::vec_commit(pedersen_ctxt, &s, &vec_b);
+        let vec_b_cmt = pedersen_commitment::vec_commit(pedersen_ctxt, &s, &vec_b);
         fiat_shamir_transform::append_group_element(trx, &vec_b_cmt);
         let y = fiat_shamir_transform::hash_to_scalar(trx);
         fiat_shamir_transform::append_raw_bytes(trx, b"NUDGE");
@@ -79,7 +79,7 @@ module crypto_core::bg12 {
         let neg_z = group::scalar_neg(&z);
         let vec_neg_z = vector::range(0, n).map(|_| neg_z);
         let vec_neg_z_cmt =
-            pederson_commitment::vec_commit(
+            pedersen_commitment::vec_commit(
                 pedersen_ctxt, &group::scalar_from_u64(0), &vec_neg_z
             );
         let vec_d_cmt =
@@ -130,9 +130,10 @@ module crypto_core::bg12 {
         Proof { vec_a_cmt, vec_b_cmt, multiexp_proof, product_proof }
     }
 
+    /// Gas cost: 56.62+11.66*n (estimated), 67+15.6n (observed)
     public fun verify(
         ek: &elgamal::EncKey,
-        pedersen_ctxt: &pederson_commitment::Context,
+        pedersen_ctxt: &pedersen_commitment::Context,
         trx: &mut fiat_shamir_transform::Transcript,
         original: &vector<elgamal::Ciphertext>,
         shuffled: &vector<elgamal::Ciphertext>,
@@ -148,7 +149,7 @@ module crypto_core::bg12 {
         let neg_z = group::scalar_neg(&z);
         let vec_neg_z = vector::range(0, n).map(|_| neg_z);
         let vec_neg_z_cmt =
-            pederson_commitment::vec_commit(
+            pedersen_commitment::vec_commit(
                 pedersen_ctxt, &group::scalar_from_u64(0), &vec_neg_z
             );
         let vec_d_cmt =
@@ -204,7 +205,7 @@ module crypto_core::bg12 {
     fun completeness(framework: signer) {
         randomness::initialize_for_testing(&framework);
         let n = 52;
-        let pedersen_ctxt = pederson_commitment::rand_context(52);
+        let pedersen_ctxt = pedersen_commitment::rand_context(52);
         let enc_base = group::rand_element();
         let (_elgamal_dk, ek) = elgamal::key_gen(enc_base);
         let card_plaintexts = vector::range(0, n).map(|_| group::rand_element());
@@ -243,5 +244,51 @@ module crypto_core::bg12 {
             ),
             999
         );
+    }
+
+    #[randomness]
+    entry fun try(break_at: u64, n: u64) {
+        if (break_at == 0) return;
+        let pedersen_ctxt = pedersen_commitment::rand_context(n);
+        let enc_base = group::rand_element();
+        let (_elgamal_dk, ek) = elgamal::key_gen(enc_base);
+        let card_plaintexts = vector::range(0, n).map(|_| group::rand_element());
+        let old_deck = vector::range(0, n).map(|i| elgamal::enc(&ek, &group::rand_scalar(), &card_plaintexts[i]));
+
+        let rerandomizers = vector::range(0, n).map(|_| group::rand_scalar());
+        let permutation = randomness::permutation(n);
+        let new_deck = vector::range(0, n).map(|i| {
+            elgamal::ciphertext_add(
+                &old_deck[permutation[i]],
+                &elgamal::enc(&ek, &rerandomizers[i], &group::group_identity())
+            )
+        });
+
+        let trx = fiat_shamir_transform::new_transcript();
+        fiat_shamir_transform::append_raw_bytes(&mut trx, b"SOME_TESTING_PREFIX");
+        let trx_verifier = trx;
+        let proof =
+            prove(
+                &ek,
+                &pedersen_ctxt,
+                &mut trx,
+                &old_deck,
+                &new_deck,
+                permutation,
+                &rerandomizers
+            );
+        if (break_at == 10) return;//n=10 => 561
+        assert!(
+            verify(
+                &ek,
+                &pedersen_ctxt,
+                &mut trx_verifier,
+                &old_deck,
+                &new_deck,
+                &proof
+            ),
+            999
+        );
+        if (break_at == 20) return;//n=10 => 784
     }
 }

@@ -1,6 +1,5 @@
 module crypto_core::utils {
     use std::string::{String, utf8};
-    use std::vector;
 
     public fun decode_uleb128(buf: vector<u8>): (vector<u64>, u128, vector<u8>) {
         let buf_len = buf.length();
@@ -20,34 +19,6 @@ module crypto_core::utils {
         };
         if (num_bytes_accepted == 0) return (vector[351127], 0, buf);
         (vector[], ret, buf.slice(num_bytes_accepted, buf_len))
-    }
-
-    public fun decode_u64(buf: vector<u8>): (vector<u64>, u64, vector<u8>) {
-        let buf_len = buf.length();
-        if (buf_len < 8) return (vector[182413], 0, buf);
-
-        let ret = 0;
-        let i = 0;
-        while (i < 8) {
-            ret += ((buf[i] as u64) << (8 * (i as u8)));
-            i += 1;
-        };
-
-        let buf = buf.slice(8, buf_len);
-        (vector[], ret, buf)
-    }
-
-    /// NOTE: client needs to implement this.
-    public fun encode_u64(x: u64): vector<u8> {
-        vector::range(0, 8).map(|i| {
-            (((x >> ((i * 8) as u8)) & 0xff) as u8)
-        })
-    }
-
-    #[test]
-    fun extra() {
-        let x = 12364789;
-        assert!(encode_u64(x) == std::bcs::to_bytes(&x), 999);
     }
 
     const SUITE_TEXTS: vector<vector<u8>> = vector[b"S", b"H", b"D", b"C"];
