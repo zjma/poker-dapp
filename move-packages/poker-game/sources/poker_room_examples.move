@@ -1,6 +1,7 @@
 #[test_only]
 module poker_game::poker_room_examples {
     use std::bcs;
+    use poker_game::deck_gen;
     #[test_only]
     use poker_game::poker_room::{
         get_room_brief,
@@ -15,9 +16,9 @@ module poker_game::poker_room_examples {
         process_public_opening_contribution,
         process_new_bet,
         cur_dkg,
-        cur_shuffle,
+        cur_deckgen,
         is_in_dkg,
-        is_in_shuffle,
+        is_in_deckgen,
         is_in_the_middle_of_a_hand,
         process_showdown_reveal
     };
@@ -44,10 +45,6 @@ module poker_game::poker_room_examples {
     use aptos_framework::randomness;
     #[test_only]
     use aptos_framework::timestamp;
-    #[test_only]
-    use crypto_core::elgamal;
-    #[test_only]
-    use crypto_core::group;
     #[test_only]
     use crypto_core::dkg_v0;
     #[test_only]
@@ -132,15 +129,19 @@ module poker_game::poker_room_examples {
         );
 
         state_update(room_addr);
+        state_update(room_addr);
+        state_update(room_addr);
+        state_update(room_addr);
+        state_update(room_addr);
         let room = get_room_brief(room_addr);
-        print(&utf8(b"Anyone sees that DKG 0 finished and shuffle 0 started."));
-        assert!(is_in_shuffle(&room, 0), 999);
-        let cur_shuffle = cur_shuffle(&room);
-        assert!(shuffle::is_waiting_for_contribution(cur_shuffle, alice_addr), 999);
+        print(&utf8(b"Anyone sees that DKG 0 finished and deckgen 0 started."));
+        assert!(is_in_deckgen(&room, 0), 999);
+        let cur_deckgen = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
+        assert!(shuffle::is_waiting_for_contribution(cur_deckgen, alice_addr), 999);
 
         print(&utf8(b"Alice contributes to shuffle 0."));
         let game_0_alice_shuffle_contri =
-            shuffle::generate_contribution_locally(&alice, cur_shuffle);
+            shuffle::generate_contribution_locally(&alice, cur_deckgen);
         process_shuffle_contribution(
             &alice,
             room_addr,
@@ -152,8 +153,8 @@ module poker_game::poker_room_examples {
         let room = get_room_brief(room_addr);
 
         print(&utf8(b"Bob contributes to shuffle 0."));
-        assert!(is_in_shuffle(&room, 0), 999);
-        let cur_shuffle = cur_shuffle(&room);
+        assert!(is_in_deckgen(&room, 0), 999);
+        let cur_shuffle = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
         assert!(shuffle::is_waiting_for_contribution(cur_shuffle, bob_addr), 999);
         let game_0_bob_shuffle_contri =
             shuffle::generate_contribution_locally(&bob, cur_shuffle);
@@ -168,8 +169,8 @@ module poker_game::poker_room_examples {
         let room = get_room_brief(room_addr);
 
         print(&utf8(b"Eric contributes to shuffle 0."));
-        assert!(is_in_shuffle(&room, 0), 999);
-        let cur_shuffle = cur_shuffle(&room);
+        assert!(is_in_deckgen(&room, 0), 999);
+        let cur_shuffle = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
         assert!(shuffle::is_waiting_for_contribution(cur_shuffle, eric_addr), 999);
         let game_0_eric_shuffle_contri =
             shuffle::generate_contribution_locally(&eric, cur_shuffle);
@@ -403,14 +404,19 @@ module poker_game::poker_room_examples {
         process_new_bet(&alice, room_addr, 0, 0);
 
         state_update(room_addr);
+        state_update(room_addr);
+        state_update(room_addr);
+        state_update(room_addr);
+        state_update(room_addr);
         let room = get_room_brief(room_addr);
         print(&utf8(b"They also find some cycles to do shuffle 1."));
         print(&utf8(b"Alice contributes to shuffle 1."));
+        let cur_shuffle = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
         assert!(
-            shuffle::is_waiting_for_contribution(cur_shuffle(&room), alice_addr), 999
+            shuffle::is_waiting_for_contribution(cur_shuffle, alice_addr), 999
         );
         let game_1_alice_shuffle_contri =
-            shuffle::generate_contribution_locally(&alice, cur_shuffle(&room));
+            shuffle::generate_contribution_locally(&alice, cur_shuffle);
         process_shuffle_contribution(
             &alice,
             room_addr,
@@ -421,9 +427,10 @@ module poker_game::poker_room_examples {
         state_update(room_addr);
         let room = get_room_brief(room_addr);
         print(&utf8(b"Bob contributes to shuffle 1."));
-        assert!(shuffle::is_waiting_for_contribution(cur_shuffle(&room), bob_addr), 999);
+        let cur_shuffle = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
+        assert!(shuffle::is_waiting_for_contribution(cur_shuffle, bob_addr), 999);
         let game_1_bob_shuffle_contri =
-            shuffle::generate_contribution_locally(&bob, cur_shuffle(&room));
+            shuffle::generate_contribution_locally(&bob, cur_shuffle);
         process_shuffle_contribution(
             &bob,
             room_addr,
@@ -434,11 +441,12 @@ module poker_game::poker_room_examples {
         state_update(room_addr);
         let room = get_room_brief(room_addr);
         print(&utf8(b"Eric contributes to shuffle 1."));
+        let cur_shuffle = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
         assert!(
-            shuffle::is_waiting_for_contribution(cur_shuffle(&room), eric_addr), 999
+            shuffle::is_waiting_for_contribution(cur_shuffle, eric_addr), 999
         );
         let game_1_eric_shuffle_contri =
-            shuffle::generate_contribution_locally(&eric, cur_shuffle(&room));
+            shuffle::generate_contribution_locally(&eric, cur_shuffle);
         process_shuffle_contribution(
             &eric,
             room_addr,
@@ -449,8 +457,8 @@ module poker_game::poker_room_examples {
         state_update(room_addr);
         let room = get_room_brief(room_addr);
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
-        print(&utf8(b"Anyone can see shuffle 1 is done."));
-        assert!(shuffle::succeeded(cur_shuffle(&room)), 999);
+        print(&utf8(b"Anyone can see deckgen 1 is done."));
+        assert!(deck_gen::succeeded(cur_deckgen(&room)), 999);
         assert!(
             vector[0, 125, 250] == hand::get_bets(cur_hand(&room)),
             999

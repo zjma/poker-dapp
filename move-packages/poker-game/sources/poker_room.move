@@ -2,6 +2,7 @@
 /// - a host creates a Poker room and defines the users allowed to join and play;
 /// - players join and play.
 module poker_game::poker_room {
+    use std::bcs;
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
@@ -15,9 +16,8 @@ module poker_game::poker_room {
     use aptos_framework::coin::Coin;
     use aptos_framework::event;
     use aptos_framework::object;
-    use aptos_framework::timestamp;
+    use poker_game::deck_gen;
     use poker_game::hand;
-    use crypto_core::elgamal;
     use crypto_core::shuffle;
     use crypto_core::reencryption;
     use crypto_core::threshold_scalar_mul;
@@ -37,10 +37,10 @@ module poker_game::poker_room {
 
     const STATE__DKG_IN_PROGRESS: u64 = 2;
 
-    const STATE__SHUFFLE_IN_PROGRESS: u64 = 3;
+    const STATE__DECKGEN_IN_PROGRESS: u64 = 3;
 
-    /// For lower latency, we initiate the shuffle for hand `x+1` as soon as we start hand `x`.
-    const STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS: u64 = 4;
+    /// For lower latency, we initiate the deck-gen for hand `x+1` as soon as we start hand `x`.
+    const STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS: u64 = 4;
 
     /// Winner has been determined.
     const STATE__CLOSED: u64 = 5;
@@ -61,9 +61,9 @@ module poker_game::poker_room {
         cur_hand: Option<hand::Session>,
         num_hands_done: u64,
         num_dkgs_done: u64,
-        num_shuffles_done: u64,
+        num_deckgens_done: u64,
         cur_dkg_session: Option<dkg_v0::DKGSession>,
-        cur_shuffle_session: Option<shuffle::Session>,
+        cur_deckgen_session: Option<deck_gen::Session>,
     }
 
     /// The full state of a poker room.
@@ -79,9 +79,9 @@ module poker_game::poker_room {
         hands: Table<u64, hand::Session>,
         num_hands_done: u64, // Including successes and failures.
         num_dkgs_done: u64, // Including successes and failures.
-        num_shuffles_done: u64, // Including successes and failures.
+        num_deckgens_done: u64, // Including successes and failures.
         dkg_sessions: Table<u64, dkg_v0::DKGSession>,
-        shuffle_sessions: Table<u64, shuffle::Session>,
+        deckgen_sessions: Table<u64, deck_gen::Session>,
         escrewed_funds: Coin<AptosCoin>
     }
 
@@ -97,7 +97,7 @@ module poker_game::poker_room {
 
     #[view]
     public fun about(): std::string::String {
-        std::string::utf8(b"v0.0.5")
+        std::string::utf8(b"v0.0.9")
     }
 
     #[randomness]
@@ -119,10 +119,10 @@ module poker_game::poker_room {
             state: STATE__WAITING_FOR_PLAYERS,
             hands: table::new(),
             dkg_sessions: table::new(),
-            shuffle_sessions: table::new(),
+            deckgen_sessions: table::new(),
             num_dkgs_done: 0,
             num_hands_done: 0,
-            num_shuffles_done: 0,
+            num_deckgens_done: 0,
             escrewed_funds: coin::zero()
         };
         let constructor = object::create_named_object(host, seed);
@@ -170,30 +170,30 @@ module poker_game::poker_room {
     }
 
     #[randomness]
-    /// A player calls this to submit a contribution to the `shuffle_idx`-th shuffle in `room`.
+    /// A player calls this to submit a contribution to the `deckgen_idx`-th deck-gen in `room`.
     /// Param `contribution_bytes` is an encoded `shuffle::VerifiableContribution`.
     ///
     /// Example usage: https://github.com/zjma/poker-dapp/blob/73b8c283fa07041d94acc81d3a0f1dec27ea7968/contract/sources/poker_room_examples.move#L135
     public(friend) entry fun process_shuffle_contribution(
         player: &signer,
         room: address,
-        shuffle_idx: u64,
+        deckgen_idx: u64,
         contribution_bytes: vector<u8>
     ) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
         assert!(
-            room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS
-                || room.state == STATE__SHUFFLE_IN_PROGRESS,
+            room.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS
+                || room.state == STATE__DECKGEN_IN_PROGRESS,
             180918
         );
-        assert!(room.num_shuffles_done == shuffle_idx, 180919);
-        let shuffle = room.shuffle_sessions.borrow_mut(shuffle_idx);
+        assert!(room.num_deckgens_done == deckgen_idx, 180919);
+        let deckgen = room.deckgen_sessions.borrow_mut(deckgen_idx);
         let (errors, contribution, remainder) =
             shuffle::decode_contribution(contribution_bytes);
         print(&errors);
         assert!(errors.is_empty(), 180920);
         assert!(remainder.is_empty(), 180921);
-        shuffle::process_contribution(player, shuffle, contribution);
+        deck_gen::process_contribution(player, deckgen, contribution);
     }
 
 
@@ -209,7 +209,7 @@ module poker_game::poker_room {
         reencyption_bytes: vector<u8>
     ) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS, 124642);
+        assert!(room.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS, 124642);
         assert!(room.num_hands_done == hand_idx, 124643);
         let hand = room.hands.borrow_mut(hand_idx);
         let (errors, contribution, remainder) =
@@ -233,7 +233,7 @@ module poker_game::poker_room {
         contribution_bytes: vector<u8>
     ) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS, 293636);
+        assert!(room.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS, 293636);
         assert!(room.num_hands_done == hand_idx, 293637);
         let hand = room.hands.borrow_mut(hand_idx);
         let (errors, contribution, remainder) =
@@ -257,7 +257,7 @@ module poker_game::poker_room {
         contribution_bytes: vector<u8>
     ) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS, 293712);
+        assert!(room.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS, 293712);
         assert!(room.num_hands_done == hand_idx, 293713);
         let hand = room.hands.borrow_mut(hand_idx);
         let (errors, contribution, remainder) =
@@ -278,7 +278,7 @@ module poker_game::poker_room {
         bet: u64
     ) acquires PokerRoomState {
         let room = borrow_global_mut<PokerRoomState>(room);
-        assert!(room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS, 120142);
+        assert!(room.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS, 120142);
         assert!(room.num_hands_done == hand_idx, 120143);
         let hand = room.hands.borrow_mut(hand_idx);
         hand::process_bet_action(player, hand, bet);
@@ -319,7 +319,7 @@ module poker_game::poker_room {
             dkg_v0::state_update(cur_dkg);
             if (dkg_v0::succeeded(cur_dkg)) {
                 room.num_dkgs_done += 1;
-                start_shuffle(room);
+                start_deckgen(room);
             } else if (dkg_v0::failed(cur_dkg)) {
                 punish_culprits(room, dkg_v0::get_culprits(cur_dkg));
                 room.num_dkgs_done += 1;
@@ -327,26 +327,26 @@ module poker_game::poker_room {
             } else {
                 // DKG is still in progress...
             }
-        } else if (room.state == STATE__SHUFFLE_IN_PROGRESS) {
-            let cur_shuffle =
-                room.shuffle_sessions.borrow_mut(room.num_shuffles_done);
-            shuffle::state_update(cur_shuffle);
-            if (shuffle::succeeded(cur_shuffle)) {
-                room.num_shuffles_done += 1;
-                start_hand_and_shuffle_together(room);
-            } else if (shuffle::failed(cur_shuffle)) {
-                let culprit = shuffle::get_culprit(cur_shuffle);
+        } else if (room.state == STATE__DECKGEN_IN_PROGRESS) {
+            let cur_deckgen =
+                room.deckgen_sessions.borrow_mut(room.num_deckgens_done);
+            deck_gen::state_update(cur_deckgen);
+            if (deck_gen::succeeded(cur_deckgen)) {
+                room.num_deckgens_done += 1;
+                start_hand_and_deckgen_together(room);
+            } else if (deck_gen::failed(cur_deckgen)) {
+                let culprit = deck_gen::culprit(cur_deckgen);
                 punish_culprits(room, vector[culprit]);
-                room.num_shuffles_done += 1;
+                room.num_deckgens_done += 1;
                 start_dkg(room);
             } else {
-                // Shuffle still in progress...
+                // Deck-gen still in progress...
             }
-        } else if (room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS) {
+        } else if (room.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS) {
             let cur_hand = room.hands.borrow_mut(room.num_hands_done);
-            let cur_shuffle =
-                room.shuffle_sessions.borrow_mut(room.num_shuffles_done);
-            shuffle::state_update(cur_shuffle);
+            let cur_deckgen =
+                room.deckgen_sessions.borrow_mut(room.num_deckgens_done);
+            deck_gen::state_update(cur_deckgen);
             hand::state_update(cur_hand);
             if (hand::succeeded(cur_hand)) {
                 // Apply the hand result.
@@ -358,26 +358,26 @@ module poker_game::poker_room {
                     room.player_chips[player_idx] = new_chip_amounts[i];
                 });
                 room.num_hands_done += 1;
-                if (shuffle::succeeded(cur_shuffle)) {
-                    room.num_shuffles_done += 1;
-                    start_hand_and_shuffle_together(room);
-                } else if (shuffle::failed(cur_shuffle)) {
-                    room.num_shuffles_done += 1;
-                    let culprit = shuffle::get_culprit(cur_shuffle);
+                if (deck_gen::succeeded(cur_deckgen)) {
+                    room.num_deckgens_done += 1;
+                    start_hand_and_deckgen_together(room);
+                } else if (deck_gen::failed(cur_deckgen)) {
+                    room.num_deckgens_done += 1;
+                    let culprit = deck_gen::culprit(cur_deckgen);
                     punish_culprits(room, vector[culprit]);
                     start_dkg(room);
                 } else {
-                    room.state = STATE__SHUFFLE_IN_PROGRESS;
+                    room.state = STATE__DECKGEN_IN_PROGRESS;
                 }
             } else if (hand::failed(cur_hand)) {
-                // Since we need a new DKG, we don't care about the x+1 shuffle any more, even if it has succeeded/failed.
-                room.num_shuffles_done += 1;
+                // Since we need a new DKG, we don't care about the x+1 deckgen any more, even if it has succeeded/failed.
+                room.num_deckgens_done += 1;
                 punish_culprits(room, hand::get_culprits(cur_hand));
                 room.num_hands_done += 1;
                 start_dkg(room);
             } else {
                 // Hand is in progress...
-                // We worry about the shuffle later, even if it has succeeded.
+                // We worry about the deckgen later, even if it has succeeded.
             }
         };
     }
@@ -387,7 +387,7 @@ module poker_game::poker_room {
     public fun get_room_brief(room: address): PokerRoomStateBrief acquires PokerRoomState {
         let room = borrow_global<PokerRoomState>(room);
         let cur_hand =
-            if (room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS) {
+            if (room.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS) {
                 option::some(*room.hands.borrow(room.num_hands_done))
             } else {
                 option::none()
@@ -398,10 +398,10 @@ module poker_game::poker_room {
             } else {
                 option::none()
             };
-        let cur_shuffle_session =
-            if (room.state == STATE__SHUFFLE_IN_PROGRESS
-                || room.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS) {
-                option::some(*room.shuffle_sessions.borrow(room.num_shuffles_done))
+        let cur_deckgen_session =
+            if (room.state == STATE__DECKGEN_IN_PROGRESS
+                || room.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS) {
+                option::some(*room.deckgen_sessions.borrow(room.num_deckgens_done))
             } else {
                 option::none()
             };
@@ -414,10 +414,15 @@ module poker_game::poker_room {
             cur_hand,
             num_hands_done: room.num_hands_done,
             num_dkgs_done: room.num_dkgs_done,
-            num_shuffles_done: room.num_shuffles_done,
+            num_deckgens_done: room.num_deckgens_done,
             cur_dkg_session,
-            cur_shuffle_session
+            cur_deckgen_session: cur_deckgen_session
         }
+    }
+
+    #[view]
+    public fun get_room_brief_bcs(room: address): vector<u8> acquires PokerRoomState {
+        bcs::to_bytes(&get_room_brief(room))
     }
 
     //
@@ -446,7 +451,7 @@ module poker_game::poker_room {
         room.state = STATE__DKG_IN_PROGRESS;
     }
 
-    fun start_shuffle(room: &mut PokerRoomState) {
+    fun start_deckgen(room: &mut PokerRoomState) {
         let last_dkg = room.dkg_sessions.borrow(room.num_dkgs_done - 1);
         let last_dkg_contributors = dkg_v0::get_contributors(last_dkg);
         let alive_player_idxs = vector::range(0, room.num_players).filter(
@@ -455,25 +460,19 @@ module poker_game::poker_room {
         let alive_players = alive_player_idxs.map(|idx| room.expected_player_addresses[idx]);
         assert!(&last_dkg_contributors == &alive_players, 311540);
 
-        let now_secs = timestamp::now_seconds();
         let secret_info = dkg_v0::get_shared_secret_public_info(last_dkg);
         let (agg_ek, _ek_shares) = dkg_v0::unpack_shared_secret_public_info(secret_info);
-        let card_reprs = vector::range(0, 52).map(|_| group::rand_element());
-        let initial_ciphertexts = card_reprs.map_ref(|plain| elgamal::enc(&agg_ek, &group::scalar_from_u64(0), plain));
-        let deadlines = vector::range(0, room.num_players).map(|i| now_secs + INF + i);
-        let new_shuffle =
-            shuffle::new_session(
-                agg_ek,
-                initial_ciphertexts,
-                alive_players,
-                deadlines
-            );
-        let new_shuffle_id = room.num_shuffles_done;
-        room.shuffle_sessions.add(new_shuffle_id, new_shuffle);
-        room.state = STATE__SHUFFLE_IN_PROGRESS;
+        let new_deckgen = deck_gen::new_session(agg_ek, alive_players);
+        let new_deckgen_id = room.num_deckgens_done;
+        room.deckgen_sessions.add(new_deckgen_id, new_deckgen);
+        room.state = STATE__DECKGEN_IN_PROGRESS;
     }
 
-    fun start_hand_and_shuffle_together(room: &mut PokerRoomState) {
+    fun rand_deck(): vector<group::Element> {
+        vector::range(0, 52).map(|_| group::rand_element())
+    }
+
+    fun start_hand_and_deckgen_together(room: &mut PokerRoomState) {
         let last_dkg = room.dkg_sessions.borrow(room.num_dkgs_done - 1);
         let last_dkg_contributors = dkg_v0::get_contributors(last_dkg);
         let alive_player_idxs = vector::range(0, room.num_players).filter(
@@ -483,12 +482,8 @@ module poker_game::poker_room {
         assert!(&last_dkg_contributors == &alive_players, 311540);
 
         let secret_info = dkg_v0::get_shared_secret_public_info(last_dkg);
-        let last_shuffle = room.shuffle_sessions.borrow(room.num_shuffles_done - 1);
-        let card_reprs = shuffle::input_cloned(last_shuffle).map(|ciph| {
-            let (_, _, c_1) = elgamal::unpack_ciphertext(ciph);
-            c_1 // The ciphertexts were initially generated with 0-randomizers, so c_1 is equal to the plaintext.
-        });
-        let shuffled_deck = shuffle::result_cloned(last_shuffle);
+        let last_deckgen = room.deckgen_sessions.borrow(room.num_deckgens_done - 1);
+        let (card_reprs, shuffled_deck) = deck_gen::result(last_deckgen);
         let alive_player_chips = alive_player_idxs.map(|idx| room.player_chips[idx]);
         let new_hand_id = room.num_hands_done;
         //TODO: calculate who is the BUTTON.
@@ -502,22 +497,16 @@ module poker_game::poker_room {
             );
         room.hands.add(new_hand_id, new_hand);
 
-        let now_secs = timestamp::now_seconds();
         let (agg_ek, _) = dkg_v0::unpack_shared_secret_public_info(secret_info);
-        let card_reprs = vector::range(0, 52).map(|_| group::rand_element());
-        let initial_ciphertexts = card_reprs.map_ref(|plain| elgamal::enc(&agg_ek, &group::scalar_from_u64(0), plain));
-        let deadlines = vector::range(0, room.num_players).map(|i| now_secs + INF + i);
-        let new_shuffle_id = room.num_shuffles_done;
-        let new_shuffle =
-            shuffle::new_session(
+        let new_deckgen_id = room.num_deckgens_done;
+        let new_deckgen =
+            deck_gen::new_session(
                 agg_ek,
-                initial_ciphertexts,
                 alive_players,
-                deadlines
             );
-        room.shuffle_sessions.add(new_shuffle_id, new_shuffle);
+        room.deckgen_sessions.add(new_deckgen_id, new_deckgen);
 
-        room.state = STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS;
+        room.state = STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS;
     }
 
     /// For every troublemaker, mark it offline and remove some of its chips.
@@ -542,16 +531,16 @@ module poker_game::poker_room {
     }
 
     #[test_only]
-    public fun is_in_shuffle(
-        room_brief: &PokerRoomStateBrief, shuffle_idx: u64
+    public fun is_in_deckgen(
+        room_brief: &PokerRoomStateBrief, deckgen_idx: u64
     ): bool {
-        room_brief.state == STATE__SHUFFLE_IN_PROGRESS
-            && room_brief.num_shuffles_done == shuffle_idx
+        room_brief.state == STATE__DECKGEN_IN_PROGRESS
+            && room_brief.num_deckgens_done == deckgen_idx
     }
 
     #[test_only]
     public fun is_in_the_middle_of_a_hand(room_brief: &PokerRoomStateBrief, hand_idx: u64): bool {
-        room_brief.state == STATE__HAND_AND_NEXT_SHUFFLE_IN_PROGRESS
+        room_brief.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS
             && room_brief.num_hands_done == hand_idx
     }
 
@@ -566,8 +555,8 @@ module poker_game::poker_room {
     }
 
     #[test_only]
-    public fun cur_shuffle(room_brief: &PokerRoomStateBrief): &shuffle::Session {
-        room_brief.cur_shuffle_session.borrow()
+    public fun cur_deckgen(room_brief: &PokerRoomStateBrief): &deck_gen::Session {
+        room_brief.cur_deckgen_session.borrow()
     }
 
     //

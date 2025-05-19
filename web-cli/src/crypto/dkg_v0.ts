@@ -4,10 +4,11 @@ import * as SigmaDLog from './sigma_dlog';
 
 import * as Group from './group';
 import { EncKey } from "./elgamal";
+import { bytesToHex } from "@noble/hashes/utils";
 
-const STATE_IN_PROGRESS = 0;
-const STATE_SUCCEEDED = 1;
-const STATE_TIMED_OUT = 2;
+export const STATE_IN_PROGRESS = 0;
+export const STATE_SUCCEEDED = 1;
+export const STATE_TIMED_OUT = 2;
 
 export class DKGSession {
     basePoint: Element;
@@ -86,6 +87,15 @@ export class DKGSession {
     failed(): boolean {
         return this.state === STATE_TIMED_OUT;
     }
+
+    generateContribution(): {secretShare: SecretShare, contribution: VerifiableContribution} {
+        const privateScalar = Scalar.rand();
+        const secretShare = new SecretShare(privateScalar);
+        const publicPoint = this.basePoint.scale(privateScalar);
+        
+        const contribution = new VerifiableContribution(publicPoint, null); //TODO: Implement proof
+        return { secretShare, contribution };
+    }
 };
 
 export class VerifiableContribution {
@@ -98,11 +108,26 @@ export class VerifiableContribution {
     }
 
     static decode(deserializer: Deserializer): VerifiableContribution {
-        throw new Error("Function not implemented.");
+        const publicPoint = Group.Element.decode(deserializer);
+        const hasProof = deserializer.deserializeU8() === 1;
+        const proof = hasProof ? SigmaDLog.Proof.decode(deserializer) : null;
+        return new VerifiableContribution(publicPoint, proof);
     }
 
     encode(serializer: Serializer): void {
-        throw new Error("Function not implemented.");
+        this.publicPoint.encode(serializer);
+        if (this.proof === null) {
+            serializer.serializeU8(0);
+        } else {
+            serializer.serializeU8(1);
+            this.proof.encode(serializer);
+        }
+    }
+
+    toBytes(): Uint8Array {
+        const serializer = new Serializer();
+        this.encode(serializer);
+        return serializer.toUint8Array();
     }
 };
 
@@ -118,7 +143,17 @@ export class SecretShare {
     }
 
     encode(serializer: Serializer): void {
-        throw new Error("Function not implemented.");
+        this.privateScalar.encode(serializer);
+    }
+
+    toBytes(): Uint8Array {
+        const serializer = new Serializer();
+        this.encode(serializer);
+        return serializer.toUint8Array();
+    }
+
+    toHex(): string {
+        return bytesToHex(this.toBytes());
     }
 };
 
@@ -139,12 +174,3 @@ export class SharedSecretPublicInfo {
         throw new Error("Function not implemented.");
     }
 };
-
-export function generateContribution(session: DKGSession): { secretShare: SecretShare; contribution: VerifiableContribution } {
-    const privateScalar = Scalar.rand();
-    const secretShare = new SecretShare(privateScalar);
-    const publicPoint = session.basePoint.scale(privateScalar);
-    
-    const contribution = new VerifiableContribution(publicPoint, null); //TODO: Implement proof
-    return { secretShare, contribution };
-}

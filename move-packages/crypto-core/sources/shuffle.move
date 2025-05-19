@@ -19,6 +19,8 @@ module crypto_core::shuffle {
     #[test_only]
     use aptos_framework::randomness;
     #[test_only]
+    use crypto_core::elgamal::enc;
+    #[test_only]
     use crypto_core::group;
 
     const STATE__ACCEPTING_CONTRIBUTION: u64 = 1;
