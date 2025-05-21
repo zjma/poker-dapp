@@ -6,6 +6,8 @@ module crypto_core::threshold_scalar_mul {
     use std::signer::address_of;
     use std::vector;
     use std::vector::range;
+    use aptos_std::bcs_stream;
+    use aptos_std::bcs_stream::BCSStream;
     use aptos_framework::timestamp;
     use crypto_core::elgamal;
     use crypto_core::fiat_shamir_transform;
@@ -14,10 +16,6 @@ module crypto_core::threshold_scalar_mul {
     use crypto_core::group;
     #[test_only]
     use aptos_framework::randomness;
-    #[test_only]
-    use crypto_core::elgamal;
-    #[test_only]
-    use crypto_core::fiat_shamir_transform;
 
     const STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE: u64 = 1;
     const STATE__SUCCEEDED: u64 = 3;
@@ -147,31 +145,10 @@ module crypto_core::threshold_scalar_mul {
         *session.result.borrow()
     }
 
-    public fun decode_contribution(
-        buf: vector<u8>
-    ): (vector<u64>, VerifiableContribution, vector<u8>) {
-        let (errors, payload, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(270424);
-            return (errors, dummy_contribution(), buf);
-        };
-        let buflen = buf.length();
-        if (buflen == 0) return (vector[270425], dummy_contribution(), buf);
-        let has_proof = buf[0] > 0;
-        let buf = buf.slice(1, buflen);
-        let proof = if (has_proof) {
-            let (errors, proof, remainder) = sigma_dlog_eq::decode_proof(buf);
-            buf = remainder;
-            if (!errors.is_empty()) {
-                errors.push_back(270426);
-                return (errors, dummy_contribution(), buf);
-            };
-            option::some(proof)
-        } else {
-            option::none()
-        };
-        let ret = VerifiableContribution { payload, proof };
-        (vector[], ret, buf)
+    public fun decode_contribution(stream: &mut BCSStream): VerifiableContribution {
+        let payload = group::decode_element(stream);
+        let proof = bcs_stream::deserialize_option(stream, |s|sigma_dlog_eq::decode_proof(s));
+        VerifiableContribution { payload, proof }
     }
 
     #[lint::allow_unsafe_randomness]

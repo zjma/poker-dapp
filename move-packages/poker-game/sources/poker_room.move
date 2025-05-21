@@ -7,7 +7,7 @@ module poker_game::poker_room {
     use std::option::Option;
     use std::signer::address_of;
     use std::vector;
-    use aptos_std::debug::print;
+    use aptos_std::bcs_stream;
     use aptos_std::math64::min;
     use aptos_std::table;
     use aptos_std::table::Table;
@@ -97,7 +97,7 @@ module poker_game::poker_room {
 
     #[view]
     public fun about(): std::string::String {
-        std::string::utf8(b"v0.0.9")
+        std::string::utf8(b"v0.0.10")
     }
 
     #[randomness]
@@ -162,10 +162,7 @@ module poker_game::poker_room {
         assert!(room.state == STATE__DKG_IN_PROGRESS, 174737);
         assert!(room.num_dkgs_done == dkg_id, 174738);
         let dkg_session = room.dkg_sessions.borrow_mut(dkg_id);
-        let (errors, contribution, remainder) =
-            dkg_v0::decode_contribution(contribution_bytes);
-        assert!(errors.is_empty(), 174739);
-        assert!(remainder.is_empty(), 174740);
+        let contribution = dkg_v0::decode_contribution(&mut bcs_stream::new(contribution_bytes));
         dkg_v0::process_contribution(player, dkg_session, contribution);
     }
 
@@ -188,11 +185,7 @@ module poker_game::poker_room {
         );
         assert!(room.num_deckgens_done == deckgen_idx, 180919);
         let deckgen = room.deckgen_sessions.borrow_mut(deckgen_idx);
-        let (errors, contribution, remainder) =
-            shuffle::decode_contribution(contribution_bytes);
-        print(&errors);
-        assert!(errors.is_empty(), 180920);
-        assert!(remainder.is_empty(), 180921);
+        let contribution = shuffle::decode_contribution(&mut bcs_stream::new(contribution_bytes));
         deck_gen::process_contribution(player, deckgen, contribution);
     }
 
@@ -212,13 +205,8 @@ module poker_game::poker_room {
         assert!(room.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS, 124642);
         assert!(room.num_hands_done == hand_idx, 124643);
         let hand = room.hands.borrow_mut(hand_idx);
-        let (errors, contribution, remainder) =
-            reencryption::decode_reencyption(reencyption_bytes);
-        assert!(errors.is_empty(), 124644);
-        assert!(remainder.is_empty(), 124645);
-        hand::process_private_dealing_reencryption(
-            player, hand, dealing_idx, contribution
-        );
+        let contribution = reencryption::decode_reencyption(&mut bcs_stream::new(reencyption_bytes));
+        hand::process_private_dealing_reencryption(player, hand, dealing_idx, contribution);
     }
 
     /// Every player calls this to submit its contribution to the `dealing_idx`-th private card dealing in `room`.
@@ -236,10 +224,7 @@ module poker_game::poker_room {
         assert!(room.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS, 293636);
         assert!(room.num_hands_done == hand_idx, 293637);
         let hand = room.hands.borrow_mut(hand_idx);
-        let (errors, contribution, remainder) =
-            threshold_scalar_mul::decode_contribution(contribution_bytes);
-        assert!(errors.is_empty(), 293638);
-        assert!(remainder.is_empty(), 293639);
+        let contribution = threshold_scalar_mul::decode_contribution(&mut bcs_stream::new(contribution_bytes));
         hand::process_private_dealing_contribution(
             player, hand, dealing_idx, contribution
         );
@@ -260,10 +245,7 @@ module poker_game::poker_room {
         assert!(room.state == STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS, 293712);
         assert!(room.num_hands_done == hand_idx, 293713);
         let hand = room.hands.borrow_mut(hand_idx);
-        let (errors, contribution, remainder) =
-            threshold_scalar_mul::decode_contribution(contribution_bytes);
-        assert!(errors.is_empty(), 293714);
-        assert!(remainder.is_empty(), 293715);
+        let contribution = threshold_scalar_mul::decode_contribution(&mut bcs_stream::new(contribution_bytes));
         hand::process_public_opening_contribution(player, hand, opening_idx, contribution);
     }
 
@@ -296,10 +278,7 @@ module poker_game::poker_room {
         dealing_idx: u64,
         private_card_revealing_bytes: vector<u8>,
     ) acquires PokerRoomState {
-        let (errors, reenc_private_state, remainder) =
-            reencryption::decode_private_state(private_card_revealing_bytes);
-        assert!(errors.is_empty(), 102202);
-        assert!(remainder.is_empty(), 102203);
+        let reenc_private_state = reencryption::decode_private_state(&mut bcs_stream::new(private_card_revealing_bytes));
         let room = borrow_global_mut<PokerRoomState>(room);
         let hand = room.hands.borrow_mut(hand_idx);
         hand::process_showdown_reveal(player, hand, dealing_idx, reenc_private_state);
@@ -416,7 +395,7 @@ module poker_game::poker_room {
             num_dkgs_done: room.num_dkgs_done,
             num_deckgens_done: room.num_deckgens_done,
             cur_dkg_session,
-            cur_deckgen_session: cur_deckgen_session
+            cur_deckgen_session,
         }
     }
 

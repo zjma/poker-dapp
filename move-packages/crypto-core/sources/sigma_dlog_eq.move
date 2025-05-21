@@ -1,5 +1,6 @@
 /// Protocol to prove knowledge of scalar `s` such that `s*B0==P0, s*B1==P1` for public elements `B0, B1, P0, P1`.
 module crypto_core::sigma_dlog_eq {
+    use aptos_std::bcs_stream::BCSStream;
     use crypto_core::fiat_shamir_transform;
     use crypto_core::group;
     #[test_only]
@@ -19,24 +20,11 @@ module crypto_core::sigma_dlog_eq {
         }
     }
 
-    public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
-        let (errors, t0, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(125705);
-            return (errors, dummy_proof(), buf);
-        };
-        let (errors, t1, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(125706);
-            return (errors, dummy_proof(), buf);
-        };
-        let (errors, s, buf) = group::decode_scalar(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(125707);
-            return (errors, dummy_proof(), buf);
-        };
-        let ret = Proof { t0, t1, s };
-        (vector[], ret, buf)
+    public fun decode_proof(stream: &mut BCSStream): Proof {
+        let t0 = group::decode_element(stream);
+        let t1 = group::decode_element(stream);
+        let s = group::decode_scalar(stream);
+        Proof { t0, t1, s }
     }
 
     #[lint::allow_unsafe_randomness]

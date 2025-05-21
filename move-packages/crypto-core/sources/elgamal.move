@@ -1,10 +1,13 @@
 /// ElGamal encryption instantiated with bls12-381 G1.
 module crypto_core::elgamal {
+    use std::vector::range;
+    use aptos_std::bcs_stream;
+    use aptos_std::bcs_stream::BCSStream;
     use crypto_core::group;
     #[test_only]
     use std::bcs;
     #[test_only]
-    use aptos_std::debug::print;
+    use aptos_std::bcs_stream;
     #[test_only]
     use aptos_framework::randomness;
 
@@ -32,35 +35,17 @@ module crypto_core::elgamal {
     }
 
     /// Gas cost: 2.10
-    public fun decode_dec_key(buf: vector<u8>): (vector<u64>, DecKey, vector<u8>) {
-        let (errors, enc_base, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(240835);
-            return (errors, dummy_dec_key(), buf);
-        };
-        let (errors, private_scalar, buf) = group::decode_scalar(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(240836);
-            return (errors, dummy_dec_key(), buf);
-        };
-        let ret = DecKey { enc_base, private_scalar };
-        (vector[], ret, buf)
+    public fun decode_dec_key(stream: &mut BCSStream): DecKey {
+        let enc_base = group::decode_element(stream);
+        let private_scalar = group::decode_scalar(stream);
+        DecKey { enc_base, private_scalar }
     }
 
     /// Gas cost: 2.24
-    public fun decode_enc_key(buf: vector<u8>): (vector<u64>, EncKey, vector<u8>) {
-        let (errors, enc_base, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(172708);
-            return (errors, dummy_enc_key(), buf);
-        };
-        let (errors, public_point, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(172709);
-            return (errors, dummy_enc_key(), buf);
-        };
-        let ret = EncKey { enc_base, public_point };
-        (vector[], ret, buf)
+    public fun decode_enc_key(stream: &mut BCSStream): EncKey {
+        let enc_base = group::decode_element(stream);
+        let public_point = group::decode_element(stream);
+        EncKey { enc_base, public_point }
     }
 
     public fun dummy_enc_key(): EncKey {
@@ -149,17 +134,22 @@ module crypto_core::elgamal {
         }
     }
 
-    /// Gas cost: 3.36
-    public fun decode_ciphertext(buf: vector<u8>): (vector<u64>, Ciphertext, vector<u8>) {
-        let (errors, enc_base, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) return (vector[123129], dummy_ciphertext(), buf);
-        let (errors, c_0, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) return (vector[123129], dummy_ciphertext(), buf);
-        let (errors, c_1, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) return (vector[123129], dummy_ciphertext(), buf);
-        let ret = Ciphertext { enc_base, c_0, c_1 };
-        (vector[], ret, buf)
+    /// Gas cost: 3.96
+    public fun decode_ciphertext(stream: &mut BCSStream): Ciphertext {
+        let enc_base = group::decode_element(stream);
+        let c_0 = group::decode_element(stream);
+        let c_1 = group::decode_element(stream);
+        Ciphertext { enc_base, c_0, c_1 }
     }
+
+    // entry fun example_deser(breakpoint: u64) {
+    //     if (breakpoint == 0) return;
+    //     range(0, 100).for_each(|_|{
+    //         let stream = bcs_stream::new(x"201ecc0ce6fbe58776429c3e0e8f95db8fc0e5c15eac92467bc7b9a2d2c3273c0d20d80578e00c4fe5c8db0764b0e5f921fcfccf62264dfa85151b15bf6a9d96e43120240b3fe85a16d548ba4e6007c9334224932e41d20de9d99b421356977f76793b");
+    //         decode_ciphertext(&mut stream);
+    //     });
+    //     if (breakpoint == 1) return;
+    // }
 
     public fun derive_ek_from_dk(dk: &DecKey): EncKey {
         EncKey {
@@ -195,57 +185,9 @@ module crypto_core::elgamal {
         let r = group::rand_scalar();
         let ciphertext = enc(&ek, &r, &plaintext);
         let ciph_bytes = bcs::to_bytes(&ciphertext);
-        let (errors, ciphertext_another, remainder) = decode_ciphertext(ciph_bytes);
-        assert!(errors.is_empty(), 999);
-        assert!(remainder.is_empty(), 999);
+        let ciphertext_another = decode_ciphertext(&mut bcs_stream::new(ciph_bytes));
         assert!(ciphertext_another == ciphertext, 999);
         let plaintext_another = dec(&dk, &ciphertext);
         assert!(plaintext_another == plaintext, 999);
-    }
-
-    #[lint::allow_unsafe_randomness]
-    #[test(fx = @0x1)]
-    fun basic(fx: signer) {
-        randomness::initialize_for_testing(&fx);
-
-        let (errors, dk, remainder) = decode_dec_key(x"3085ba9eae97029dee22680d4506d85d87146dbcc0b7b797d71500489eb23e0b399b5d8af1925f8871a7c2dc9f65a8720920e57e6c4d3f6c645d69549f0c62aebfb77ebbcf29d2a8f0cd597d4ecd8ed56458");
-        assert!(errors.is_empty(), 999);
-        assert!(remainder.is_empty(), 999);
-
-        let (errors, ek, remainder) = decode_enc_key(x"3085ba9eae97029dee22680d4506d85d87146dbcc0b7b797d71500489eb23e0b399b5d8af1925f8871a7c2dc9f65a8720930ac39b219f3915eb90a4917931abbd5cf57709473bbc57f2169a311de51b397b882c29a1ba8fbf581ca12c388d69eecec");
-        assert!(errors.is_empty(), 999);
-        assert!(remainder.is_empty(), 999);
-
-        let msgs = vector[
-            x"30b2a87401bbed626666c5bab7d0a6503c04cbb7a91bb42a68f5f52370993658d8bd54e23cd7ae7ddd9a78eec823c0fdc1",
-            x"30a9e85bd1b4f17ef0aadee7a420873ab8c4568c56f91686cd6cc03ab43ade4bf3d2c4a011667ade42c5dad1a8d32d8bf3",
-            x"3092d67fcaac2fc24a4a92a4035fb4d2a64b0cdd5f3e80fb2ddfff640717eaf444fae9da821fac35e922e7014f6bbfacfe",
-        ].map(|buf|{
-            let (errors, element, remainder) = group::decode_element(buf);
-            assert!(errors.is_empty(), 999);
-            assert!(remainder.is_empty(), 999);
-            element
-        });
-
-        let randomizers = vector[
-            x"2023bcb6a5ec8328bb3772930f2e5f48df3ede9ee6ddabcdefbfe15cb029980311",
-            x"204c55876a65167a1f9d901f3b7e28985f1353f4bc1e36e7c11be7d416fba70c5b",
-            x"2041535947e0e5039cea76bc4960c8e25b1c36f717d16e19a00593a8f7bc5e842c",
-        ].map(|buf|{
-            let (errors, scalar, remainder) = group::decode_scalar(buf);
-            assert!(errors.is_empty(), 999);
-            assert!(remainder.is_empty(), 999);
-            scalar
-        });
-
-        let ciphertexts = msgs.zip_map_ref(&randomizers, |msg, randomizer| enc(&ek, randomizer, msg));
-        ciphertexts.for_each_ref(|ciph| {
-            print(&bcs::to_bytes(ciph));
-        });
-
-        // let scalars = vector[rand_scalar(), rand_scalar(), rand_scalar()];
-        // let agg_ciphertext = weird_multi_exp(&ciphertexts, &scalars);
-        // let agg_msg = dec(&dk, &agg_ciphertext);
-        // assert!(group::msm(&msgs, &scalars) == agg_msg, 999);
     }
 }

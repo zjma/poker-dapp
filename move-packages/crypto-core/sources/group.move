@@ -1,16 +1,15 @@
-/// BLS12-381 G1 utils.
+/// Using Ristretto255.
 module crypto_core::group {
-    use std::vector;
+    use std::error;
+    use std::vector::range;
+    use aptos_std::bcs_stream;
+    use aptos_std::bcs_stream::BCSStream;
     use aptos_std::ristretto255;
     use aptos_framework::randomness;
-    use crypto_core::utils;
     #[test_only]
     use std::bcs;
     #[test_only]
     use aptos_std::debug::print;
-
-    /// Ristretto255 group order.
-    const Q: u256 = 723700557733226221397318656304299424085711635937990760600195093828545425057;
 
     struct Element has copy, drop, store {
         bytes: vector<u8>
@@ -21,40 +20,15 @@ module crypto_core::group {
     }
 
     /// Gas cost: 0.98
-    public fun decode_scalar(buf: vector<u8>): (vector<u64>, Scalar, vector<u8>) {
-        let (errors, num_bytes, buf) = utils::decode_uleb128(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(115603);
-            return (errors, dummy_scalar(), buf);
-        };
-        if (num_bytes != 32) return (vector[115604], dummy_scalar(), buf);
-        let buf_len = buf.length();
-        if (buf_len < 32) return (vector[115605], dummy_scalar(), buf);
-        let payload = buf.slice(0, 32);
-        let maybe_inner = ristretto255::new_scalar_from_bytes(payload);
-        if (maybe_inner.is_none()) return (vector[115606], dummy_scalar(), buf);
-        let buf = buf.slice(32, buf.length());
-        let ret = Scalar { bytes: payload };
-        (vector[], ret, buf)
+    public fun decode_scalar(stream: &mut BCSStream): Scalar {
+        let bytes = bcs_stream::deserialize_vector(stream, |s|bcs_stream::deserialize_u8(s));
+        let maybe_inner = ristretto255::new_scalar_from_bytes(bytes);
+        assert!(maybe_inner.is_some(), error::invalid_argument(0x4528));
+        Scalar { bytes }
     }
 
     public fun dummy_scalar(): Scalar {
         Scalar { bytes: vector[] }
-    }
-
-    #[lint::allow_unsafe_randomness]
-    /// Generate a random scalar.
-    ///
-    /// NOTE: client needs to implement this.
-    ///
-    /// Gas cost: 12
-    public fun rand_scalar_slow(): Scalar {
-        let rand_scalar_val = randomness::u256_range(0, Q);
-        let bytes = vector::range(0, 32).map(|idx| {
-            let idx = (idx as u8);
-            (((rand_scalar_val >> (idx * 8)) & 0xff) as u8)
-        });
-        Scalar { bytes }
     }
 
     /// Gas cost: 1.11
@@ -85,39 +59,6 @@ module crypto_core::group {
         let inner = ristretto255::new_scalar_from_u64(v);
         scalar_from_inner(&inner)
     }
-
-    // public fun scalar_from_big_endian_bytes_mod_q(bytes: vector<u8>): Scalar {
-    //     let ret = 0;
-    //     bytes.for_each(|byte| {
-    //         u8_to_big_endian_bits(byte).for_each(|bit| {
-    //             ret = safe_add_mod(ret, ret, Q);
-    //             if (bit) {
-    //                 ret = safe_add_mod(ret, 1, Q);
-    //             }
-    //         });
-    //     });
-    //     Scalar { bytes: u256_to_little_endian_bytes(ret) }
-    // }
-
-    // fun u8_to_big_endian_bits(x: u8): vector<bool> {
-    //     range(0, 8).map(|i| ((x >> (7-i as u8)) & 1) > 0)
-    // }
-
-    // fun u256_to_little_endian_bytes(x: u256): vector<u8> {
-    //     vector::range(0, 32).map(|i| {
-    //         let shift = ((8 * i) as u8);
-    //         (((x >> shift) & 0xff) as u8)
-    //     })
-    // }
-
-    // fun safe_add_mod(a: u256, b: u256, m: u256): u256 {
-    //     let a_clone = a;
-    //     let neg_b = m - b;
-    //     if (a < neg_b) { a + b }
-    //     else {
-    //         a_clone - neg_b
-    //     }
-    // }
 
     public fun group_identity(): Element {
         let inner = ristretto255::point_identity();
@@ -185,22 +126,22 @@ module crypto_core::group {
         scalar_from_inner(&inner_res)
     }
 
-    /// Gas cost: 1.12
-    public fun decode_element(buf: vector<u8>): (vector<u64>, Element, vector<u8>) {
-        let (errors, num_bytes, buf) = utils::decode_uleb128(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(110507);
-            return (errors, dummy_element(), buf);
-        };
-        if (num_bytes != 32) return (vector[110508], dummy_element(), buf);
-        let buf_len = buf.length();
-        if (buf_len < 32) return (vector[110509], dummy_element(), buf);
-        let payload = buf.slice(0, 32);
-        let maybe_inner = ristretto255::new_compressed_point_from_bytes(payload);
-        if (maybe_inner.is_none()) return (vector[110510], dummy_element(), buf);
-        let buf = buf.slice(32, buf_len);
-        let ret = Element { bytes: payload };
-        (vector[], ret, buf)
+    /// Gas cost: 1.35
+    public fun decode_element(stream: &mut BCSStream): Element {
+        let bytes = bcs_stream::deserialize_vector(stream, |s|bcs_stream::deserialize_u8(s));
+        let maybe_inner = ristretto255::new_compressed_point_from_bytes(bytes);
+        assert!(maybe_inner.is_some(), error::invalid_argument(0x4527));
+        Element { bytes }
+    }
+
+    entry fun example_deser(breakpoint: u64) {
+        if (breakpoint == 0) return;
+        range(0, 100).for_each(|_|{
+            let stream = bcs_stream::new(x"201ecc0ce6fbe58776429c3e0e8f95db8fc0e5c15eac92467bc7b9a2d2c3273c0d");
+            decode_element(&mut stream);
+        });
+        if (breakpoint == 1) return;
+
     }
 
     public fun dummy_element(): Element {
@@ -265,9 +206,8 @@ module crypto_core::group {
         assert!(e0 == element_add(&e0, &ei), 999);
 
         let e0_bytes = bcs::to_bytes(&e0);
-        let (errors, e0_another, remainder) = decode_element(e0_bytes);
-        assert!(errors.is_empty(), 999);
-        assert!(remainder.is_empty(), 999);
+        let stream = bcs_stream::new(e0_bytes);
+        let e0_another = decode_element(&mut stream);
         assert!(e0_another == e0, 999);
 
         let s7 = scalar_from_u64(7);
@@ -281,22 +221,19 @@ module crypto_core::group {
 
         let s0 = rand_scalar();
         let s0_bytes = bcs::to_bytes(&s0);
-        let (errors, s0_another, remainder) = decode_scalar(s0_bytes);
-        assert!(errors.is_empty(), 999);
-        assert!(remainder.is_empty(), 999);
+        let stream = bcs_stream::new(s0_bytes);
+        let s0_another = decode_scalar(&mut stream);
         assert!(s0_another == s0, 999);
     }
 
     #[test(fx = @0x1)]
-    fun basic(fx: signer) {
+    fun serde(fx: signer) {
         randomness::initialize_for_testing(&fx);
-        let (errors, point_a, rem) = decode_element(x"20082267b53c21c9593128b9b0b511ec91423ef8dbc658eaa95f5be1418250e210");
-        assert!(errors.is_empty(), 999);
-        assert!(rem.is_empty(), 999);
-        let (errors, scalar_b, rem) = decode_scalar(x"20437fd90bce77f32ad3dc57758bd1ccdf1ddc1c1229b41718833f54d476c9c600");
-        assert!(errors.is_empty(), 999);
-        assert!(rem.is_empty(), 999);
+        let point_a = decode_element(&mut bcs_stream::new(x"20082267b53c21c9593128b9b0b511ec91423ef8dbc658eaa95f5be1418250e210"));
+        let scalar_b = decode_scalar(&mut bcs_stream::new(x"20437fd90bce77f32ad3dc57758bd1ccdf1ddc1c1229b41718833f54d476c9c600"));
         let point_c = scale_element(&point_a, &scalar_b);
-        assert!(x"30ac39b219f3915eb90a4917931abbd5cf57709473bbc57f2169a311de51b397b882c29a1ba8fbf581ca12c388d69eecec" == bcs::to_bytes(&point_c), 999);
+        assert!(x"20424a085adc2d55d4602fe1a7c36a90353df303544233002a97eea89f24fac727" == bcs::to_bytes(&point_c), 999);
+        let scalar_b_sqr = scalar_mul(&scalar_b, &scalar_b);
+        assert!(x"209f1b909b70c1cfbd1f67555bfff89effec9a26401f8bc27d0f0c4ed8efa6a902" == bcs::to_bytes(&scalar_b_sqr), 999);
     }
 }

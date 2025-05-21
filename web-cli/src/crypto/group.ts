@@ -1,10 +1,9 @@
-import type { ProjPointType } from '@noble/curves/abstract/weierstrass';
-import { bls12_381 } from '@noble/curves/bls12-381';
+import { RistrettoPoint } from '@noble/curves/ed25519';
 import { bytesToNumberBE, bytesToNumberLE, numberToBytesBE, numberToBytesLE } from '@noble/curves/abstract/utils';
 import { Deserializer, Serializer } from '@aptos-labs/ts-sdk';
 
 // Constants
-const Q = BigInt('0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001');
+const Q = BigInt('0x1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed');
 
 // Types
 export class Element {
@@ -14,25 +13,23 @@ export class Element {
         this.bytes = bytes;
     }
     static dummy(): Element {
-        return new Element(new Uint8Array(48));
+        return new Element(new Uint8Array(32));
     }
 
-    static fromInner(inner: ProjPointType<bigint>): Element {
+    static fromInner(inner: any): Element {
         const compressed = true;
         const bytes = inner.toRawBytes(compressed);
         return new Element(bytes);
     }
 
     static groupIdentity(): Element {
-        return Element.fromInner(bls12_381.G1.ProjectivePoint.ZERO);
+        return Element.fromInner(RistrettoPoint.ZERO);
     }
 
     static rand(): Element {
-        const randomBytes = crypto.getRandomValues(new Uint8Array(32));
-        const h2cPoint = bls12_381.G1.hashToCurve(randomBytes);
-        const affine = h2cPoint.toAffine();
-        const proj = bls12_381.G1.ProjectivePoint.fromAffine(affine);
-        return Element.fromInner(proj);
+        const randomBytes = crypto.getRandomValues(new Uint8Array(64));
+        const point = RistrettoPoint.hashToCurve(randomBytes);
+        return Element.fromInner(point);
     }
 
     static decode(deserializer: Deserializer): Element {
@@ -40,12 +37,12 @@ export class Element {
         return new Element(bytes);
     }
 
-    encode(serializer: Serializer) {
+    encode(serializer: Serializer): void {
         serializer.serializeBytes(this.bytes);
     }
 
-    asInner(): ProjPointType<bigint> {
-        return bls12_381.G1.ProjectivePoint.fromHex(this.bytes);
+    asInner(): any {
+        return RistrettoPoint.fromHex(this.bytes);
     }
 
     add(other: Element): Element {
@@ -55,7 +52,6 @@ export class Element {
         return Element.fromInner(result);
     }
     
-
     sub(other: Element): Element {
         const pointA = this.asInner();
         const pointB = other.asInner();
@@ -64,8 +60,11 @@ export class Element {
     }
 
     scale(scalar: Scalar): Element {
+        if (scalar.isZero()) {
+            return Element.groupIdentity();
+        }
         const point = this.asInner();
-        const s = bytesToNumberLE(scalar.bytes) % Q;
+        const s = bytesToNumberLE(scalar.bytes);
         const result = point.multiply(s);
         return Element.fromInner(result);
     }
@@ -82,8 +81,8 @@ export class Scalar {
         return new Scalar(new Uint8Array(32));
     }
 
-    fromU64(x: bigint): Scalar {
-        return new Scalar(numberToBytesBE(x, 32));
+    static fromU64(x: bigint): Scalar {
+        return new Scalar(numberToBytesLE(x, 32));
     }
     
     static fromBigEndianBytesModQ(bytes: Uint8Array): Scalar {
@@ -92,6 +91,7 @@ export class Scalar {
     }
 
     static rand(): Scalar {
+        
         const randomBytes = crypto.getRandomValues(new Uint8Array(64));
         const value = bytesToNumberLE(randomBytes) % Q;
         return new Scalar(numberToBytesLE(value, 32));
@@ -106,19 +106,28 @@ export class Scalar {
         serializer.serializeBytes(this.bytes);
     }
 
+    isZero(): boolean {
+        return this.bytes.every((b) => b === 0);
+    }
+
     add(other: Scalar): Scalar {
-        const result = (bytesToNumberBE(this.bytes) + bytesToNumberBE(other.bytes)) % Q;
-        return new Scalar(numberToBytesBE(result, 32));
+        const result = (bytesToNumberLE(this.bytes) + bytesToNumberLE(other.bytes)) % Q;
+        return new Scalar(numberToBytesLE(result, 32));
+    }
+
+    sub(other: Scalar): Scalar {
+        const result = (Q - bytesToNumberLE(other.bytes) + bytesToNumberLE(this.bytes)) % Q;
+        return new Scalar(numberToBytesLE(result, 32));
     }
 
     mul(other: Scalar): Scalar {
-        const result = (bytesToNumberBE(this.bytes) * bytesToNumberBE(other.bytes)) % Q;
-        return new Scalar(numberToBytesBE(result, 32));
+        const result = (bytesToNumberLE(this.bytes) * bytesToNumberLE(other.bytes)) % Q;
+        return new Scalar(numberToBytesLE(result, 32));
     }
 
     neg(): Scalar {
-        const result = Q - bytesToNumberBE(this.bytes);
-        return new Scalar(numberToBytesBE(result, 32));
+        const result = Q - bytesToNumberLE(this.bytes);
+        return new Scalar(numberToBytesLE(result, 32));
     }
 }
 

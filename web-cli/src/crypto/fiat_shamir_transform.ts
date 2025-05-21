@@ -26,4 +26,10 @@ export class Transcript {
         const digest = sha3_512(this.recorded);
         return Scalar.fromBigEndianBytesModQ(digest);
     }
+
+    clone(): Transcript {
+        const clone = new Transcript();
+        clone.recorded = this.recorded.slice();
+        return clone;
+    }
 };

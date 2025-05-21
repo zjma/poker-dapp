@@ -10,14 +10,14 @@ module crypto_core::dkg_v0 {
     use std::option::Option;
     use std::signer::address_of;
     use std::vector;
+    use aptos_std::bcs_stream;
+    use aptos_std::bcs_stream::BCSStream;
     use aptos_framework::timestamp;
     use crypto_core::fiat_shamir_transform;
     use crypto_core::sigma_dlog;
     use crypto_core::elgamal::EncKey;
     use crypto_core::elgamal;
     use crypto_core::group;
-    #[test_only]
-    use crypto_core::fiat_shamir_transform;
 
     const STATE__IN_PROGRESS: u64 = 0;
     const STATE__SUCCEEDED: u64 = 1;
@@ -75,31 +75,10 @@ module crypto_core::dkg_v0 {
         }
     }
 
-    public fun decode_contribution(
-        buf: vector<u8>
-    ): (vector<u64>, VerifiableContribution, vector<u8>) {
-        let (errors, public_point, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(132607);
-            return (errors, dummy_contribution(), buf);
-        };
-        let buf_len = buf.length();
-        if (buf_len == 0) return (vector[132608], dummy_contribution(), buf);
-        let has_proof = buf[0] > 0;
-        let buf = buf.slice(1, buf_len);
-        let proof = if (has_proof) {
-            let (errors, proof, remainder) = sigma_dlog::decode_proof(buf);
-            buf = remainder;
-            if (!errors.is_empty()) {
-                errors.push_back(132609);
-                return (errors, dummy_contribution(), buf);
-            };
-            option::some(proof)
-        } else {
-            option::none()
-        };
-        let ret = VerifiableContribution { public_point, proof };
-        (vector[], ret, buf)
+    public fun decode_contribution(stream: &mut BCSStream): VerifiableContribution {
+        let public_point = group::decode_element(stream);
+        let proof = bcs_stream::deserialize_option(stream, |s|sigma_dlog::decode_proof(s));
+        VerifiableContribution { public_point, proof }
     }
 
     const INF: u64 = 999999999;

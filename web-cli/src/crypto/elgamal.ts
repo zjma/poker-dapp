@@ -25,6 +25,12 @@ export class Ciphertext {
         this.c1.encode(serializer);
     }
 
+    toBytes(): Uint8Array {
+        const serializer = new Serializer();
+        this.encode(serializer);
+        return serializer.toUint8Array();   
+    }
+
     add(other: Ciphertext): Ciphertext {
         return new Ciphertext(this.encBase, this.c0.add(other.c0), this.c1.add(other.c1));
     }

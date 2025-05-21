@@ -2,13 +2,13 @@ import './styles.css';
 import { Aptos, AptosConfig, Network, Account, AccountAddress, Ed25519PrivateKey, Deserializer, Serializer } from "@aptos-labs/ts-sdk";
 import { PokerRoomStateBrief } from './poker_room';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
-import { STATE_IN_PROGRESS, STATE_SUCCEEDED } from './crypto/dkg_v0';
+import { STATE_IN_PROGRESS } from './crypto/dkg_v0';
 import { sha3_256 } from '@noble/hashes/sha3';
 
 // Global constants
 const config = new AptosConfig({ network: Network.DEVNET });
 const aptos = new Aptos(config);
-const CONTRACT_ADDRESS = '0xb11955b5b7b242317307cf22a90080d26c1fe75ff89f5514bf2f56e4703d99ec';
+const CONTRACT_ADDRESS = '0xb4417d6b6b1dd8743cb7c44fd75c401065d86e97df49474b39c8ce77747fab17';
 
 interface SavedAccount {
     address: string;
@@ -676,6 +676,8 @@ class GameApp {
         if (shuffle == null) return;
         if (shuffle.nextToContribute().toString() != this.currentAccount!.accountAddress.toString()) return;
         const contribution = shuffle.generateContribution();
+        const conHex = contribution.toHex();
+        console.log(`contribution: ${conHex}`);
         const txn = await this.client.transaction.build.simple({
             sender: this.currentAccount!.accountAddress,
             data: {

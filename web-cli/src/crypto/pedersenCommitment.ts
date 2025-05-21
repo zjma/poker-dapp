@@ -1,23 +1,31 @@
 import { Deserializer, Serializer } from "@aptos-labs/ts-sdk";
-import { Element } from "./group";
+import { Element, Scalar, msm } from "./group";
 
 export class Context {
-    basePoint: Element;
-    publicPoint: Element;
-
-    constructor(basePoint: Element, publicPoint: Element) {
-        this.basePoint = basePoint;
-        this.publicPoint = publicPoint;
+    bases: Element[];
+    constructor(bases: Element[]) {
+        this.bases = bases;
     }
 
     static decode(deserializer: Deserializer): Context {
-        const basePoint = Element.decode(deserializer);
-        const publicPoint = Element.decode(deserializer);
-        return new Context(basePoint, publicPoint);
+        const numBases = deserializer.deserializeUleb128AsU32();
+        const bases = new Array<Element>(numBases);
+        for (let i = 0; i < numBases; i++) {
+            bases[i] = Element.decode(deserializer);
+        }
+        return new Context(bases);
     }
 
     encode(serializer: Serializer): void {
-        this.basePoint.encode(serializer);
-        this.publicPoint.encode(serializer);
+        serializer.serializeU32AsUleb128(this.bases.length);
+        for (let i = 0; i < this.bases.length; i++) {
+            this.bases[i].encode(serializer);
+        }
+    }
+
+    commit(r: Scalar, vec: Scalar[]): Element {
+        const numPaddingZeros = this.bases.length - 1 - vec.length;
+        const scalars = [r, ...vec, ...Array(numPaddingZeros).fill(Scalar.fromU64(BigInt(0)))];
+        return msm(this.bases, scalars);
     }
 }

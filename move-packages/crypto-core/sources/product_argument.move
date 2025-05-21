@@ -1,8 +1,9 @@
 module crypto_core::product_argument {
     use std::vector;
+    use aptos_std::bcs_stream;
+    use aptos_std::bcs_stream::BCSStream;
     use crypto_core::pedersen_commitment;
     use crypto_core::fiat_shamir_transform;
-    use crypto_core::utils;
     use crypto_core::group;
     #[test_only]
     use aptos_framework::randomness;
@@ -30,75 +31,16 @@ module crypto_core::product_argument {
     }
 
     /// Gas cost: ~5+2n
-    public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
-        let (errors, vec_d_cmt, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(211909);
-            return (errors, dummy_proof(), buf);
-        };
-        let (errors, cmt_2, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(211910);
-            return (errors, dummy_proof(), buf);
-        };
-        let (errors, cmt_3, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(211911);
-            return (errors, dummy_proof(), buf);
-        };
-        let (errors, vec_a_tilde_len, buf) = utils::decode_uleb128(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(211912);
-            return (errors, dummy_proof(), buf);
-        };
+    public fun decode_proof(stream: &mut BCSStream): Proof {
+        let vec_d_cmt = group::decode_element(stream);
+        let cmt_2 = group::decode_element(stream);
+        let cmt_3 = group::decode_element(stream);
+        let vec_a_tilde = bcs_stream::deserialize_vector(stream, |s| group::decode_scalar(s));
+        let vec_b_tilde = bcs_stream::deserialize_vector(stream, |s| group::decode_scalar(s));
+        let r_tilde = group::decode_scalar(stream);
+        let s_tilde = group::decode_scalar(stream);
 
-        let vec_a_tilde = vector[];
-        let i = 0;
-        while (i < vec_a_tilde_len) {
-            let (errors, scalar, remainder) = group::decode_scalar(buf);
-            if (!errors.is_empty()) {
-                errors.push_back(i as u64);
-                errors.push_back(211913);
-                return (errors, dummy_proof(), buf);
-            };
-            buf = remainder;
-            vec_a_tilde.push_back(scalar);
-            i += 1;
-        };
-
-        let (errors, vec_b_tilde_len, buf) = utils::decode_uleb128(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(211914);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let vec_b_tilde = vector[];
-        let i = 0;
-        while (i < vec_b_tilde_len) {
-            let (errors, scalar, remainder) = group::decode_scalar(buf);
-            if (!errors.is_empty()) {
-                errors.push_back(i as u64);
-                errors.push_back(211915);
-                return (errors, dummy_proof(), buf);
-            };
-            buf = remainder;
-            vec_b_tilde.push_back(scalar);
-            i += 1;
-        };
-
-        let (errors, r_tilde, buf) = group::decode_scalar(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(211916);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let (errors, s_tilde, buf) = group::decode_scalar(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(211917);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let ret = Proof {
+        Proof {
             vec_d_cmt,
             cmt_2,
             cmt_3,
@@ -106,9 +48,7 @@ module crypto_core::product_argument {
             vec_b_tilde,
             r_tilde,
             s_tilde
-        };
-
-        (vector[], ret, buf)
+        }
     }
 
     #[lint::allow_unsafe_randomness]

@@ -2,13 +2,12 @@ module crypto_core::multiexp_argument {
     use std::bcs;
     use std::vector;
     use std::vector::range;
+    use aptos_std::bcs_stream;
+    use aptos_std::bcs_stream::BCSStream;
     use crypto_core::fiat_shamir_transform;
     use crypto_core::pedersen_commitment;
-    use crypto_core::utils;
     use crypto_core::elgamal;
     use crypto_core::group;
-    #[test_only]
-    use std::vector;
     #[test_only]
     use aptos_framework::randomness;
 
@@ -41,84 +40,18 @@ module crypto_core::multiexp_argument {
     }
 
     /// Gas cost: 13+n
-    public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
-        let (errors, cmt_a0, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(243333);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let (errors, b_cmt_0, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(243334);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let (errors, b_cmt_1, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(243335);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let (errors, e_0, buf) = elgamal::decode_ciphertext(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(243336);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let (errors, e_1, buf) = elgamal::decode_ciphertext(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(243337);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let (errors, a_vec_len, buf) = utils::decode_uleb128(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(243338);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let a_vec = vector[];
-        let i = 0;
-        while (i < a_vec_len) {
-            let (errors, scalar, remainder) = group::decode_scalar(buf);
-            if (!errors.is_empty()) {
-                errors.push_back(i as u64);
-                errors.push_back(243339);
-                return (errors, dummy_proof(), buf);
-            };
-            buf = remainder;
-            a_vec.push_back(scalar);
-            i += 1;
-        };
-
-        let (errors, r, buf) = group::decode_scalar(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(243340);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let (errors, b, buf) = group::decode_scalar(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(243341);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let (errors, s, buf) = group::decode_scalar(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(243342);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let (errors, tau, buf) = group::decode_scalar(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(243343);
-            return (errors, dummy_proof(), buf);
-        };
-
-        let ret = Proof { cmt_a0, b_cmt_0, b_cmt_1, e_0, e_1, a_vec, r, b, s, tau };
-
-        (vector[], ret, buf)
+    public fun decode_proof(stream: &mut BCSStream): Proof {
+        let cmt_a0 = group::decode_element(stream);
+        let b_cmt_0 = group::decode_element(stream);
+        let b_cmt_1 = group::decode_element(stream);
+        let e_0 = elgamal::decode_ciphertext(stream);
+        let e_1 = elgamal::decode_ciphertext(stream);
+        let a_vec = bcs_stream::deserialize_vector(stream, |s|group::decode_scalar(s));
+        let r = group::decode_scalar(stream);
+        let b = group::decode_scalar(stream);
+        let s = group::decode_scalar(stream);
+        let tau = group::decode_scalar(stream);
+        Proof { cmt_a0, b_cmt_0, b_cmt_1, e_0, e_1, a_vec, r, b, s, tau }
     }
 
     #[lint::allow_unsafe_randomness]

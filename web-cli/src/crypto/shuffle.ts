@@ -1,18 +1,16 @@
 import * as Elgamal from './elgamal';
 import * as PedersenCommitment from './pedersenCommitment';
-import * as SigmaDLog from './sigma_dlog';
 import { AccountAddress, Deserializer, Serializer } from '@aptos-labs/ts-sdk';
 import * as Group from './group';
-
-function range(start: number, end: number): number[] {
-    return Array.from({ length: end - start }, (_, i) => i + start);
-}
+import { bytesToHex } from '@noble/hashes/utils';
+import * as BG12 from './bg12';
+import { Transcript } from './fiat_shamir_transform';
 
 export class VerifiableContribution {
     newCiphertexts: Elgamal.Ciphertext[];
-    proof: SigmaDLog.Proof | null;
+    proof: BG12.Proof | null;
 
-    constructor(newCiphertexts: Elgamal.Ciphertext[], proof: SigmaDLog.Proof | null) {
+    constructor(newCiphertexts: Elgamal.Ciphertext[], proof: BG12.Proof | null) {
         this.newCiphertexts = newCiphertexts;
         this.proof = proof;
     }
@@ -24,7 +22,7 @@ export class VerifiableContribution {
             newCiphertexts[i] = Elgamal.Ciphertext.decode(deserializer);
         }
         const hasProof = deserializer.deserializeU8();
-        const proof = hasProof ? SigmaDLog.Proof.decode(deserializer) : null;
+        const proof = hasProof ? BG12.Proof.decode(deserializer) : null;
         return new VerifiableContribution(newCiphertexts, proof);
     }
 
@@ -43,6 +41,10 @@ export class VerifiableContribution {
         const serializer = new Serializer();
         this.encode(serializer);
         return serializer.toUint8Array();
+    }
+
+    toHex(): string {
+        return bytesToHex(this.toBytes());
     }
 }
 
@@ -82,7 +84,7 @@ export class Session {
         }
         const allowedContributors = deserializer.deserializeVector(AccountAddress);
 
-        const numContributionsExpected = deserializer.deserializeUleb128AsU32();
+        const numContributionsExpected = Number(deserializer.deserializeU64());
 
         const numDeadlines = deserializer.deserializeUleb128AsU32();
         const deadlines = new Array<number>(numDeadlines);
@@ -91,7 +93,7 @@ export class Session {
         }
 
         const status = Number(deserializer.deserializeU64());
-        const expectedContributorIdx = deserializer.deserializeUleb128AsU32();
+        const expectedContributorIdx = Number(deserializer.deserializeU64());
 
         const numContributions = deserializer.deserializeUleb128AsU32();
         const contributions = new Array<VerifiableContribution>(numContributions);
@@ -110,24 +112,28 @@ export class Session {
     }
 
     generateContribution(): VerifiableContribution {
-        const newCiphertexts = this.expectedContributorIdx == 0 ? this.initialCiphertexts : this.contributions[this.contributions.length - 1].newCiphertexts;
+        const curCiphs = this.expectedContributorIdx == 0 ? this.initialCiphertexts : this.contributions[this.contributions.length - 1].newCiphertexts;
+        const n = curCiphs.length;
 
-        // Permute
-        const n = newCiphertexts.length;
+        // Random permutation.
+        const permutation = Array.from({ length: n }, (_, i) => i);
         for (let i = n-1; i >= 0 ; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            const tmp = newCiphertexts[i];
-            newCiphertexts[i] = newCiphertexts[j];
-            newCiphertexts[j] = tmp;
+            const tmp = permutation[i];
+            permutation[i] = permutation[j];
+            permutation[j] = tmp;
         }
 
-        // Re-randomize
+        // Re-randomizers.
         const rerandomizers = Array.from({ length: n }, (_) => Group.Scalar.rand());
-        for (let i = 0; i < newCiphertexts.length; i++) {
-            const blinder = Elgamal.enc(this.encKey, rerandomizers[i], Group.Element.groupIdentity());
-            newCiphertexts[i] = newCiphertexts[i].add(blinder);
-        }
 
-        return new VerifiableContribution(newCiphertexts, null);
+        const newCiphs = Array.from({ length: n }, (_, i) => {
+            let blinder = Elgamal.enc(this.encKey, rerandomizers[i], Group.Element.groupIdentity());
+            return curCiphs[permutation[i]].add(blinder);
+        });
+
+        const trx = new Transcript();
+        const proof = BG12.prove(this.encKey, this.pedersenCtxt, trx, curCiphs, newCiphs, permutation, rerandomizers);
+        return new VerifiableContribution(newCiphs, proof);
     }
 }

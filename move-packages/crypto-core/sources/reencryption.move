@@ -7,6 +7,8 @@ module crypto_core::reencryption {
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
+    use aptos_std::bcs_stream;
+    use aptos_std::bcs_stream::BCSStream;
     use aptos_framework::timestamp;
     use crypto_core::fiat_shamir_transform;
     use crypto_core::sigma_dlog;
@@ -41,56 +43,13 @@ module crypto_core::reencryption {
         }
     }
 
-    public fun decode_reencyption(
-        buf: vector<u8>
-    ): (vector<u64>, VerifiableReencrpytion, vector<u8>) {
-        let (errors, th, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(302035);
-            return (errors, dummy_reencryption(), buf);
-        };
-        let (errors, tsh, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(302036);
-            return (errors, dummy_reencryption(), buf);
-        };
-        let (errors, urth, buf) = group::decode_element(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(302037);
-            return (errors, dummy_reencryption(), buf);
-        };
-        let buflen = buf.length();
-        if (buflen == 0) return (vector[302038], dummy_reencryption(), buf);
-        let has_proof_t = buf[0] > 0;
-        let buf = buf.slice(1, buflen);
-        let proof_t = if (has_proof_t) {
-            let (errors, proof_t, remainder) = sigma_dlog_eq::decode_proof(buf);
-            buf = remainder;
-            if (!errors.is_empty()) {
-                errors.push_back(302039);
-                return (errors, dummy_reencryption(), buf);
-            };
-            option::some(proof_t)
-        } else {
-            option::none()
-        };
-        let buflen = buf.length();
-        if (buflen == 0) return (vector[302040], dummy_reencryption(), buf);
-        let has_proof_u = buf[0] > 0;
-        let buf = buf.slice(1, buflen);
-        let proof_u = if (has_proof_u) {
-            let (errors, proof_u, remainder) = sigma_dlog::decode_proof(buf);
-            buf = remainder;
-            if (!errors.is_empty()) {
-                errors.push_back(302041);
-                return (errors, dummy_reencryption(), buf);
-            };
-            option::some(proof_u)
-        } else {
-            option::none()
-        };
-        let ret = VerifiableReencrpytion { th, tsh, urth, proof_t, proof_u };
-        (vector[], ret, buf)
+    public fun decode_reencyption(stream: &mut BCSStream): VerifiableReencrpytion {
+        let th = group::decode_element(stream);
+        let tsh = group::decode_element(stream);
+        let urth = group::decode_element(stream);
+        let proof_t = bcs_stream::deserialize_option(stream, |s| sigma_dlog_eq::decode_proof(s));
+        let proof_u = bcs_stream::deserialize_option(stream, |s| sigma_dlog::decode_proof(s));
+        VerifiableReencrpytion { th, tsh, urth, proof_t, proof_u }
     }
 
     struct Session has copy, drop, store {
@@ -232,16 +191,9 @@ module crypto_core::reencryption {
         RecipientPrivateState { u: group::dummy_scalar() }
     }
 
-    public fun decode_private_state(
-        buf: vector<u8>
-    ): (vector<u64>, RecipientPrivateState, vector<u8>) {
-        let (errors, u, buf) = group::decode_scalar(buf);
-        if (!errors.is_empty()) {
-            errors.push_back(124147);
-            return (errors, dummy_private_state(), buf);
-        };
-        let ret = RecipientPrivateState { u };
-        (vector[], ret, buf)
+    public fun decode_private_state(stream: &mut BCSStream): RecipientPrivateState {
+        let u = group::decode_scalar(stream);
+        RecipientPrivateState { u }
     }
 
     #[lint::allow_unsafe_randomness]

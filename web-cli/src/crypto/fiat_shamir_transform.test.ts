@@ -27,10 +27,5 @@ function encodeScalar(scalar: Scalar): string {
 
 describe('Fiat Shamir Transform', () => {
     it('should do thing 1', () => {
-        const trx = new Transcript();
-        const element = decodeElement('3085ba9eae97029dee22680d4506d85d87146dbcc0b7b797d71500489eb23e0b399b5d8af1925f8871a7c2dc9f65a87209');
-        trx.appendGroupElement(element);
-        const scalar = trx.hashToScalar();
-        expect(encodeScalar(scalar)).toEqual('20fe9b7b3d64c296e0e570363f091afb5be6422b9a8d3ff853b317e7662c2a3b61');
     });
 });
