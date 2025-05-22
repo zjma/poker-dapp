@@ -1,7 +1,12 @@
-import { AccountAddress, Deserializer } from '@aptos-labs/ts-sdk';
+import { AccountAddress, Deserializer, Serializer } from '@aptos-labs/ts-sdk';
 import * as Group from './group';
 import * as DKG from './dkg_v0';
-import * as SigmaDlogEq from './sigma_dlog';
+import * as SigmaDlogEq from './sigma_dlog_eq';
+import { Transcript } from './fiat_shamir_transform';
+
+export const STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE: number = 1;
+export const STATE__SUCCEEDED: number = 3;
+export const STATE__FAILED: number = 4;
 
 export class VerifiableContribution {
     payload: Group.Element;
@@ -18,26 +23,35 @@ export class VerifiableContribution {
         const proof = hasProof ? SigmaDlogEq.Proof.decode(deserializer) : null;
         return new VerifiableContribution(payload, proof);
     }
+
+    encode(serializer: Serializer): void {
+        this.payload.encode(serializer);
+        serializer.serializeU8(this.proof ? 1 : 0);
+        if (this.proof) {
+            this.proof.encode(serializer);
+        }
+    }
+    
+    toBytes(): Uint8Array {
+        const serializer = new Serializer();
+        this.encode(serializer);
+        return serializer.toUint8Array();
+    }
+    
+    
 }
 
 export class Session {
     toBeScaled: Group.Element;
     secretInfo: DKG.SharedSecretPublicInfo;
     allowedContributors: AccountAddress[];
-    /// Can be one of the following values.
-    /// - `STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE`
-    /// - `STATE__SUCCEEDED`
-    /// - `STATE__FAILED`
     state: number;
-    /// If `state == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE`, this field describes the deadline (in unix seconds).
     deadline: number;
-    /// When `state == STATE__FAILED`, this keeps track of who misbehaved.
     culprits: AccountAddress[];
-    contributions: VerifiableContribution[];
-    /// Filled once `state` is changed to `STATE__SUCCEEDED`.
+    contributions: (VerifiableContribution | null)[];
     result: Group.Element | null;
 
-    constructor(toBeScaled: Group.Element, secretInfo: DKG.SharedSecretPublicInfo, allowedContributors: AccountAddress[], state: number, deadline: number, culprits: AccountAddress[], contributions: VerifiableContribution[], result: Group.Element | null) {
+    constructor(toBeScaled: Group.Element, secretInfo: DKG.SharedSecretPublicInfo, allowedContributors: AccountAddress[], state: number, deadline: number, culprits: AccountAddress[], contributions: (VerifiableContribution | null)[], result: Group.Element | null) {
         this.toBeScaled = toBeScaled;
         this.secretInfo = secretInfo;
         this.allowedContributors = allowedContributors;
@@ -68,14 +82,39 @@ export class Session {
         }
 
         const numContributions = Number(deserializer.deserializeUleb128AsU32());
-        const contributions = new Array<VerifiableContribution>(numContributions);
+        const contributions = new Array<VerifiableContribution | null>(numContributions);
         for (let i = 0; i < numContributions; i++) {
-            contributions[i] = VerifiableContribution.decode(deserializer);
+            const hasContribution = deserializer.deserializeU8() > 0;
+            contributions[i] = hasContribution ? VerifiableContribution.decode(deserializer) : null;
         }
 
         const hasResult = deserializer.deserializeU8();
         const result = hasResult ? Group.Element.decode(deserializer) : null;
 
         return new Session(toBeScaled, secretInfo, allowedContributors, state, deadline, culprits, contributions, result);
+    }
+
+    generateContribution(me: AccountAddress, secretShare: DKG.SecretShare): VerifiableContribution {
+        if (this.state != STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE) {
+            throw new Error('Cannot generate contribution in this state');
+        }
+
+        const contributor_idx = this.allowedContributors.findIndex(c => c.toString() == me.toString());
+        if (contributor_idx == -1) {
+            throw new Error('I am not in the allowed contributors list');
+        }
+
+        const payload = this.toBeScaled.scale(secretShare.privateScalar);
+        const trx = new Transcript();
+        const proof = SigmaDlogEq.prove(
+            trx,
+            this.secretInfo.agg_ek.encBase,
+            this.secretInfo.ek_shares[contributor_idx].publicPoint,
+            this.toBeScaled,
+            payload,
+            secretShare.privateScalar
+        );
+        return new VerifiableContribution(payload, proof);
+
     }
 }

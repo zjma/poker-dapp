@@ -4,7 +4,10 @@ import { AccountAddress, Deserializer, Serializer } from '@aptos-labs/ts-sdk';
 import * as Group from './group';
 import { bytesToHex } from '@noble/hashes/utils';
 import * as BG12 from './bg12';
-import { Transcript } from './fiat_shamir_transform';
+
+export const STATE__ACCEPTING_CONTRIBUTION: number = 1;
+export const STATE__SUCCEEDED: number = 2;
+export const STATE__FAILED: number = 3;
 
 export class VerifiableContribution {
     newCiphertexts: Elgamal.Ciphertext[];
@@ -132,8 +135,8 @@ export class Session {
             return curCiphs[permutation[i]].add(blinder);
         });
 
-        const trx = new Transcript();
-        const proof = BG12.prove(this.encKey, this.pedersenCtxt, trx, curCiphs, newCiphs, permutation, rerandomizers);
-        return new VerifiableContribution(newCiphs, proof);
+        // const trx = new Transcript();
+        // const proof = BG12.prove(this.encKey, this.pedersenCtxt, trx, curCiphs, newCiphs, permutation, rerandomizers); // 1.5s
+        return new VerifiableContribution(newCiphs, null);
     }
 }

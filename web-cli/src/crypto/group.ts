@@ -1,5 +1,5 @@
 import { RistrettoPoint } from '@noble/curves/ed25519';
-import { bytesToNumberBE, bytesToNumberLE, numberToBytesBE, numberToBytesLE } from '@noble/curves/abstract/utils';
+import { bytesToHex, bytesToNumberBE, bytesToNumberLE, numberToBytesBE, numberToBytesLE } from '@noble/curves/abstract/utils';
 import { Deserializer, Serializer } from '@aptos-labs/ts-sdk';
 
 // Constants
@@ -85,8 +85,8 @@ export class Scalar {
         return new Scalar(numberToBytesLE(x, 32));
     }
     
-    static fromBigEndianBytesModQ(bytes: Uint8Array): Scalar {
-        const value = bytesToNumberBE(bytes) % Q;
+    static fromLittleEndianBytesModQ(bytes: Uint8Array): Scalar {
+        const value = bytesToNumberLE(bytes) % Q;
         return new Scalar(numberToBytesLE(value, 32));
     }
 
@@ -104,6 +104,16 @@ export class Scalar {
 
     encode(serializer: Serializer) {
         serializer.serializeBytes(this.bytes);
+    }
+
+    toBytes(): Uint8Array {
+        const serializer = new Serializer();
+        this.encode(serializer);
+        return serializer.toUint8Array();
+    }
+
+    toHex(): string {
+        return bytesToHex(this.toBytes());
     }
 
     isZero(): boolean {

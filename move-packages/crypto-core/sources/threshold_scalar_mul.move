@@ -151,6 +151,30 @@ module crypto_core::threshold_scalar_mul {
         VerifiableContribution { payload, proof }
     }
 
+    public fun decode_session(stream: &mut BCSStream): Session {
+        let to_be_scaled = group::decode_element(stream);
+        let secret_info = dkg_v0::decode_secret_info(stream);
+        let allowed_contributors = bcs_stream::deserialize_vector(stream, |s|bcs_stream::deserialize_address(s));
+        let state = bcs_stream::deserialize_u64(stream);
+        let deadline = bcs_stream::deserialize_u64(stream);
+        let culprits = bcs_stream::deserialize_vector(stream, |s|bcs_stream::deserialize_address(s));
+        let contributions = bcs_stream::deserialize_vector(stream, |s|{
+            bcs_stream::deserialize_option(s, |ss|decode_contribution(ss))
+        });
+        let result = bcs_stream::deserialize_option(stream, |s|group::decode_element(s));
+        Session {
+            to_be_scaled,
+            secret_info,
+            allowed_contributors,
+            state,
+            deadline,
+            culprits,
+            contributions,
+            result,
+        }
+
+    }
+
     #[lint::allow_unsafe_randomness]
     #[test_only]
     /// NOTE: client needs to implement this.

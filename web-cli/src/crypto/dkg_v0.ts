@@ -4,7 +4,7 @@ import * as SigmaDLog from './sigma_dlog';
 
 import * as Group from './group';
 import { EncKey } from "./elgamal";
-import { bytesToHex } from "@noble/hashes/utils";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 
 export const STATE_IN_PROGRESS = 0;
 export const STATE_SUCCEEDED = 1;
@@ -138,8 +138,18 @@ export class SecretShare {
         this.privateScalar = privateScalar;
     }
 
+    static fromBytes(bytes: Uint8Array): SecretShare {
+        const deserializer = new Deserializer(bytes);
+        return SecretShare.decode(deserializer);
+    }
+
+    static fromHex(hex: string): SecretShare {
+        return SecretShare.fromBytes(hexToBytes(hex));
+    }
+
     static decode(deserializer: Deserializer): SecretShare {
-        throw new Error("Function not implemented.");
+        const privateScalar = Scalar.decode(deserializer);
+        return new SecretShare(privateScalar);
     }
 
     encode(serializer: Serializer): void {
@@ -167,10 +177,16 @@ export class SharedSecretPublicInfo {
     }
 
     static decode(deserializer: Deserializer): SharedSecretPublicInfo {
-        throw new Error("Function not implemented.");
+        const agg_ek = EncKey.decode(deserializer);
+        const ek_shares = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => EncKey.decode(deserializer));
+        return new SharedSecretPublicInfo(agg_ek, ek_shares);
     }
 
     encode(serializer: Serializer): void {
-        throw new Error("Function not implemented.");
+        this.agg_ek.encode(serializer);
+        serializer.serializeU32AsUleb128(this.ek_shares.length);
+        for (const ek of this.ek_shares) {
+            ek.encode(serializer);
+        }
     }
 };

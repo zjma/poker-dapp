@@ -1,13 +1,14 @@
 module crypto_core::bg12 {
     use std::vector;
     use aptos_std::bcs_stream::BCSStream;
-    use aptos_framework::randomness;
     use crypto_core::fiat_shamir_transform;
     use crypto_core::pedersen_commitment;
     use crypto_core::elgamal;
     use crypto_core::product_argument;
     use crypto_core::multiexp_argument;
     use crypto_core::group;
+    #[test_only]
+    use aptos_framework::randomness;
 
     struct Proof has copy, drop, store {
         vec_a_cmt: group::Element,

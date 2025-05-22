@@ -9,7 +9,6 @@ export class Session {
     }
 
     static decode(deserializer: Deserializer): Session {
-        console.log(`remaining for deckgen: ${deserializer.remaining()}`);
         const shuffle = Shuffle.Session.decode(deserializer);
         return new Session(shuffle);
     }

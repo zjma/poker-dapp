@@ -4,6 +4,14 @@ import * as Elgamal from "./crypto/elgamal";
 import * as Group from "./crypto/group";
 import * as Shuffle from "./crypto/shuffle";
 import * as ThresholdScalarMul from "./crypto/threshold_scalar_mul";
+import * as Reencryption from "./crypto/reencryption";
+
+export const STATE__DEALING_PRIVATE_CARDS = 140658;
+export const STATE__PLAYER_BETTING = 140855;
+export const STATE__OPENING_COMMUNITY_CARDS = 141022;
+export const STATE__SHOWDOWN = 141414;
+export const STATE__SUCCEEDED = 141628;
+export const STATE__FAILED = 141629;
 
 export class Session {
     numPlayers: number;
@@ -57,11 +65,11 @@ export class Session {
     completedActionIsRaise: boolean;
     /// When `state == STATE__FAILED`, indicates who misbehaved.
     blames: boolean[];
-    privateDealingSessions: Shuffle.Session[];
+    privateDealingSessions: Reencryption.Session[];
     publicOpeningSessions: ThresholdScalarMul.Session[];
     publiclyOpenedCards: number[];
 
-    constructor(numPlayers: number, players: AccountAddress[], secretInfo: DKG.SharedSecretPublicInfo, expectedSmallBlind: number, expectedBigBlind: number, cardReps: Group.Element[], shuffledDeck: Elgamal.Ciphertext[], chipsInHand: number[], bets: number[], foldStatuses: boolean[], noMoreActionNeeded: boolean[], minRaiseStep: number, revealedPrivateCards: number[], state: number, currentActionPlayerIdx: number, currentActionDeadline: number, currentActionCompleted: boolean, completedActionIsRaise: boolean, blames: boolean[], privateDealingSessions: Shuffle.Session[], publicOpeningSessions: ThresholdScalarMul.Session[], publiclyOpenedCards: number[]) {
+    constructor(numPlayers: number, players: AccountAddress[], secretInfo: DKG.SharedSecretPublicInfo, expectedSmallBlind: number, expectedBigBlind: number, cardReps: Group.Element[], shuffledDeck: Elgamal.Ciphertext[], chipsInHand: number[], bets: number[], foldStatuses: boolean[], noMoreActionNeeded: boolean[], minRaiseStep: number, revealedPrivateCards: number[], state: number, currentActionPlayerIdx: number, currentActionDeadline: number, currentActionCompleted: boolean, completedActionIsRaise: boolean, blames: boolean[], privateDealingSessions: Reencryption.Session[], publicOpeningSessions: ThresholdScalarMul.Session[], publiclyOpenedCards: number[]) {
         this.numPlayers = numPlayers;
         this.players = players;
         this.secretInfo = secretInfo;
@@ -92,79 +100,23 @@ export class Session {
         const secretInfo = DKG.SharedSecretPublicInfo.decode(deserializer);
         const expectedSmallBlind = Number(deserializer.deserializeU64());
         const expectedBigBlind = Number(deserializer.deserializeU64());
-
-        const cardReps = new Array<Group.Element>(52);
-        for (let i = 0; i < 52; i++) {
-            cardReps[i] = Group.Element.decode(deserializer);
-        }
-
-        const shuffledDeckSize = Number(deserializer.deserializeUleb128AsU32());
-        const shuffledDeck = new Array<Elgamal.Ciphertext>(shuffledDeckSize);
-        for (let i = 0; i < shuffledDeckSize; i++) {
-            shuffledDeck[i] = Elgamal.Ciphertext.decode(deserializer);
-        }
-
-        const chipsInHandSize = Number(deserializer.deserializeUleb128AsU32());
-        const chipsInHand = new Array<number>(chipsInHandSize);
-        for (let i = 0; i < chipsInHandSize; i++) {
-            chipsInHand[i] = Number(deserializer.deserializeU64());
-        }
-
-        const betsSize = Number(deserializer.deserializeUleb128AsU32());
-        const bets = new Array<number>(betsSize);
-        for (let i = 0; i < betsSize; i++) {
-            bets[i] = Number(deserializer.deserializeU64());
-        }
-
-        const foldStatusesSize = Number(deserializer.deserializeUleb128AsU32());
-        const foldStatuses = new Array<boolean>(foldStatusesSize);
-        for (let i = 0; i < foldStatusesSize; i++) {
-            foldStatuses[i] = deserializer.deserializeBool();
-        }
-
-        const noMoreActionNeededSize = Number(deserializer.deserializeUleb128AsU32());
-        const noMoreActionNeeded = new Array<boolean>(noMoreActionNeededSize);
-        for (let i = 0; i < noMoreActionNeededSize; i++) {
-            noMoreActionNeeded[i] = deserializer.deserializeBool();
-        }
+        const cardReps = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Group.Element.decode(deserializer));
+        const shuffledDeck = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Elgamal.Ciphertext.decode(deserializer));
+        const chipsInHand = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Number(deserializer.deserializeU64()));
+        const bets = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Number(deserializer.deserializeU64()));
+        const foldStatuses = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => deserializer.deserializeBool());
+        const noMoreActionNeeded = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => deserializer.deserializeBool());
         const minRaiseStep = Number(deserializer.deserializeU64());
-
-        const revealedPrivateCardsSize = Number(deserializer.deserializeUleb128AsU32());
-        const revealedPrivateCards = new Array<number>(revealedPrivateCardsSize);
-        for (let i = 0; i < revealedPrivateCardsSize; i++) {
-            revealedPrivateCards[i] = Number(deserializer.deserializeU64());
-        }
-
+        const revealedPrivateCards = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Number(deserializer.deserializeU64()));
         const state = Number(deserializer.deserializeU64());
         const currentActionPlayerIdx = Number(deserializer.deserializeU64());
         const currentActionDeadline = Number(deserializer.deserializeU64());
         const currentActionCompleted = deserializer.deserializeBool();
         const completedActionIsRaise = deserializer.deserializeBool();
-
-        const numBlames = Number(deserializer.deserializeUleb128AsU32());
-        const blames = new Array<boolean>(numBlames);
-        for (let i = 0; i < numBlames; i++) {
-            blames[i] = deserializer.deserializeBool();
-        }
-
-        const numPrivateDealingSessions = Number(deserializer.deserializeUleb128AsU32());   
-        const privateDealingSessions = new Array<Shuffle.Session>(numPrivateDealingSessions);
-        for (let i = 0; i < numPrivateDealingSessions; i++) {
-            privateDealingSessions[i] = Shuffle.Session.decode(deserializer);
-        }
-
-        const numPublicOpeningSessions = Number(deserializer.deserializeUleb128AsU32());
-        const publicOpeningSessions = new Array<ThresholdScalarMul.Session>(numPublicOpeningSessions);
-        for (let i = 0; i < numPublicOpeningSessions; i++) {
-            publicOpeningSessions[i] = ThresholdScalarMul.Session.decode(deserializer);
-        }
-
-        const numPubliclyOpenedCards = Number(deserializer.deserializeUleb128AsU32());
-        const publiclyOpenedCards = new Array<number>(numPubliclyOpenedCards);
-        for (let i = 0; i < numPubliclyOpenedCards; i++) {
-            publiclyOpenedCards[i] = Number(deserializer.deserializeU64());
-        }
-
+        const blames = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => deserializer.deserializeBool());
+        const privateDealingSessions = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Reencryption.Session.decode(deserializer));
+        const publicOpeningSessions = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => ThresholdScalarMul.Session.decode(deserializer));
+        const publiclyOpenedCards = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Number(deserializer.deserializeU64()));
         return new Session(numPlayers, players, secretInfo, expectedSmallBlind, expectedBigBlind, cardReps, shuffledDeck, chipsInHand, bets, foldStatuses, noMoreActionNeeded, minRaiseStep, revealedPrivateCards, state, currentActionPlayerIdx, currentActionDeadline, currentActionCompleted, completedActionIsRaise, blames, privateDealingSessions, publicOpeningSessions, publiclyOpenedCards);
     }
 }

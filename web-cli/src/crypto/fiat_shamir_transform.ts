@@ -1,4 +1,4 @@
-import { sha3_512 } from '@noble/hashes/sha3';
+import { sha512 } from '@noble/hashes/sha512';
 import { Element, Scalar } from './group';
 import { Serializer } from '@aptos-labs/ts-sdk';
 
@@ -23,8 +23,8 @@ export class Transcript {
     }
 
     hashToScalar(): Scalar {
-        const digest = sha3_512(this.recorded);
-        return Scalar.fromBigEndianBytesModQ(digest);
+        const digest = sha512(this.recorded);
+        return Scalar.fromLittleEndianBytesModQ(digest);
     }
 
     clone(): Transcript {

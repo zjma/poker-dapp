@@ -81,6 +81,15 @@ module crypto_core::dkg_v0 {
         VerifiableContribution { public_point, proof }
     }
 
+    public fun decode_secret_info(stream: &mut BCSStream): SharedSecretPublicInfo {
+        let agg_ek = elgamal::decode_enc_key(stream);
+        let ek_shares = bcs_stream::deserialize_vector(stream, |s|elgamal::decode_enc_key(s));
+        SharedSecretPublicInfo {
+            agg_ek,
+            ek_shares,
+        }
+    }
+
     const INF: u64 = 999999999;
 
     #[lint::allow_unsafe_randomness]

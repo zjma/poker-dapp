@@ -1,7 +1,5 @@
 /// ElGamal encryption instantiated with bls12-381 G1.
 module crypto_core::elgamal {
-    use std::vector::range;
-    use aptos_std::bcs_stream;
     use aptos_std::bcs_stream::BCSStream;
     use crypto_core::group;
     #[test_only]
@@ -141,15 +139,6 @@ module crypto_core::elgamal {
         let c_1 = group::decode_element(stream);
         Ciphertext { enc_base, c_0, c_1 }
     }
-
-    // entry fun example_deser(breakpoint: u64) {
-    //     if (breakpoint == 0) return;
-    //     range(0, 100).for_each(|_|{
-    //         let stream = bcs_stream::new(x"201ecc0ce6fbe58776429c3e0e8f95db8fc0e5c15eac92467bc7b9a2d2c3273c0d20d80578e00c4fe5c8db0764b0e5f921fcfccf62264dfa85151b15bf6a9d96e43120240b3fe85a16d548ba4e6007c9334224932e41d20de9d99b421356977f76793b");
-    //         decode_ciphertext(&mut stream);
-    //     });
-    //     if (breakpoint == 1) return;
-    // }
 
     public fun derive_ek_from_dk(dk: &DecKey): EncKey {
         EncKey {
