@@ -3,6 +3,12 @@ import { DKGSession } from "./crypto/dkg_v0";
 import * as Hand from "./hand";
 import * as Deckgen from "./deck_gen";
 
+export const STATE__WAITING_FOR_PLAYERS: number = 1;
+export const STATE__DKG_IN_PROGRESS: number = 2;
+export const STATE__DECKGEN_IN_PROGRESS: number = 3;
+export const STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS: number = 4;
+export const STATE__CLOSED: number = 5;
+
 export class PokerRoomStateBrief {
     expectedPlayerAddresses: AccountAddress[];
     playerLivenesses: boolean[];

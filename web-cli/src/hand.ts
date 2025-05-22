@@ -2,16 +2,16 @@ import { AccountAddress, Deserializer } from "@aptos-labs/ts-sdk";
 import * as DKG from "./crypto/dkg_v0";
 import * as Elgamal from "./crypto/elgamal";
 import * as Group from "./crypto/group";
-import * as Shuffle from "./crypto/shuffle";
 import * as ThresholdScalarMul from "./crypto/threshold_scalar_mul";
 import * as Reencryption from "./crypto/reencryption";
 
-export const STATE__DEALING_PRIVATE_CARDS = 140658;
-export const STATE__PLAYER_BETTING = 140855;
-export const STATE__OPENING_COMMUNITY_CARDS = 141022;
-export const STATE__SHOWDOWN = 141414;
-export const STATE__SUCCEEDED = 141628;
-export const STATE__FAILED = 141629;
+export const STATE__DEALING_PRIVATE_CARDS: number = 140658;
+export const STATE__PLAYER_BETTING: number = 140855;
+export const STATE__OPENING_COMMUNITY_CARDS: number = 141022;
+export const STATE__SHOWDOWN: number = 141414;
+export const STATE__SUCCEEDED: number = 141628;
+export const STATE__FAILED: number = 141629;
+export const CARD__UNREVEALED: number = 0xffffffff;
 
 export class Session {
     numPlayers: number;

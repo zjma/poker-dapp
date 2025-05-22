@@ -6,7 +6,7 @@ import * as Group from './group';
 import * as SigmaDlogEq from './sigma_dlog_eq';
 import * as SigmaDlog from './sigma_dlog';
 import { Transcript } from './fiat_shamir_transform';
-import { bytesToHex, toBytes } from '@noble/hashes/utils';
+import { bytesToHex, hexToBytes, toBytes } from '@noble/hashes/utils';
 
 export const STATE__ACCEPTING_REENC = 1;
 export const STATE__THRESHOLD_SCALAR_MUL_IN_PROGRESS = 2;
@@ -22,6 +22,17 @@ export class RecipientPrivateState {
 
     encode(serializer: Serializer): void {
         this.u.encode(serializer);
+    }
+
+    static decode(deserializer: Deserializer): RecipientPrivateState {
+        const u = Group.Scalar.decode(deserializer);
+        return new RecipientPrivateState(u);
+    }
+
+    static fromHex(hex: string): RecipientPrivateState {
+        const bytes = hexToBytes(hex);
+        const deserializer = new Deserializer(bytes);
+        return RecipientPrivateState.decode(deserializer);
     }
 
     toBytes(): Uint8Array {
@@ -163,4 +174,17 @@ export class Session {
         const verifiableReencryption = new VerifiableReencryption(th, tsh, urth, proof_t, proof_u);
         return {recipientPrivateState, verifiableReencryption};
     }
+
+    reveal(private_state: RecipientPrivateState): Group.Element {
+        if (this.state != STATE__SUCCEEDED) {
+            throw new Error("Session is not in succeeded state");
+        }
+        const { u } = private_state;
+        const srth = this.threshScalarMulSession!.result!;
+        const urth = this.reenc!.c0.scale(u);
+        const blinder = srth.add(urth);
+        const plaintext = this.reenc!.c1.sub(blinder);
+        return plaintext;
+    }
+
 }

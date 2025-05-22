@@ -41,6 +41,16 @@ export class Element {
         serializer.serializeBytes(this.bytes);
     }
 
+    toBytes(): Uint8Array {
+        const serializer = new Serializer();
+        this.encode(serializer);
+        return serializer.toUint8Array();
+    }
+
+    toHex(): string {
+        return bytesToHex(this.toBytes());
+    }
+
     asInner(): any {
         return RistrettoPoint.fromHex(this.bytes);
     }

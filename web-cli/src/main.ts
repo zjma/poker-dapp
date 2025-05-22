@@ -9,6 +9,7 @@ import * as Reencryption from './crypto/reencryption';
 import * as ThresholdScalarMul from './crypto/threshold_scalar_mul';
 import * as DKG from './crypto/dkg_v0';
 import * as Shuffle from './crypto/shuffle';
+import * as PokerRoom from './poker_room';
 
 // Global constants
 const config = new AptosConfig({ network: Network.DEVNET });
@@ -85,7 +86,7 @@ class GameApp {
         this.allowedAddressesInput = document.getElementById('allowed-addresses') as HTMLTextAreaElement;
         this.client = aptos;
         
-        this.betBtn = document.getElementById('bet-or-raise-btn') as HTMLButtonElement;
+        this.betBtn = document.getElementById('my-bet-btn') as HTMLButtonElement;
         this.myBetAmount = document.getElementById('my-bet-amount') as HTMLInputElement;
         this.myBetAmount!.addEventListener('input', () => this.handleMyBetAmountChange());
         
@@ -341,12 +342,13 @@ class GameApp {
 
     private handleMyBetAmountChange(): any {
         const currentValue = parseInt(this.myBetAmount!.value, 10);
-        const allowedValues = [29, 40, 50, 60, 70, 80, 90, 100];
-        const closestValue = allowedValues.reduce((prev: number, curr: number) => {
+        const maxPossibleBet = Math.max(...this.allowedBetAmounts);
+        const minPossibleBet = Math.min(...this.allowedBetAmounts);
+        const closestValue = this.allowedBetAmounts.reduce((prev: number, curr: number) => {
             return (Math.abs(curr - currentValue) < Math.abs(prev - currentValue) ? curr : prev);
         });
         this.myBetAmount!.value = closestValue.toString();
-        this.betBtn!.textContent = closestValue == 29 ? 'CHECK' : closestValue == 100 ? 'ALL IN' : 'Bet ' + closestValue;
+        this.betBtn!.textContent = closestValue == maxPossibleBet ? 'ALL IN' : minPossibleBet == 0 && closestValue == 0 ? 'CHECK' : minPossibleBet == 0 && closestValue > 0 ? `BET ${closestValue}` : minPossibleBet > 0 && closestValue == minPossibleBet ? `CALL ${closestValue}` : `RAISE ${closestValue}`;
     }
 
     private loadSavedAccount(): SavedAccount | null {
@@ -582,84 +584,114 @@ class GameApp {
             if (playerIdx == -1) {
                 curBox!.style.display = 'none';
                 awayFlag!.style.display = 'none';
-            } else {
-                curBox!.style.display = 'block';
-                if (roomBrief.playerLivenesses[playerIdx]) {
-                    curBox!.classList.remove('player-away');
-                    curBox!.classList.add('player-at-table');   
-                    awayFlag!.style.display = 'none';
-                } else {
-                    curBox!.classList.remove('player-at-table');
-                    curBox!.classList.add('player-away');
-                    awayFlag!.style.display = 'flex';
-                }
-                const curPlayerAddr = roomBrief.expectedPlayerAddresses[playerIdx];
-                document.getElementById(`${viewPrefix}-addr`)!.textContent = rivalNumber == 0 ? "You" : curPlayerAddr.toString().slice(0, 4) + '...' + curPlayerAddr.toString().slice(-4);
-                document.getElementById(`${viewPrefix}-chips-in-hand`)!.textContent = '🪙 ' + (roomBrief.state == 4 ? roomBrief.curHand!.chipsInHand[playerIdx] : roomBrief.playerChips[playerIdx]);
-                document.getElementById(`${viewPrefix}-dealer-light`)!.style.display = roomBrief.state == 4 && roomBrief.curHand!.players[0] == curPlayerAddr? 'block' : 'none';
-                document.getElementById(`${viewPrefix}-bet`)!.textContent = roomBrief.state == 4 ? roomBrief.curHand!.bets[playerIdx].toString() : '';
-                document.getElementById(`${viewPrefix}-private-cards-area`)!.style.display = 'none';
-                let privateCardsArea = document.getElementById(`${viewPrefix}-private-cards-area`);
-                if (roomBrief.state == 4 && roomBrief.curHand!.state != 140658) {
-                    privateCardsArea!.style.display = 'block';
-                    for (let privateCardIdx = 0; privateCardIdx < 2; privateCardIdx++) {
-                        const card = roomBrief.curHand!.revealedPrivateCards[playerIdx*2+privateCardIdx];
-                        const cardHolder = document.getElementById(`${viewPrefix}-card-${privateCardIdx}`);
-                        cardHolder!.classList.remove('red-suit');
-                        cardHolder!.classList.remove('card-back');
-                        if (card) {
-                            const cardText = this.cardTextFromCardIdx(card);
-                            cardHolder!.textContent = cardText;
-                            if (cardText[2] == '♥' || cardText[2] == '♦') {
-                                cardHolder!.classList.add('red-suit');
-                            }
-                        } else {
-                            cardHolder!.textContent = '';
-                            cardHolder!.classList.add('card-back');
-                        }
-                    }
-                } else {
-                    privateCardsArea!.style.display = 'none';
-                }
-    
-                if (rivalNumber == 0) {
-                    // Self view
-                    const betControls = document.getElementById(`${viewPrefix}-bet-decision-inputs`);
-                    if (roomBrief.state == 4 && roomBrief.curHand!.state == 140855 && roomBrief.curHand!.currentActionPlayerIdx == playerIdx) {
-                        betControls!.style.display = 'block';
-                        const amountInput = document.getElementById(`${viewPrefix}-bet-amount`) as HTMLInputElement;
-                        const maxBetOnTable = roomBrief.curHand!.bets.reduce((max: number, bet: number) => Math.max(max, bet), 0);
-                        const myBet = roomBrief.curHand!.bets[playerIdx];
-                        const myChipsInHand = roomBrief.curHand!.chipsInHand[playerIdx];
-                        const minToAdd = Math.min(maxBetOnTable - myBet, myChipsInHand);
-                        amountInput!.min = minToAdd.toString();
-                        amountInput!.max = myChipsInHand.toString();
-                        amountInput!.value = minToAdd.toString();
-                        const minRaiseStep = roomBrief.curHand!.minRaiseStep;
-                        this.allowedBetAmounts = Array.from({length: myChipsInHand - minToAdd + 1}, (_, i) => minToAdd + i).filter((amount) => amount == minToAdd || amount == myChipsInHand || amount >= minToAdd + minRaiseStep);
-                    } else {
-                        betControls!.style.display = 'none';
-                    }
-
-                    const mySitBtn = document.getElementById(`my-sit-button`);
-                    if (roomBrief.playerLivenesses[playerIdx]) {
-                        mySitBtn!.style.display = 'none';
-                    } else {
-                        mySitBtn!.style.display = 'flex';
-                    }
-                }    
+                continue;
             }
+            curBox!.style.display = 'block';
+            if (roomBrief.playerLivenesses[playerIdx]) {
+                curBox!.classList.remove('player-away');
+                curBox!.classList.add('player-at-table');   
+                awayFlag!.style.display = 'none';
+            } else {
+                curBox!.classList.remove('player-at-table');
+                curBox!.classList.add('player-away');
+                awayFlag!.style.display = 'flex';
+            }
+            const curPlayerAddr = roomBrief.expectedPlayerAddresses[playerIdx];
+            document.getElementById(`${viewPrefix}-addr`)!.textContent = rivalNumber == 0 ? "You" : curPlayerAddr.toString().slice(0, 4) + '...' + curPlayerAddr.toString().slice(-4);
+            document.getElementById(`${viewPrefix}-chips-in-hand`)!.textContent = '🪙 ' + (roomBrief.state == 4 ? roomBrief.curHand!.chipsInHand[playerIdx] : roomBrief.playerChips[playerIdx]);
+            document.getElementById(`${viewPrefix}-dealer-light`)!.style.display = roomBrief.state == 4 && roomBrief.curHand!.players[0].toString() == curPlayerAddr.toString()? 'block' : 'none';
+            document.getElementById(`${viewPrefix}-bet`)!.textContent = roomBrief.state == 4 ? roomBrief.curHand!.bets[playerIdx].toString() : '';
+            let privateCardsArea = document.getElementById(`${viewPrefix}-private-cards-area`);
+            if (roomBrief.state == PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS && roomBrief.curHand!.state != Hand.STATE__DEALING_PRIVATE_CARDS) {
+                privateCardsArea!.style.display = 'block';
+                for (let privateCardIdx = 0; privateCardIdx < 2; privateCardIdx++) {
+                    const card = roomBrief.curHand!.revealedPrivateCards[playerIdx*2+privateCardIdx];
+                    this.updateCardSlot(`${viewPrefix}-card-${privateCardIdx}`, card == Hand.CARD__UNREVEALED ? null : card);
+                }
+                document.getElementById(`${viewPrefix}-fold-flag`)!.style.display = roomBrief.curHand!.foldStatuses[playerIdx] ? 'flex' : 'none';
+                console.log(`Rival ${rivalNumber} has private cards: ${roomBrief.curHand!.revealedPrivateCards[playerIdx*2]} ${roomBrief.curHand!.revealedPrivateCards[playerIdx*2+1]}`);
+            } else {
+                privateCardsArea!.style.display = 'none';
+            }
+
+            if (rivalNumber == 0) {
+                // Self view
+                if (roomBrief.curHand!.state == Hand.STATE__DEALING_PRIVATE_CARDS) {
+                    this.updateCardSlot('my-card-0', null);
+                    this.updateCardSlot('my-card-1', null);
+                    document.getElementById('my-fold-flag')!.style.display = 'none';
+                } else {
+                    const myDealing0PriSt = Reencryption.RecipientPrivateState.fromHex(localStorage.getItem(`rooms/${this.roomAddress}/hands/${roomBrief.numHandsDone}/dealings/${myPlayerIdx*2}/recipientPrivateState`)!);
+                    const myDealing1PriSt = Reencryption.RecipientPrivateState.fromHex(localStorage.getItem(`rooms/${this.roomAddress}/hands/${roomBrief.numHandsDone}/dealings/${myPlayerIdx*2+1}/recipientPrivateState`)!);
+                    const myCard0Repr = roomBrief.curHand!.privateDealingSessions[myPlayerIdx*2]!.reveal(myDealing0PriSt);
+                    const myCard1Repr = roomBrief.curHand!.privateDealingSessions[myPlayerIdx*2+1]!.reveal(myDealing1PriSt);
+                    const myCard0 = roomBrief.curHand!.cardReps.findIndex(cardRep => cardRep.toHex() == myCard0Repr.toHex());
+                    const myCard1 = roomBrief.curHand!.cardReps.findIndex(cardRep => cardRep.toHex() == myCard1Repr.toHex());
+                    if (myCard0 == -1 || myCard1 == -1) {
+                        throw new Error('Card not found');
+                    }
+                    this.updateCardSlot('my-card-0', myCard0);
+                    this.updateCardSlot('my-card-1', myCard1);
+                    document.getElementById('my-fold-flag')!.style.display = this.tableBrief!.curHand!.foldStatuses[myPlayerIdx] ? 'flex' : 'none';
+                }
+                const betControls = document.getElementById(`${viewPrefix}-bet-decision-inputs`);
+                if (roomBrief.state == PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS && roomBrief.curHand!.state == Hand.STATE__PLAYER_BETTING && roomBrief.curHand!.currentActionPlayerIdx == myPlayerIdx) {
+                    betControls!.style.display = 'block';
+                    const amountInput = document.getElementById(`${viewPrefix}-bet-amount`) as HTMLInputElement;
+                    const maxBetOnTable = roomBrief.curHand!.bets.reduce((max: number, bet: number) => Math.max(max, bet), 0);
+                    const myBet = roomBrief.curHand!.bets[playerIdx];
+                    const myChipsInHand = roomBrief.curHand!.chipsInHand[playerIdx];
+                    const minToAdd = Math.min(maxBetOnTable - myBet, myChipsInHand);
+                    amountInput!.min = minToAdd.toString();
+                    amountInput!.max = myChipsInHand.toString();
+                    amountInput!.value = minToAdd.toString();
+                    const minRaiseStep = roomBrief.curHand!.minRaiseStep;
+                    this.allowedBetAmounts = Array.from({length: myChipsInHand - minToAdd + 1}, (_, i) => minToAdd + i).filter((amount) => amount == minToAdd || amount == myChipsInHand || amount >= minToAdd + minRaiseStep);
+                } else {
+                    betControls!.style.display = 'none';
+                }
+
+                const mySitBtn = document.getElementById(`my-sit-button`);
+                if (roomBrief.playerLivenesses[playerIdx]) {
+                    mySitBtn!.style.display = 'none';
+                } else {
+                    mySitBtn!.style.display = 'flex';
+                }
+            }    
+
         }
         const inHandPublicInfo = document.getElementById('in-hand-public-info');
         const dkgOrShuffleInProgressFlag = document.getElementById('dkg-or-shuffle-in-progress-flag');
-        if (roomBrief.state == 4) {
-            inHandPublicInfo!.style.display = 'flex';
+        if (roomBrief.state == PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS) {
             dkgOrShuffleInProgressFlag!.style.display = 'none';
+            inHandPublicInfo!.style.display = 'flex';
+            document.getElementById('total-in-pot-value')!.textContent = roomBrief.curHand!.bets.reduce((sum: number, bet: number) => sum + bet, 0).toString();
+            for (let i = 0; i < 5; i++) {
+                this.updateCardSlot(`community-card-${i}`, roomBrief.curHand!.publiclyOpenedCards[i] ?? null);
+            }
         } else {
             inHandPublicInfo!.style.display = 'none';
             dkgOrShuffleInProgressFlag!.style.display = 'flex';
         }
         
+    }
+
+    private updateCardSlot(htmlId: string, cardIdx: number | null) {
+        const cardHolder = document.getElementById(htmlId)!;
+        cardHolder.classList.remove('red-suit');
+        cardHolder.classList.remove('card-back');
+        cardHolder.classList.remove('card');
+        cardHolder.textContent = '';
+        if (cardIdx == null) {
+            cardHolder.classList.add('card-back');
+        } else {
+            cardHolder.classList.add('card');
+            const cardText = this.cardTextFromCardIdx(cardIdx);
+            cardHolder.textContent = cardText;
+            if (cardText[1] == '♥' || cardText[1] == '♦') {
+                cardHolder!.classList.add('red-suit');
+            }
+        }
     }
 
     private cardTextFromCardIdx(cardIdx: number) {
