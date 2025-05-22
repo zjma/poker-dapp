@@ -417,6 +417,7 @@ module poker_game::hand {
                     hand.current_action_player_idx = actor_idx;
                     hand.current_action_deadline = now_secs + INF;
                     hand.current_action_completed = false;
+                    // TODO: reset min raise step
                 } else if (num_opening_sessions_created == 5) {
                     // Showdown should follow.
                     hand.state = STATE__SHOWDOWN;
