@@ -41,28 +41,29 @@ export class VerifiableContribution {
     
 }
 
-export class Session {
+export class SessionBrief {
+    addr: AccountAddress;
     toBeScaled: Group.Element;
     secretInfo: DKG.SharedSecretPublicInfo;
     allowedContributors: AccountAddress[];
     state: number;
     deadline: number;
-    culprits: AccountAddress[];
-    contributions: (VerifiableContribution | null)[];
+    contributedFlags: boolean[];
     result: Group.Element | null;
 
-    constructor(toBeScaled: Group.Element, secretInfo: DKG.SharedSecretPublicInfo, allowedContributors: AccountAddress[], state: number, deadline: number, culprits: AccountAddress[], contributions: (VerifiableContribution | null)[], result: Group.Element | null) {
+    constructor(addr: AccountAddress, toBeScaled: Group.Element, secretInfo: DKG.SharedSecretPublicInfo, allowedContributors: AccountAddress[], state: number, deadline: number, contributedFlags: boolean[], result: Group.Element | null) {
+        this.addr = addr;
         this.toBeScaled = toBeScaled;
         this.secretInfo = secretInfo;
         this.allowedContributors = allowedContributors;
         this.state = state;
         this.deadline = deadline;
-        this.culprits = culprits;
-        this.contributions = contributions;
+        this.contributedFlags = contributedFlags;
         this.result = result;
     }
 
-    static decode(deserializer: Deserializer): Session {
+    static decode(deserializer: Deserializer): SessionBrief {
+        const addr = deserializer.deserialize(AccountAddress);
         const toBeScaled = Group.Element.decode(deserializer);
         const secretInfo = DKG.SharedSecretPublicInfo.decode(deserializer);
 
@@ -75,23 +76,39 @@ export class Session {
         const state = Number(deserializer.deserializeU64());
         const deadline = Number(deserializer.deserializeU64());
 
-        const numCulprits = Number(deserializer.deserializeUleb128AsU32());
-        const culprits = new Array<AccountAddress>(numCulprits);
-        for (let i = 0; i < numCulprits; i++) {
-            culprits[i] = deserializer.deserialize(AccountAddress);
-        }
-
         const numContributions = Number(deserializer.deserializeUleb128AsU32());
-        const contributions = new Array<VerifiableContribution | null>(numContributions);
+        const contributedFlags = new Array<boolean>(numContributions);
         for (let i = 0; i < numContributions; i++) {
-            const hasContribution = deserializer.deserializeU8() > 0;
-            contributions[i] = hasContribution ? VerifiableContribution.decode(deserializer) : null;
+            contributedFlags[i] = deserializer.deserializeBool();
         }
 
-        const hasResult = deserializer.deserializeU8();
+        const hasResult = deserializer.deserializeU8() === 1;
         const result = hasResult ? Group.Element.decode(deserializer) : null;
 
-        return new Session(toBeScaled, secretInfo, allowedContributors, state, deadline, culprits, contributions, result);
+        return new SessionBrief(addr, toBeScaled, secretInfo, allowedContributors, state, deadline, contributedFlags, result);
+    }
+
+    encode(serializer: Serializer): void {
+        serializer.serialize(this.addr);
+        this.toBeScaled.encode(serializer);
+        this.secretInfo.encode(serializer);
+        serializer.serializeVector(this.allowedContributors);
+        serializer.serializeU64(this.state);
+        serializer.serializeU64(this.deadline);
+        serializer.serializeU32AsUleb128(this.contributedFlags.length);
+        for (const flag of this.contributedFlags) {
+            serializer.serializeBool(flag);
+        }
+        serializer.serializeU8(this.result ? 1 : 0);
+        if (this.result) {
+            this.result.encode(serializer);
+        }
+    }
+
+    toBytes(): Uint8Array {
+        const serializer = new Serializer();
+        this.encode(serializer);
+        return serializer.toUint8Array();
     }
 
     generateContribution(me: AccountAddress, secretShare: DKG.SecretShare): VerifiableContribution {

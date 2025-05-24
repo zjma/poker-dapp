@@ -38,9 +38,7 @@ export function prove(trx: Transcript, b0: Group.Element, p0: Group.Element, b1:
     const t1 = b1.scale(r);
     trx.appendGroupElement(t0);
     trx.appendGroupElement(t1);
-    console.log(`trx: ${bytesToHex(trx.recorded)}`);
     const c = trx.hashToScalar();
-    console.log(`c: ${c.toHex()}`);
     const s_prime = c.mul(s).add(r);
     return new Proof(t0, t1, s_prime);
 }

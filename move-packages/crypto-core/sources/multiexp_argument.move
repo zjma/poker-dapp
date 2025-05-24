@@ -61,8 +61,8 @@ module crypto_core::multiexp_argument {
         pedersen_ctxt: &pedersen_commitment::Context,
         trx: &mut fiat_shamir_transform::Transcript,
         vec_c: &vector<elgamal::Ciphertext>,
-        c: &elgamal::Ciphertext,
-        vec_a_cmt: &group::Element,
+        _c: &elgamal::Ciphertext,
+        _vec_a_cmt: &group::Element,
         vec_a: &vector<group::Scalar>,
         r: &group::Scalar,
         rho: &group::Scalar

@@ -12,18 +12,21 @@ module crypto_core::dkg_v0 {
     use std::vector;
     use aptos_std::bcs_stream;
     use aptos_std::bcs_stream::BCSStream;
+    use aptos_framework::object;
     use aptos_framework::timestamp;
     use crypto_core::fiat_shamir_transform;
     use crypto_core::sigma_dlog;
     use crypto_core::elgamal::EncKey;
     use crypto_core::elgamal;
     use crypto_core::group;
+    #[test_only]
+    use std::bcs;
 
     const STATE__IN_PROGRESS: u64 = 0;
     const STATE__SUCCEEDED: u64 = 1;
     const STATE__TIMED_OUT: u64 = 2;
 
-    struct DKGSession has copy, drop, store {
+    struct Session has copy, drop, key, store {
         base_point: group::Element,
         expected_contributors: vector<address>,
         deadline: u64,
@@ -32,6 +35,16 @@ module crypto_core::dkg_v0 {
         contribution_still_needed: u64,
         agg_public_point: group::Element,
         culprits: vector<address>,
+    }
+
+    struct SessionBrief has drop, store {
+        addr: address,
+        base_point: group::Element,
+        expected_contributors: vector<address>,
+        deadline: u64,
+        state: u64,
+        contributed_flags: vector<bool>,
+        agg_public_point: group::Element,
     }
 
     struct VerifiableContribution has copy, drop, store {
@@ -44,12 +57,13 @@ module crypto_core::dkg_v0 {
     }
 
     struct SharedSecretPublicInfo has copy, drop, store {
+        session_addr: address,
         agg_ek: elgamal::EncKey,
         ek_shares: vector<elgamal::EncKey>
     }
 
-    public fun dummy_session(): DKGSession {
-        DKGSession {
+    public fun dummy_session(): Session {
+        Session {
             base_point: group::group_identity(),
             expected_contributors: vector[],
             deadline: 0,
@@ -70,6 +84,7 @@ module crypto_core::dkg_v0 {
 
     public fun dummy_secret_info(): SharedSecretPublicInfo {
         SharedSecretPublicInfo {
+            session_addr: @0x0,
             agg_ek: elgamal::dummy_enc_key(),
             ek_shares: vector[]
         }
@@ -82,9 +97,11 @@ module crypto_core::dkg_v0 {
     }
 
     public fun decode_secret_info(stream: &mut BCSStream): SharedSecretPublicInfo {
+        let session_addr = bcs_stream::deserialize_address(stream);
         let agg_ek = elgamal::decode_enc_key(stream);
         let ek_shares = bcs_stream::deserialize_vector(stream, |s|elgamal::decode_enc_key(s));
         SharedSecretPublicInfo {
+            session_addr,
             agg_ek,
             ek_shares,
         }
@@ -93,9 +110,9 @@ module crypto_core::dkg_v0 {
     const INF: u64 = 999999999;
 
     #[lint::allow_unsafe_randomness]
-    public fun new_session(expected_contributors: vector<address>): DKGSession {
+    public fun new_session(owner: address, expected_contributors: vector<address>): address {
         let num_players = expected_contributors.length();
-        DKGSession {
+        let new_session = Session {
             base_point: group::rand_element(),
             expected_contributors,
             deadline: timestamp::now_seconds() + INF,
@@ -104,28 +121,36 @@ module crypto_core::dkg_v0 {
             contribution_still_needed: expected_contributors.length(),
             agg_public_point: group::group_identity(),
             culprits: vector[]
-        }
+        };
+        let session_holder = object::generate_signer(&object::create_sticky_object(owner));
+        move_to(&session_holder, new_session);
+        address_of(&session_holder)
     }
 
-    public fun succeeded(dkg_session: &DKGSession): bool {
+    public fun succeeded(session_addr: address): bool acquires Session {
+        let dkg_session = borrow_global<Session>(session_addr);
         dkg_session.state == STATE__SUCCEEDED
     }
 
-    public fun failed(dkg_session: &DKGSession): bool {
+    public fun failed(session_addr: address): bool acquires Session {
+        let dkg_session = borrow_global<Session>(session_addr);
         dkg_session.state == STATE__TIMED_OUT
     }
 
-    public fun get_culprits(dkg_session: &DKGSession): vector<address> {
+    public fun get_culprits(session_addr: address): vector<address> acquires Session {
+        let dkg_session = borrow_global<Session>(session_addr);
         dkg_session.culprits
     }
 
-    public fun get_contributors(dkg_session: &DKGSession): vector<address> {
+    public fun get_contributors(session_addr: address): vector<address> acquires Session {
+        let dkg_session = borrow_global<Session>(session_addr);
         assert!(dkg_session.state == STATE__SUCCEEDED, 191253);
         dkg_session.expected_contributors
     }
 
     /// Anyone can call this to trigger state transitions for the given DKG.
-    public fun state_update(dkg_session: &mut DKGSession) {
+    public entry fun state_update(session_addr: address) acquires Session {
+        let dkg_session = borrow_global_mut<Session>(session_addr);
         if (dkg_session.state == STATE__IN_PROGRESS) {
             if (dkg_session.contribution_still_needed == 0) {
                 dkg_session.contributions.for_each_ref(|contri| {
@@ -150,15 +175,16 @@ module crypto_core::dkg_v0 {
     }
 
     /// Gas cost: 5.44
-    public fun process_contribution(
+    public entry fun process_contribution(
         contributor: &signer,
-        session: &mut DKGSession,
-        contribution: VerifiableContribution,
-    ) {
+        session_addr: address,
+        contribution_bytes: vector<u8>,
+    ) acquires Session {
+        let session = borrow_global_mut<Session>(session_addr);
         let contributor_addr = address_of(contributor);
         let (found, contributor_idx) = session.expected_contributors.index_of(&contributor_addr);
         assert!(found, 124130);
-
+        let contribution = decode_contribution(&mut bcs_stream::new(contribution_bytes));
         if (contribution.proof.is_some()) {
             let proof = contribution.proof.borrow();
             let trx = fiat_shamir_transform::new_transcript();
@@ -171,7 +197,23 @@ module crypto_core::dkg_v0 {
         session.contributions[contributor_idx].fill(contribution);
     }
 
-    public fun get_shared_secret_public_info(session: &DKGSession): SharedSecretPublicInfo {
+    #[view]
+    public fun brief(session_addr: address): SessionBrief acquires Session {
+        let session = borrow_global<Session>(session_addr);
+        SessionBrief {
+            addr: session_addr,
+            base_point: session.base_point,
+            expected_contributors: session.expected_contributors,
+            deadline: session.deadline,
+            state: session.state,
+            contributed_flags: session.contributions.map_ref(|c|c.is_some()),
+            agg_public_point: session.agg_public_point,
+
+        }
+    }
+
+    public fun get_shared_secret_public_info(session_addr: address): SharedSecretPublicInfo acquires Session {
+        let session = borrow_global<Session>(session_addr);
         assert!(session.state == STATE__SUCCEEDED, 193709);
         let agg_ek = elgamal::make_enc_key(session.base_point, session.agg_public_point);
         let ek_shares = session.contributions.map_ref(|contri| {
@@ -179,14 +221,14 @@ module crypto_core::dkg_v0 {
             let contribution = *contri.borrow();
             elgamal::make_enc_key(session.base_point, contribution.public_point)
         });
-        SharedSecretPublicInfo { agg_ek, ek_shares }
+        SharedSecretPublicInfo { session_addr, agg_ek, ek_shares }
     }
 
     public fun unpack_shared_secret_public_info(
         info: SharedSecretPublicInfo
-    ): (EncKey, vector<EncKey>) {
-        let SharedSecretPublicInfo { agg_ek, ek_shares } = info;
-        (agg_ek, ek_shares)
+    ): (address, EncKey, vector<EncKey>) {
+        let SharedSecretPublicInfo { session_addr, agg_ek, ek_shares } = info;
+        (session_addr, agg_ek, ek_shares)
     }
 
     public fun unpack_secret_share(secret_share: SecretShare): group::Scalar {
@@ -215,8 +257,8 @@ module crypto_core::dkg_v0 {
     #[lint::allow_unsafe_randomness]
     #[test_only]
     /// NOTE: client needs to implement this.
-    public fun generate_contribution(session: &DKGSession):
-        (SecretShare, VerifiableContribution) {
+    public fun generate_contribution(session_addr: address): (SecretShare, VerifiableContribution) acquires Session {
+        let session = borrow_global<Session>(session_addr);
         let private_scalar = group::rand_scalar();
         let secret_share = SecretShare { private_scalar };
         let public_point = group::scale_element(&session.base_point, &private_scalar);
@@ -235,21 +277,21 @@ module crypto_core::dkg_v0 {
     #[test_only]
     /// An example DKG done by Alice, Bob, Eric.
     public fun run_example_session(
-        alice: &signer, bob: &signer, eric: &signer
-    ): (SharedSecretPublicInfo, SecretShare, SecretShare, SecretShare) {
+        upper_level_session_addr: address, alice: &signer, bob: &signer, eric: &signer
+    ): (SharedSecretPublicInfo, SecretShare, SecretShare, SecretShare) acquires Session {
         let alice_addr = address_of(alice);
         let bob_addr = address_of(bob);
         let eric_addr = address_of(eric);
-        let session = new_session(vector[alice_addr, bob_addr, eric_addr]);
-        let (alice_secret_share, alice_contribution) = generate_contribution(&session);
-        let (bob_secret_share, bob_contribution) = generate_contribution(&session);
-        let (eric_secret_share, eric_contribution) = generate_contribution(&session);
-        process_contribution(alice, &mut session, alice_contribution);
-        process_contribution(bob, &mut session, bob_contribution);
-        process_contribution(eric, &mut session, eric_contribution);
-        state_update(&mut session);
-        assert!(succeeded(&session), 999);
-        let public_info = get_shared_secret_public_info(&session);
+        let dkg_session_addr = new_session(upper_level_session_addr, vector[alice_addr, bob_addr, eric_addr]);
+        let (alice_secret_share, alice_contribution) = generate_contribution(dkg_session_addr);
+        let (bob_secret_share, bob_contribution) = generate_contribution(dkg_session_addr);
+        let (eric_secret_share, eric_contribution) = generate_contribution(dkg_session_addr);
+        process_contribution(alice, dkg_session_addr, bcs::to_bytes(&alice_contribution));
+        process_contribution(bob, dkg_session_addr, bcs::to_bytes(&bob_contribution));
+        process_contribution(eric, dkg_session_addr, bcs::to_bytes(&eric_contribution));
+        state_update(dkg_session_addr);
+        assert!(succeeded(dkg_session_addr), 999);
+        let public_info = get_shared_secret_public_info(dkg_session_addr);
         (public_info, alice_secret_share, bob_secret_share, eric_secret_share)
     }
 

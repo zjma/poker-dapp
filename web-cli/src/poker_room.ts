@@ -1,7 +1,7 @@
 import { AccountAddress, Deserializer } from "@aptos-labs/ts-sdk"
-import { DKGSession } from "./crypto/dkg_v0";
 import * as Hand from "./hand";
 import * as Deckgen from "./deck_gen";
+import * as DKG from "./crypto/dkg_v0";
 
 export const STATE__WAITING_FOR_PLAYERS: number = 1;
 export const STATE__DKG_IN_PROGRESS: number = 2;
@@ -9,20 +9,22 @@ export const STATE__DECKGEN_IN_PROGRESS: number = 3;
 export const STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS: number = 4;
 export const STATE__CLOSED: number = 5;
 
-export class PokerRoomStateBrief {
+export class SessionBrief {
+    addr: AccountAddress;
     expectedPlayerAddresses: AccountAddress[];
     playerLivenesses: boolean[];
     playerChips: number[];
     lastButtonPosition: number;
     state: number;
-    curHand: Hand.Session | null;
+    curHand: Hand.SessionBrief | null;
     numHandsDone: number;
     numDKGsDone: number;
     numDeckgensDone: number;
-    curDKGSession: DKGSession | null;
-    curDeckgenSession: Deckgen.Session | null;
+    curDKGSession: DKG.SessionBrief | null;
+    curDeckgenSession: Deckgen.SessionBrief | null;
     
-    constructor(expectedPlayerAddresses: AccountAddress[], playerLivenesses: boolean[], playerChips: number[], lastButtonPosition: number, state: number, curHand: Hand.Session | null, numHandsDone: number, numDKGsDone: number, numDeckgensDone: number, curDKGSession: DKGSession | null, curDeckgenSession: Deckgen.Session | null) {
+    constructor(addr: AccountAddress, expectedPlayerAddresses: AccountAddress[], playerLivenesses: boolean[], playerChips: number[], lastButtonPosition: number, state: number, curHand: Hand.SessionBrief | null, numHandsDone: number, numDKGsDone: number, numDeckgensDone: number, curDKGSession: DKG.SessionBrief | null, curDeckgenSession: Deckgen.SessionBrief | null) {
+        this.addr = addr;
         this.expectedPlayerAddresses = expectedPlayerAddresses;
         this.playerLivenesses = playerLivenesses;
         this.playerChips = playerChips;
@@ -36,7 +38,8 @@ export class PokerRoomStateBrief {
         this.curDeckgenSession = curDeckgenSession;
     }
 
-    static decode(deserializer: Deserializer): PokerRoomStateBrief {
+    static decode(deserializer: Deserializer): SessionBrief {
+        const addr = deserializer.deserialize(AccountAddress);
         const expectedPlayerAddresses = deserializer.deserializeVector(AccountAddress);
 
         const numPlayerLivenesses = deserializer.deserializeUleb128AsU32();
@@ -55,19 +58,18 @@ export class PokerRoomStateBrief {
         const state = Number(deserializer.deserializeU64());
 
         const hasCurHand = deserializer.deserializeU8();
-        const curHand = hasCurHand > 0 ? Hand.Session.decode(deserializer) : null;
+        const curHand = hasCurHand > 0 ? Hand.SessionBrief.decode(deserializer) : null;
 
         const numHandsDone = Number(deserializer.deserializeU64());
         const numDKGsDone = Number(deserializer.deserializeU64());
         const numDeckgensDone = Number(deserializer.deserializeU64());
 
         const hasCurDKGSession = deserializer.deserializeU8();
-        const curDKGSession = hasCurDKGSession > 0 ? DKGSession.decode(deserializer) : null;
+        const curDKGSession = hasCurDKGSession > 0 ? DKG.SessionBrief.decode(deserializer) : null;
 
         const hasCurDeckgenSession = deserializer.deserializeU8();
-        const curDeckgenSession = hasCurDeckgenSession > 0 ? Deckgen.Session.decode(deserializer) : null;
+        const curDeckgenSession = hasCurDeckgenSession > 0 ? Deckgen.SessionBrief.decode(deserializer) : null;
 
-        return new PokerRoomStateBrief(expectedPlayerAddresses, playerLivenesses, playerChips, lastButtonPosition, state, curHand, numHandsDone, numDKGsDone, numDeckgensDone, curDKGSession, curDeckgenSession);
-    }
-    
+        return new SessionBrief(addr, expectedPlayerAddresses, playerLivenesses, playerChips, lastButtonPosition, state, curHand, numHandsDone, numDKGsDone, numDeckgensDone, curDKGSession, curDeckgenSession);
+    }   
 }

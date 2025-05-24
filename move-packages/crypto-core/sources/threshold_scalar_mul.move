@@ -8,12 +8,15 @@ module crypto_core::threshold_scalar_mul {
     use std::vector::range;
     use aptos_std::bcs_stream;
     use aptos_std::bcs_stream::BCSStream;
+    use aptos_framework::object;
     use aptos_framework::timestamp;
     use crypto_core::elgamal;
     use crypto_core::fiat_shamir_transform;
     use crypto_core::sigma_dlog_eq;
     use crypto_core::dkg_v0;
     use crypto_core::group;
+    #[test_only]
+    use std::bcs;
     #[test_only]
     use aptos_framework::randomness;
 
@@ -26,7 +29,7 @@ module crypto_core::threshold_scalar_mul {
         proof: Option<sigma_dlog_eq::Proof>,
     }
 
-    struct Session has copy, drop, store {
+    struct Session has copy, drop, key, store {
         to_be_scaled: group::Element,
         secret_info: dkg_v0::SharedSecretPublicInfo,
         allowed_contributors: vector<address>,
@@ -44,6 +47,32 @@ module crypto_core::threshold_scalar_mul {
         result: Option<group::Element>
     }
 
+    struct SessionBrief has drop, store {
+        addr: address,
+        to_be_scaled: group::Element,
+        secret_info: dkg_v0::SharedSecretPublicInfo,
+        allowed_contributors: vector<address>,
+        state: u64,
+        deadline: u64,
+        contributed_flags: vector<bool>,
+        result: Option<group::Element>,
+    }
+
+    #[view]
+    public fun brief(addr: address): SessionBrief acquires Session {
+        let session  = borrow_global<Session>(addr);
+        SessionBrief {
+            addr,
+            to_be_scaled: session.to_be_scaled,
+            secret_info: session.secret_info,
+            allowed_contributors: session.allowed_contributors,
+            state: session.state,
+            deadline: session.deadline,
+            contributed_flags: session.contributions.map_ref(|maybe_contri|maybe_contri.is_some()),
+            result: session.result,
+        }
+    }
+
     public fun dummy_contribution(): VerifiableContribution {
         VerifiableContribution {
             payload: group::dummy_element(),
@@ -52,13 +81,14 @@ module crypto_core::threshold_scalar_mul {
     }
 
     public fun new_session(
+        owner_addr: address,
         to_be_scaled: group::Element,
         secret_info: dkg_v0::SharedSecretPublicInfo,
         allowed_contributors: vector<address>,
-        deadline: u64
-    ): Session {
+        deadline: u64,
+    ): address {
         let n = allowed_contributors.length();
-        Session {
+        let sess = Session {
             to_be_scaled,
             secret_info,
             allowed_contributors,
@@ -67,10 +97,15 @@ module crypto_core::threshold_scalar_mul {
             culprits: vector[],
             contributions: range(0, n).map(|_| option::none()),
             result: option::none()
-        }
+        };
+        let cons_ref = object::create_object(owner_addr);
+        let session_holder = object::generate_signer(&cons_ref);
+        move_to(&session_holder, sess);
+        address_of(&session_holder)
     }
 
-    public fun state_update(session: &mut Session) {
+    public entry fun state_update(session_addr: address) acquires Session {
+        let session = borrow_global_mut<Session>(session_addr);
         if (session.state == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE) {
             let now_sec = timestamp::now_seconds();
             let n = session.allowed_contributors.length();
@@ -108,17 +143,19 @@ module crypto_core::threshold_scalar_mul {
     }
 
     /// Gas cost: 10.88
-    public fun process_contribution(
-        contributor: &signer, session: &mut Session, contribution: VerifiableContribution
-    ) {
+    public entry fun process_contribution(
+        contributor: &signer, session_addr: address, contribution_bytes: vector<u8>
+    ) acquires Session {
+        let session = borrow_global_mut<Session>(session_addr);
         assert!(session.state == STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE, 164507);
         let addr = address_of(contributor);
         let (found, idx) = session.allowed_contributors.index_of(&addr);
         assert!(found, 164508);
+        let contribution = decode_contribution(&mut bcs_stream::new(contribution_bytes));
         if (contribution.proof.is_some()) {
             let proof = contribution.proof.borrow();
             let trx = fiat_shamir_transform::new_transcript();
-            let (_, ek_shares) = dkg_v0::unpack_shared_secret_public_info(session.secret_info);
+            let (_, _, ek_shares) = dkg_v0::unpack_shared_secret_public_info(session.secret_info);
             let (enc_base, public_point) = elgamal::unpack_enc_key(ek_shares[idx]);
             assert!(sigma_dlog_eq::verify(&mut trx, &enc_base, &public_point, &session.to_be_scaled, &contribution.payload, proof), 164509);
         } else {
@@ -127,20 +164,24 @@ module crypto_core::threshold_scalar_mul {
         session.contributions[idx].fill(contribution);
     }
 
-    public fun succeeded(session: &Session): bool {
+    public fun succeeded(session_addr: address): bool acquires Session {
+        let session = borrow_global<Session>(session_addr);
         session.state == STATE__SUCCEEDED
     }
 
-    public fun failed(session: &Session): bool {
+    public fun failed(session_addr: address): bool acquires Session {
+        let session = borrow_global<Session>(session_addr);
         session.state == STATE__FAILED
     }
 
-    public fun get_culprits(session: &Session): vector<address> {
+    public fun culprits(session_addr: address): vector<address> acquires Session {
+        let session = borrow_global<Session>(session_addr);
         assert!(session.state == STATE__FAILED, 180858);
         session.culprits
     }
 
-    public fun get_result(session: &Session): group::Element {
+    public fun result(session_addr: address): group::Element acquires Session {
+        let session = borrow_global<Session>(session_addr);
         assert!(session.state == STATE__SUCCEEDED, 165045);
         *session.result.borrow()
     }
@@ -179,12 +220,13 @@ module crypto_core::threshold_scalar_mul {
     #[test_only]
     /// NOTE: client needs to implement this.
     public fun generate_contribution(
-        contributor: &signer, session: &Session, secret_share: &dkg_v0::SecretShare
-    ): VerifiableContribution {
+        contributor: &signer, session_addr: address, secret_share: &dkg_v0::SecretShare
+    ): VerifiableContribution acquires Session {
+        let session = borrow_global<Session>(session_addr);
         let contributor_addr = address_of(contributor);
         let (found, contributor_idx) = session.allowed_contributors.index_of(&contributor_addr);
         assert!(found, 310240);
-        let (_agg_ek, ek_shares) =
+        let (_, _agg_ek, ek_shares) =
             dkg_v0::unpack_shared_secret_public_info(session.secret_info);
         let (enc_base, public_point) =
             elgamal::unpack_enc_key(ek_shares[contributor_idx]);
@@ -203,44 +245,47 @@ module crypto_core::threshold_scalar_mul {
     }
 
     #[test(
-        framework = @0x1, alice = @0xaaaa, bob = @0xbbbb, eric = @0xeeee
+        framework = @0x1, upper_level_session_holder = @0x0123abcd, alice = @0xaaaa, bob = @0xbbbb, eric = @0xeeee
     )]
     fun example(
         framework: signer,
+        upper_level_session_holder: signer,
         alice: signer,
         bob: signer,
         eric: signer
-    ) {
+    ) acquires Session {
         randomness::initialize_for_testing(&framework);
         timestamp::set_time_has_started_for_testing(&framework);
 
+        let upper_level_session_addr = address_of(&upper_level_session_holder);
         let alice_addr = address_of(&alice);
         let bob_addr = address_of(&bob);
         let eric_addr = address_of(&eric);
         let (secret_public_info, alice_secret_share, bob_secret_share, eric_secret_share) =
 
-            dkg_v0::run_example_session(&alice, &bob, &eric);
+            dkg_v0::run_example_session(upper_level_session_addr, &alice, &bob, &eric);
         let now_secs = timestamp::now_seconds();
         let target = group::rand_element();
-        let session =
+        let session_addr =
             new_session(
+                bob_addr,
                 target,
                 secret_public_info,
                 vector[alice_addr, bob_addr, eric_addr],
                 now_secs + 5
             );
         let alice_contribution =
-            generate_contribution(&alice, &session, &alice_secret_share);
-        let bob_contribution = generate_contribution(&bob, &session, &bob_secret_share);
+            generate_contribution(&alice, session_addr, &alice_secret_share);
+        let bob_contribution = generate_contribution(&bob, session_addr, &bob_secret_share);
         let eric_contribution = generate_contribution(
-            &eric, &session, &eric_secret_share
+            &eric, session_addr, &eric_secret_share
         );
-        process_contribution(&alice, &mut session, alice_contribution);
-        process_contribution(&bob, &mut session, bob_contribution);
-        process_contribution(&eric, &mut session, eric_contribution);
-        state_update(&mut session);
-        assert!(succeeded(&session), 161938);
-        let actual_result = get_result(&session);
+        process_contribution(&alice, session_addr, bcs::to_bytes(&alice_contribution));
+        process_contribution(&bob, session_addr, bcs::to_bytes(&bob_contribution));
+        process_contribution(&eric, session_addr, bcs::to_bytes(&eric_contribution));
+        state_update(session_addr);
+        assert!(succeeded(session_addr), 161938);
+        let actual_result = result(session_addr);
         let reconstructed_secret =
             dkg_v0::reconstruct_secret(
                 &secret_public_info,

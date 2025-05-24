@@ -6,7 +6,7 @@ import * as Group from './group';
 import * as SigmaDlogEq from './sigma_dlog_eq';
 import * as SigmaDlog from './sigma_dlog';
 import { Transcript } from './fiat_shamir_transform';
-import { bytesToHex, hexToBytes, toBytes } from '@noble/hashes/utils';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 
 export const STATE__ACCEPTING_REENC = 1;
 export const STATE__THRESHOLD_SCALAR_MUL_IN_PROGRESS = 2;
@@ -86,7 +86,8 @@ export class VerifiableReencryption {
     }
 }
 
-export class Session {
+export class SessionBrief {
+    addr: AccountAddress;
     card: Elgamal.Ciphertext;
     dealTarget: AccountAddress;
     scalarMulParty: AccountAddress[];
@@ -95,10 +96,10 @@ export class Session {
     state: number;
     deadline: number;
     reenc: Elgamal.Ciphertext | null;
-    threshScalarMulSession: ThresholdScalarMul.Session | null;
-    culprits: AccountAddress[];
-    
-    constructor(card: Elgamal.Ciphertext, deal_target: AccountAddress, scalar_mul_party: AccountAddress[], secret_info: DKG.SharedSecretPublicInfo, scalar_mul_deadline: number, state: number, deadline: number, reenc: Elgamal.Ciphertext | null, thresh_scalar_mul_session: ThresholdScalarMul.Session | null, culprits: AccountAddress[]) {
+    threshScalarMulSession: ThresholdScalarMul.SessionBrief | null;
+
+    constructor(addr: AccountAddress, card: Elgamal.Ciphertext, deal_target: AccountAddress, scalar_mul_party: AccountAddress[], secret_info: DKG.SharedSecretPublicInfo, scalar_mul_deadline: number, state: number, deadline: number, reenc: Elgamal.Ciphertext | null, thresh_scalar_mul_session: ThresholdScalarMul.SessionBrief | null) {
+        this.addr = addr;
         this.card = card;
         this.dealTarget = deal_target;
         this.scalarMulParty = scalar_mul_party;
@@ -108,10 +109,10 @@ export class Session {
         this.deadline = deadline;
         this.reenc = reenc;
         this.threshScalarMulSession = thresh_scalar_mul_session;
-        this.culprits = culprits;
     }
 
-    static decode(deserializer: Deserializer): Session {
+    static decode(deserializer: Deserializer): SessionBrief {
+        const addr = deserializer.deserialize(AccountAddress);
         const card = Elgamal.Ciphertext.decode(deserializer);
         const deal_target = deserializer.deserialize(AccountAddress);
         const scalar_mul_party = deserializer.deserializeVector(AccountAddress);
@@ -124,14 +125,13 @@ export class Session {
         const reenc = hasReenc ? Elgamal.Ciphertext.decode(deserializer) : null;
 
         const hasThreshScalarMulSession = deserializer.deserializeU8() === 1;
-        const thresh_scalar_mul_session = hasThreshScalarMulSession ? ThresholdScalarMul.Session.decode(deserializer) : null;
+        const thresh_scalar_mul_session = hasThreshScalarMulSession ? ThresholdScalarMul.SessionBrief.decode(deserializer) : null;
 
-        const culprits = deserializer.deserializeVector(AccountAddress);
-
-        return new Session(card, deal_target, scalar_mul_party, secret_info, scalar_mul_deadline, state, deadline, reenc, thresh_scalar_mul_session, culprits);
+        return new SessionBrief(addr, card, deal_target, scalar_mul_party, secret_info, scalar_mul_deadline, state, deadline, reenc, thresh_scalar_mul_session);
     }
 
     encode(serializer: Serializer): void {
+        serializer.serialize(this.addr);
         this.card.encode(serializer);
         serializer.serialize(this.dealTarget);
         serializer.serializeVector(this.scalarMulParty);
@@ -147,7 +147,6 @@ export class Session {
         if (this.threshScalarMulSession) {
             this.threshScalarMulSession.encode(serializer);
         }
-        serializer.serializeVector(this.culprits);
     }
 
     toBytes(): Uint8Array {

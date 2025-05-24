@@ -1,20 +1,20 @@
 import './styles.css';
 import { Aptos, AptosConfig, Network, Account, AccountAddress, Ed25519PrivateKey, Deserializer, Serializer } from "@aptos-labs/ts-sdk";
-import { PokerRoomStateBrief } from './poker_room';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { hexToBytes } from '@noble/hashes/utils';
 import { STATE_IN_PROGRESS } from './crypto/dkg_v0';
-import { sha3_256 } from '@noble/hashes/sha3';
 import * as Hand from './hand';
 import * as Reencryption from './crypto/reencryption';
 import * as ThresholdScalarMul from './crypto/threshold_scalar_mul';
 import * as DKG from './crypto/dkg_v0';
 import * as Shuffle from './crypto/shuffle';
 import * as PokerRoom from './poker_room';
+import * as Deckgen from './deck_gen';
 
 // Global constants
 const config = new AptosConfig({ network: Network.DEVNET });
 const aptos = new Aptos(config);
-const CONTRACT_ADDRESS = '0xb4417d6b6b1dd8743cb7c44fd75c401065d86e97df49474b39c8ce77747fab17';
+const PKG_0_ADDRESS = '0xfd20cef653ef1c17fb9f2a1a3d0510994baac0f2a1492a7b358730160d10c16d';
+const PKG_1_ADDRESS = '0x6af12db6964b62e53e928df110fdb72bc85e84a6cbe2a279a5d989a026fb5012';
 
 interface SavedAccount {
     address: string;
@@ -43,13 +43,14 @@ class GameApp {
     private cancelHostBtn: HTMLButtonElement | null;
     private allowedAddressesInput: HTMLTextAreaElement | null;
     private roomAddress: string | null = null;
-    private tableBrief: PokerRoomStateBrief | null;
+    private tableBrief: PokerRoom.SessionBrief | null;
     private client: Aptos;
     private tablePolling: any | null;
     private roomAddressLabel: any | null;
     private myBetAmount: HTMLInputElement | null;
     private allowedBetAmounts: number[] = [0, 100];
     private betBtn: HTMLButtonElement | null;
+    private foldBtn: HTMLButtonElement | null;
     private refreshBtn: HTMLButtonElement | null;
     // private stepBtn: HTMLButtonElement | null;
     private loadingSpinner: HTMLElement | null = null;
@@ -88,15 +89,13 @@ class GameApp {
         
         this.betBtn = document.getElementById('my-bet-btn') as HTMLButtonElement;
         this.betBtn!.addEventListener('click', () => this.handleBetBtn());
-        
+        this.foldBtn = document.getElementById('my-fold-btn') as HTMLButtonElement;
+        this.foldBtn!.addEventListener('click', () => this.handleFoldBtn());
         this.myBetAmount = document.getElementById('my-bet-amount') as HTMLInputElement;
         this.myBetAmount!.addEventListener('input', () => this.handleMyBetAmountChange());
         
         this.refreshBtn = document.getElementById('refresh-btn') as HTMLButtonElement;
         this.refreshBtn!.addEventListener('click', () => this.handleRefreshBtn());
-
-        // this.stepBtn = document.getElementById('step-btn') as HTMLButtonElement;
-        // this.stepBtn!.addEventListener('click', () => this.handleStepBtn());
 
         this.loadingSpinner = document.getElementById('loading-spinner');
         this.mySitBtn = document.getElementById('my-sit-button') as HTMLButtonElement;
@@ -127,23 +126,32 @@ class GameApp {
         this.loginDialog!.style.display = 'flex';
 
     }
+    async handleFoldBtn() {
+        const curHand = this.tableBrief!.curHand!;
+        const myPlayerIdx = curHand.players.findIndex((player: AccountAddress) => player.toString() == this.currentAccount!.accountAddress.toString());
+        if (myPlayerIdx == -1) {
+            throw new Error('fold button should not be clickable when it is not your turn');
+        }
+        await this.submitNewBet(curHand, 0);
+    }
 
     async handleBetBtn() {
         const newPost = parseInt(this.myBetAmount!.value);
-        const myPlayerIdx = this.tableBrief!.curHand!.currentActionPlayerIdx;
-        if (this.tableBrief!.curHand!.players[myPlayerIdx].toString() != this.currentAccount!.accountAddress.toString()) {
+        const curHand = this.tableBrief!.curHand!;
+        const myPlayerIdx = curHand.players.findIndex((player: AccountAddress) => player.toString() == this.currentAccount!.accountAddress.toString());
+        if (myPlayerIdx == -1) {
             throw new Error('bet button should not be clickable when it is not your turn');
         }
+        await this.submitNewBet(curHand, curHand.bets[myPlayerIdx] + newPost);
+    }
+
+    private async submitNewBet(hand: Hand.SessionBrief, newBet: number) {
         const txn = await this.client.transaction.build.simple({
             sender: this.currentAccount!.accountAddress,
             data: {
-                function: `${CONTRACT_ADDRESS}::poker_room::process_new_bet`,
+                function: `${PKG_1_ADDRESS}::hand::process_bet_action`,
                 typeArguments: [],
-                functionArguments: [
-                    this.roomAddress!,
-                    this.tableBrief!.numHandsDone,
-                    this.tableBrief!.curHand!.bets[myPlayerIdx] + newPost,
-                ]
+                functionArguments: [hand.addr, newBet]
             }
         });
         const signedTxn = this.client.transaction.sign({
@@ -156,57 +164,17 @@ class GameApp {
         });
         const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
         if (txnResponse.success) {
-            console.log(`new bet for hand ${this.tableBrief!.numHandsDone}: ${newPost}`);
+            console.log(`new bet for hand ${hand.addr.toString()}: ${newBet}`);
         } else {
-            console.error(`error submitting bet transaction for hand ${this.tableBrief!.numHandsDone}: ${txnResponse.vm_status}`);
+            console.error(`error submitting bet transaction for hand ${hand.addr.toString()}: ${txnResponse.vm_status}`);
         }
     }
-
-    // private async handleStepBtn() {
-    //     const {secretShare, contribution} = this.tableBrief!.curDKGSession!.generateContribution();
-        
-    //     localStorage.setItem(`rooms/${this.roomAddress}/dkgs/${this.tableBrief!.numDKGsDone}/secretShare`, bytesToHex(secretShare.toBytes()));
-        
-    //     const serializer = new Serializer();
-    //     contribution.encode(serializer);
-    //     const contributionBytes = serializer.toUint8Array();
-
-    //     const txn = await this.client.transaction.build.simple({
-    //         sender: this.currentAccount!.accountAddress,
-    //         data: {
-    //             function: `${CONTRACT_ADDRESS}::poker_room::process_dkg_contribution`,
-    //             typeArguments: [],
-    //             functionArguments: [
-    //                 this.roomAddress!,
-    //                 this.tableBrief!.numDKGsDone,
-    //                 contributionBytes,
-    //             ]
-    //         }
-    //     });
-
-    //     const signedTxn = this.client.transaction.sign({
-    //         signer: this.currentAccount!,
-    //         transaction: txn
-    //     });
-
-    //     const committedTxn = await this.client.transaction.submit.simple({
-    //         transaction: txn,
-    //         senderAuthenticator: signedTxn
-    //     });
-
-    //     const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
-    //     if (txnResponse.success) {
-    //         await this.refreshRoomStatus();
-    //     } else {
-    //         alert('Error submitting dkg contribution transaction: ' + txnResponse.vm_status);
-    //     }
-    // }
 
     private async handleMySit() {
         const txn = await this.client.transaction.build.simple({
             sender: this.currentAccount!.accountAddress,
             data: {
-                function: `${CONTRACT_ADDRESS}::poker_room::join`,
+                function: `${PKG_1_ADDRESS}::poker_room::join`,
                 typeArguments: [],
                 functionArguments: [this.roomAddress!]
             }
@@ -250,7 +218,7 @@ class GameApp {
         const txn = await this.client.transaction.build.simple({
             sender: this.currentAccount!.accountAddress,
             data: {
-                function: `${CONTRACT_ADDRESS}::poker_room::state_update`,
+                function: `${PKG_1_ADDRESS}::poker_room::state_update`,
                 typeArguments: [],
                 functionArguments: [this.roomAddress!]
             }
@@ -289,39 +257,40 @@ class GameApp {
         this.loadingSpinner!.style.display = 'none';
 
         // Schedule next task
-        this.performCurHandBackgroundActions();
-        this.performDKGActions();
-        this.performDeckgenActions();
+        await this.performCurHandBackgroundActions(roomBrief.curHand);
+        await this.performDKGActions(roomBrief.curDKGSession);
+        await this.performDeckgenActions(roomBrief.curDeckgenSession);
     }
     
-    private async performCurHandBackgroundActions() {
-        const curHand = this.tableBrief!.curHand;
+    private async performCurHandBackgroundActions(curHand: Hand.SessionBrief | null) {
         if (!curHand) return;
         const myPlayerIdx = curHand.players.findIndex((player: AccountAddress) => player.toString() == this.currentAccount!.accountAddress.toString());
         if (myPlayerIdx == -1) {
-            throw new Error('current account is not a player in this hand');
+            throw new Error(`hand ${curHand.addr.toString()} does not have my account as a player`);
         }
-    if (curHand.state == Hand.STATE__DEALING_PRIVATE_CARDS) {
+        if (curHand.state == Hand.STATE__DEALING_PRIVATE_CARDS) {
             for (let i = 0; i < curHand.privateDealingSessions.length; i++) {
-                await this.tryContributeToPrivateDealing(this.tableBrief!.numHandsDone, i, curHand.privateDealingSessions[i]);
+                console.log(`Hand ${curHand.addr.toString()} has a private dealing ${curHand.privateDealingSessions[i].addr.toString()} to work on.`);
+                await this.tryContributeToPrivateDealing(curHand.privateDealingSessions[i]);
             }
         } else if (curHand.state == Hand.STATE__OPENING_COMMUNITY_CARDS) {
             for (let i = 0; i < curHand.publicOpeningSessions.length; i++) {
-                await this.tryContributeToPublicOpening(this.tableBrief!.numHandsDone, i, curHand.publicOpeningSessions[i]);
+                console.log(`Hand ${curHand.addr.toString()} has a public opening ${curHand.publicOpeningSessions[i].addr.toString()} to work on.`);
+                await this.tryContributeToScalarMul(curHand.publicOpeningSessions[i]);
             }
         } else if (curHand.state == Hand.STATE__SHOWDOWN) {
             for (let i = 0; i < 2; i++) {
                 if (Hand.CARD__UNREVEALED != curHand.revealedPrivateCards[myPlayerIdx*2+i]) {
                     continue;
                 } else {
-                    const privateStateHex = localStorage.getItem(`rooms/${this.roomAddress}/hands/${this.tableBrief!.numHandsDone}/dealings/${myPlayerIdx*2+i}/recipientPrivateState`)!;
+                    const privateStateHex = localStorage.getItem(`reencs/${curHand.privateDealingSessions[myPlayerIdx*2+i].addr.toString()}/recipientPrivateState`)!;
                     const privateState = Reencryption.RecipientPrivateState.fromHex(privateStateHex);
                     const txn = await this.client.transaction.build.simple({
                         sender: this.currentAccount!.accountAddress,
                         data: {
-                            function: `${CONTRACT_ADDRESS}::poker_room::process_showdown_reveal`,
+                            function: `${PKG_1_ADDRESS}::hand::process_showdown_reveal`,
                             typeArguments: [],
-                            functionArguments: [this.roomAddress!, this.tableBrief!.numHandsDone, myPlayerIdx*2+i, privateState.toBytes()],
+                            functionArguments: [curHand.addr, myPlayerIdx*2+i, privateState.toBytes()],
                         }
                     });
                     const signedTxn = this.client.transaction.sign({
@@ -334,29 +303,25 @@ class GameApp {
                     });
                     const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
                     if (txnResponse.success) {
-                        console.log(`Successfully revealed private card ${myPlayerIdx*2+i}`);
+                        console.log(`Successfully revealed private card ${myPlayerIdx*2+i} for hand ${curHand.addr.toString()}`);
                     } else {
-                        console.error(`Error revealing private card ${myPlayerIdx*2+i}: ${txnResponse.vm_status}`);
+                        console.error(`Error revealing private card ${myPlayerIdx*2+i} for hand ${curHand.addr.toString()}: ${txnResponse.vm_status}`);
                     }
                 }
             }
         }
     }
     
-    private async tryContributeToPrivateDealing(handIdx: number, dealingIdx: number, session: Reencryption.Session) {
+    private async tryContributeToPrivateDealing(session: Reencryption.SessionBrief) {
         if (session.state == Reencryption.STATE__ACCEPTING_REENC && session.dealTarget.toString() == this.currentAccount!.accountAddress.toString()) {
             const {recipientPrivateState, verifiableReencryption} = session.reencrypt();
-            const hex = verifiableReencryption.toHex();
-            console.log(`hand ${handIdx}, dealing ${dealingIdx}`);
-            console.log(`session: ${session.toHex()}`);
-            console.log(`Reencryption for private dealing ${handIdx}-${dealingIdx}: ${hex}`);
-            localStorage.setItem(`rooms/${this.roomAddress}/hands/${handIdx}/dealings/${dealingIdx}/recipientPrivateState`, recipientPrivateState.toHex());
+            localStorage.setItem(`reencs/${session.addr.toString()}/recipientPrivateState`, recipientPrivateState.toHex());
             const txn = await this.client.transaction.build.simple({
                 sender: this.currentAccount!.accountAddress,
                 data: {
-                    function: `${CONTRACT_ADDRESS}::poker_room::process_private_dealing_reencryption`,
+                    function: `${PKG_0_ADDRESS}::reencryption::process_reencryption`,
                     typeArguments: [],
-                    functionArguments: [this.roomAddress!, handIdx, dealingIdx, verifiableReencryption.toBytes()]
+                    functionArguments: [session.addr, verifiableReencryption.toBytes()]
                 }
             });
             const signedTxn = this.client.transaction.sign({
@@ -369,56 +334,33 @@ class GameApp {
             });
             const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
             if (txnResponse.success) {
-                console.log(`Successfully reencrypted for private dealing ${handIdx}-${dealingIdx}`);
+                console.log(`Successfully reencrypted for private dealing ${session.addr.toString()}`);
             } else {
-                console.error(`Error reencrypting for private dealing ${handIdx}-${dealingIdx}: ${txnResponse.vm_status}`);
+                console.error(`Error reencrypting for private dealing ${session.addr.toString()}: ${txnResponse.vm_status}`);
             }
         } else if (session.state == Reencryption.STATE__THRESHOLD_SCALAR_MUL_IN_PROGRESS) {
-            const secretShareHex = localStorage.getItem(`rooms/${this.roomAddress}/dkgs/${this.tableBrief!.numDKGsDone-1}/secretShare`)!;
-            const secretShare = DKG.SecretShare.fromHex(secretShareHex);
-            const contribution = session.threshScalarMulSession!.generateContribution(this.currentAccount!.accountAddress, secretShare);
-            const txn = await this.client.transaction.build.simple({
-                sender: this.currentAccount!.accountAddress,
-                data: {
-                    function: `${CONTRACT_ADDRESS}::poker_room::process_private_dealing_contribution`,
-                    typeArguments: [],
-                    functionArguments: [this.roomAddress!, handIdx, dealingIdx, contribution.toBytes()]
-                }
-            });
-            const signedTxn = this.client.transaction.sign({
-                signer: this.currentAccount!,
-                transaction: txn
-            });
-            const committedTxn = await this.client.transaction.submit.simple({
-                transaction: txn,
-                senderAuthenticator: signedTxn
-            });
-            const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
-            if (txnResponse.success) {
-                console.log(`Successfully contributed to private dealing ${handIdx}-${dealingIdx}`);
-            } else {
-                console.error(`Error contributing to private dealing ${handIdx}-${dealingIdx}: ${txnResponse.vm_status}`);
-            }
+            console.log(`Dealing ${session.addr.toString()} has a threshold scalar mul ${session.threshScalarMulSession!.addr.toString()} to work on.`);
+            await this.tryContributeToScalarMul(session.threshScalarMulSession!);
         } else {
-            console.log(`nothing to do for private dealing ${handIdx}-${dealingIdx}`);
+            console.log(`nothing to do for private dealing ${session.addr.toString()}`);
         }
     }
 
-    private async tryContributeToPublicOpening(handIdx: number, openingIdx: number, session: ThresholdScalarMul.Session) {
-        const secretShareHex = localStorage.getItem(`rooms/${this.roomAddress}/dkgs/${this.tableBrief!.numDKGsDone-1}/secretShare`)!;
+    private async tryContributeToScalarMul(session: ThresholdScalarMul.SessionBrief) {
+        const secretShareHex = localStorage.getItem(`dkgs/${session.secretInfo.sessionAddr.toString()}/secretShare`)!;
         const secretShare = DKG.SecretShare.fromHex(secretShareHex);
         const myPlayerIdx = session.allowedContributors.findIndex((player: AccountAddress) => player.toString() == this.currentAccount!.accountAddress.toString());
         if (myPlayerIdx == -1) {
             throw new Error('current account is not a contributor to this public opening');
         }
-        if (session.state == ThresholdScalarMul.STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE && session.contributions[myPlayerIdx] == null) {
+        if (session.state == ThresholdScalarMul.STATE__ACCEPTING_CONTRIBUTION_BEFORE_DEADLINE && !session.contributedFlags[myPlayerIdx]) {
             const contribution = session.generateContribution(this.currentAccount!.accountAddress, secretShare);
             const txn = await this.client.transaction.build.simple({
                 sender: this.currentAccount!.accountAddress,
                 data: {
-                    function: `${CONTRACT_ADDRESS}::poker_room::process_public_opening_contribution`,
+                    function: `${PKG_0_ADDRESS}::threshold_scalar_mul::process_contribution`,
                     typeArguments: [],
-                    functionArguments: [this.roomAddress!, handIdx, openingIdx, contribution.toBytes()]
+                    functionArguments: [session.addr, contribution.toBytes()]
                 }
             });
             const signedTxn = this.client.transaction.sign({
@@ -431,12 +373,12 @@ class GameApp {
             });
             const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
             if (txnResponse.success) {
-                console.log(`Successfully contributed to public opening ${handIdx}-${openingIdx}`);
+                console.log(`Successfully contributed to threshold scalar mul ${session.addr.toString()}`);
             } else {
-                console.error(`Error contributing to public opening ${handIdx}-${openingIdx}: ${txnResponse.vm_status}`);
+                console.error(`Error contributing to threshold scalar mul ${session.addr.toString()}: ${txnResponse.vm_status}`);
             }
         } else {
-            console.log(`nothing to do for public opening ${handIdx}-${openingIdx}`);
+            console.log(`nothing to do for threshold scalar mul ${session.addr.toString()}`);
         }
     }
 
@@ -574,7 +516,7 @@ class GameApp {
         const txn = await this.client.transaction.build.simple({
             sender: this.currentAccount.accountAddress,
             data: {
-                function: `${CONTRACT_ADDRESS}::poker_room::create`,
+                function: `${PKG_1_ADDRESS}::poker_room::create`,
                 typeArguments: [],
                 functionArguments: [
                     seed,
@@ -611,7 +553,7 @@ class GameApp {
         // Extract room address from events
         const events = (txnDetails as any).events || [];
         const roomCreatedEvent = events.find(
-            (e: any) => e.type === `${CONTRACT_ADDRESS}::poker_room::RoomCreatedEvent`
+            (e: any) => e.type === `${PKG_1_ADDRESS}::poker_room::RoomCreatedEvent`
         );
         
         if (!roomCreatedEvent) {
@@ -637,8 +579,6 @@ class GameApp {
         }
 
         this.roomAddress = normalizedAddress;
-        localStorage.setItem('LAST_ROOM', normalizedAddress);
-        // Start polling the room status
         this.onEnteringGameRoom();
     }
 
@@ -658,22 +598,22 @@ class GameApp {
         return /^(0x)?[0-9a-fA-F]+$/.test(address);
     }
 
-    private async fetchRoomStatus(): Promise<PokerRoomStateBrief> {
+    private async fetchRoomStatus(): Promise<PokerRoom.SessionBrief> {
         const result = await this.client.view({
             payload: {
-                function: `${CONTRACT_ADDRESS}::poker_room::get_room_brief_bcs`,
+                function: `${PKG_1_ADDRESS}::poker_room::brief_bcs`,
                 typeArguments: [],
                 functionArguments: [this.roomAddress!]
             }
         });
         const hex = result[0] as string;
         const deserializer = new Deserializer(hexToBytes(hex.startsWith('0x') ? hex.slice(2) : hex));
-        const brief = PokerRoomStateBrief.decode(deserializer);
+        const brief = PokerRoom.SessionBrief.decode(deserializer);
         console.log(brief);
         return brief;
     }
 
-    private updateTableViews(roomBrief: PokerRoomStateBrief) {
+    private updateTableViews(roomBrief: PokerRoom.SessionBrief) {
         this.roomAddressLabel!.textContent = `${this.roomAddress!}`;
         var myPlayerIdx = roomBrief.expectedPlayerAddresses.findIndex(addr => addr.toString() == this.currentAccount!.accountAddress.toString());
         if (myPlayerIdx == -1) myPlayerIdx = 0;
@@ -702,9 +642,9 @@ class GameApp {
             }
             const curPlayerAddr = roomBrief.expectedPlayerAddresses[playerIdx];
             document.getElementById(`${viewPrefix}-addr`)!.textContent = rivalNumber == 0 ? "You" : curPlayerAddr.toString().slice(0, 4) + '...' + curPlayerAddr.toString().slice(-4);
-            document.getElementById(`${viewPrefix}-chips-in-hand`)!.textContent = '🪙 ' + (roomBrief.state == 4 ? roomBrief.curHand!.chipsInHand[playerIdx] : roomBrief.playerChips[playerIdx]);
-            document.getElementById(`${viewPrefix}-dealer-light`)!.style.display = roomBrief.state == 4 && roomBrief.curHand!.players[0].toString() == curPlayerAddr.toString()? 'block' : 'none';
-            document.getElementById(`${viewPrefix}-bet`)!.textContent = roomBrief.state == 4 ? roomBrief.curHand!.bets[playerIdx].toString() : '';
+            document.getElementById(`${viewPrefix}-chips-in-hand`)!.textContent = '🪙 ' + (roomBrief.state == PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS ? roomBrief.curHand!.chipsInHand[playerIdx] : roomBrief.playerChips[playerIdx]);
+            document.getElementById(`${viewPrefix}-dealer-light`)!.style.display = roomBrief.state == PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS && roomBrief.curHand!.players[0].toString() == curPlayerAddr.toString()? 'block' : 'none';
+            document.getElementById(`${viewPrefix}-bet`)!.textContent = roomBrief.state == PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS ? roomBrief.curHand!.bets[playerIdx].toString() : '';
             let privateCardsArea = document.getElementById(`${viewPrefix}-private-cards-area`);
             if (roomBrief.state == PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS && roomBrief.curHand!.state != Hand.STATE__DEALING_PRIVATE_CARDS) {
                 privateCardsArea!.style.display = 'block';
@@ -720,17 +660,17 @@ class GameApp {
 
             if (rivalNumber == 0) {
                 // Self view
-                if (roomBrief.curHand!.state == Hand.STATE__DEALING_PRIVATE_CARDS) {
+                if (roomBrief.state != PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS || roomBrief.curHand!.state == Hand.STATE__DEALING_PRIVATE_CARDS) {
                     this.updateCardSlot('my-card-0', null);
                     this.updateCardSlot('my-card-1', null);
                     document.getElementById('my-fold-flag')!.style.display = 'none';
                 } else {
-                    const myDealing0PriSt = Reencryption.RecipientPrivateState.fromHex(localStorage.getItem(`rooms/${this.roomAddress}/hands/${roomBrief.numHandsDone}/dealings/${myPlayerIdx*2}/recipientPrivateState`)!);
-                    const myDealing1PriSt = Reencryption.RecipientPrivateState.fromHex(localStorage.getItem(`rooms/${this.roomAddress}/hands/${roomBrief.numHandsDone}/dealings/${myPlayerIdx*2+1}/recipientPrivateState`)!);
+                    const myDealing0PriSt = Reencryption.RecipientPrivateState.fromHex(localStorage.getItem(`reencs/${roomBrief.curHand!.privateDealingSessions[myPlayerIdx*2]!.addr.toString()}/recipientPrivateState`)!);
+                    const myDealing1PriSt = Reencryption.RecipientPrivateState.fromHex(localStorage.getItem(`reencs/${roomBrief.curHand!.privateDealingSessions[myPlayerIdx*2+1]!.addr.toString()}/recipientPrivateState`)!);
                     const myCard0Repr = roomBrief.curHand!.privateDealingSessions[myPlayerIdx*2]!.reveal(myDealing0PriSt);
                     const myCard1Repr = roomBrief.curHand!.privateDealingSessions[myPlayerIdx*2+1]!.reveal(myDealing1PriSt);
-                    const myCard0 = roomBrief.curHand!.cardReps.findIndex(cardRep => cardRep.toHex() == myCard0Repr.toHex());
-                    const myCard1 = roomBrief.curHand!.cardReps.findIndex(cardRep => cardRep.toHex() == myCard1Repr.toHex());
+                    const myCard0 = roomBrief.curHand!.cardReprs.findIndex(cardRepr => cardRepr.toHex() == myCard0Repr.toHex());
+                    const myCard1 = roomBrief.curHand!.cardReprs.findIndex(cardRepr => cardRepr.toHex() == myCard1Repr.toHex());
                     if (myCard0 == -1 || myCard1 == -1) {
                         throw new Error('Card not found');
                     }
@@ -773,6 +713,9 @@ class GameApp {
             for (let i = 0; i < 5; i++) {
                 this.updateCardSlot(`community-card-${i}`, roomBrief.curHand!.publiclyOpenedCards[i] ?? null);
             }
+        } else if (roomBrief.state == PokerRoom.STATE__WAITING_FOR_PLAYERS) {
+            inHandPublicInfo!.style.display = 'none';
+            dkgOrShuffleInProgressFlag!.style.display = 'none';
         } else {
             inHandPublicInfo!.style.display = 'none';
             dkgOrShuffleInProgressFlag!.style.display = 'flex';
@@ -809,7 +752,7 @@ class GameApp {
             try {
                 const result = await this.client.view({
                     payload: {
-                        function: `${CONTRACT_ADDRESS}::poker_room::about`,
+                        function: `${PKG_1_ADDRESS}::poker_room::about`,
                         typeArguments: [],
                         functionArguments: []
                     }
@@ -825,12 +768,11 @@ class GameApp {
     }
 
     private onEnteringGameRoom() {
+        localStorage.setItem('LAST_ROOM', this.roomAddress!);
         // Update views.
         this.setDisplayNoneForAllGameContentVariants();
         this.loadingSpinner!.style.display = 'block';
         this.roomAddressLabel!.textContent = `${this.roomAddress!}`;
-        // this.tablePolling = this.createTablePolling();
-        // this.tablePolling.start();
         this.fetchRoomStatus().then((roomBrief) => {
             this.tableBrief = roomBrief;
             this.updateTableViews(roomBrief);
@@ -852,7 +794,7 @@ class GameApp {
             const txn = await this.client.transaction.build.simple({
                 sender: this.currentAccount!.accountAddress,
                 data: {
-                    function: `${CONTRACT_ADDRESS}::poker_room::join`,
+                    function: `${PKG_1_ADDRESS}::poker_room::join`,
                     typeArguments: [],
                     functionArguments: [this.roomAddress!]
                 }
@@ -887,12 +829,9 @@ class GameApp {
         localStorage.removeItem('LAST_ROOM');
     }
 
-    private async performDeckgenActions() {
-        const deckgenSession = this.tableBrief!.curDeckgenSession;
+    private async performDeckgenActions(deckgenSession: Deckgen.SessionBrief | null) {
         if (deckgenSession == null) return;
-        const deckgenIdx = this.tableBrief!.numDeckgensDone;
         const shuffle = deckgenSession.shuffle;
-        if (shuffle == null) return;
         if (shuffle.status != Shuffle.STATE__ACCEPTING_CONTRIBUTION) return;
         if (shuffle.nextToContribute().toString() != this.currentAccount!.accountAddress.toString()) return;
         console.time('generateContribution');
@@ -901,11 +840,10 @@ class GameApp {
         const txn = await this.client.transaction.build.simple({
             sender: this.currentAccount!.accountAddress,
             data: {
-                function: `${CONTRACT_ADDRESS}::poker_room::process_shuffle_contribution`,
+                function: `${PKG_0_ADDRESS}::shuffle::process_contribution`,
                 typeArguments: [],
                 functionArguments: [
-                    this.roomAddress!,
-                    deckgenIdx,
+                    shuffle.addr,
                     contribution.toBytes(),
                 ]
             }
@@ -923,53 +861,46 @@ class GameApp {
         
         const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
         if (txnResponse.success) {
-            console.log(`Contributed to deckgen ${deckgenIdx}.`);
+            console.log(`Contributed to deckgen ${deckgenSession.addr.toString()}.`);
         } else {
-            console.error(`Failed to contribute to deckgen ${deckgenIdx}: ${txnResponse.vm_status}`);
+            console.error(`Failed to contribute to deckgen ${deckgenSession.addr.toString()}: ${txnResponse.vm_status}`);
         }
 
     }
 
-    private async performDKGActions() {
-        const dkgSession = this.tableBrief!.curDKGSession;
+    private async performDKGActions(dkgSession: DKG.SessionBrief | null) {
         if (dkgSession == null) return;
-        const dkgIdx = this.tableBrief!.numDKGsDone;
 
         if (dkgSession.state != STATE_IN_PROGRESS) {
-            console.log(`DKG ${dkgIdx} is not in progress.`);
+            console.log(`DKG ${dkgSession.addr.toString()} is not in progress.`);
             return;
         }
 
         const myIdx = dkgSession.expectedContributors.findIndex(addr => addr.toString() == this.currentAccount!.accountAddress.toString());
         if (myIdx == -1) {
-            console.log(`DKG ${dkgIdx} does not need my contribution.`);
+            console.log(`DKG ${dkgSession.addr.toString()} does not need my contribution.`);
             return;
         }
 
-        if (dkgSession.contributions[myIdx] != null) {
-            const contributionBytes = dkgSession.contributions[myIdx].toBytes();
-            const contributionHash = bytesToHex(sha3_256(contributionBytes));
-            const secretShare = localStorage.getItem(`rooms/${this.roomAddress!}/dkgs/${dkgIdx}/contributionHash/${contributionHash}/secretShare`);
-            if (secretShare == null) {
-                throw new Error(`I lost my secret share for DKG ${dkgIdx}!`);
+        if (dkgSession.contributionFlags[myIdx]) {
+            const secretShareHex = localStorage.getItem(`dkgs/${dkgSession.addr.toString()}/secretShare`);
+            if (secretShareHex == null) {
+                throw new Error(`I lost my secret share for DKG ${dkgSession.addr.toString()}!`);
             }
-            console.log(`DKG ${dkgIdx} already has a contribution from me.`);
+            console.log(`DKG ${dkgSession.addr.toString()} already has a contribution from me.`);
             return;
         }
 
         const { secretShare, contribution } = dkgSession.generateContribution();
-        const contributionBytes = contribution.toBytes();
-        const contributionHash = bytesToHex(sha3_256(contributionBytes));
-        localStorage.setItem(`rooms/${this.roomAddress!}/dkgs/${dkgIdx}/contributionHash/${contributionHash}/secretShare`, secretShare.toHex());
+        localStorage.setItem(`dkgs/${dkgSession.addr.toString()}/secretShare`, secretShare.toHex());
 
         const txn = await this.client.transaction.build.simple({
             sender: this.currentAccount!.accountAddress,
             data: {
-                function: `${CONTRACT_ADDRESS}::poker_room::process_dkg_contribution`,
+                function: `${PKG_0_ADDRESS}::dkg_v0::process_contribution`,
                 typeArguments: [],
                 functionArguments: [
-                    this.roomAddress!,
-                    dkgIdx,
+                    dkgSession.addr,
                     contribution.toBytes(),
                 ]
             }
@@ -987,9 +918,9 @@ class GameApp {
         
         const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
         if (txnResponse.success) {
-            console.log(`Contributed to DKG ${dkgIdx}.`);
+            console.log(`Contributed to DKG ${dkgSession.addr.toString()}.`);
         } else {
-            console.error(`Failed to contribute to DKG ${dkgIdx}: ${txnResponse.vm_status}`);
+            console.error(`Failed to contribute to DKG ${dkgSession.addr.toString()}: ${txnResponse.vm_status}`);
         }
     }
 }

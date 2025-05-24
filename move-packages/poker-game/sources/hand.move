@@ -26,9 +26,13 @@
 module poker_game::hand {
     use std::signer::address_of;
     use std::vector;
+    use aptos_std::bcs_stream;
     use aptos_std::math64::{min, max};
+    use aptos_framework::object;
     use aptos_framework::timestamp;
-    use crypto_core::reencryption::RecipientPrivateState;
+    use crypto_core::shuffle;
+    use poker_game::deck_gen;
+    use crypto_core::reencryption::decode_private_state;
     use crypto_core::group;
     use crypto_core::threshold_scalar_mul;
     use crypto_core::dkg_v0;
@@ -45,7 +49,7 @@ module poker_game::hand {
     const STATE__FAILED: u64 = 141629;
 
     /// The full state of a hand.
-    struct Session has copy, drop, store {
+    struct Session has copy, drop, key, store {
         num_players: u64,
         players: vector<address>, // [btn, sb, bb, ...]
         secret_info: dkg_v0::SharedSecretPublicInfo,
@@ -96,8 +100,8 @@ module poker_game::hand {
         completed_action_is_raise: bool,
         /// When `state == STATE__FAILED`, indicates who misbehaved.
         blames: vector<bool>,
-        private_dealing_sessions: vector<reencryption::Session>,
-        public_opening_sessions: vector<threshold_scalar_mul::Session>,
+        private_dealing_sessions: vector<address>,
+        public_opening_sessions: vector<address>,
         publicly_opened_cards: vector<u64>
     }
 
@@ -155,16 +159,18 @@ module poker_game::hand {
         }
     }
 
-    #[lint::allow_unsafe_randomness]
     public fun new_session(
+        owner: address,
         players: vector<address>,
         chips: vector<u64>,
         secret_info: SharedSecretPublicInfo,
-        card_reprs: vector<group::Element>,
-        shuffled_deck: vector<elgamal::Ciphertext>
-    ): Session {
-        let num_players = players.length();
+        deckgen_addr: address,
+    ): address {
+        let session_holder = object::generate_signer(&object::create_sticky_object(owner));
+        let session_addr = address_of(&session_holder);
 
+        let num_players = players.length();
+        let (card_reprs, shuffled_deck) = deck_gen::result(deckgen_addr);
         let session = Session {
             num_players,
             players,
@@ -194,6 +200,7 @@ module poker_game::hand {
         session.private_dealing_sessions = vector::range(0, session.num_players * 2).map(|card_idx| {
             let dest_player_idx = card_goes_to(&session, card_idx);
             reencryption::new_session(
+                session_addr,
                 session.shuffled_deck[card_idx],
                 session.players[dest_player_idx],
                 session.players,
@@ -203,7 +210,8 @@ module poker_game::hand {
             )
         });
 
-        session
+        move_to(&session_holder, session);
+        session_addr
     }
 
     fun num_folded(hand: &Session): u64 {
@@ -218,15 +226,18 @@ module poker_game::hand {
         ret
     }
 
-    public fun is_dealing_private_cards(hand: &Session): bool {
+    public fun is_dealing_private_cards(session_addr: address): bool acquires Session {
+        let hand = borrow_global<Session>(session_addr);
         hand.state == STATE__DEALING_PRIVATE_CARDS
     }
 
-    public fun succeeded(hand: &Session): bool {
+    public fun succeeded(session_addr: address): bool acquires Session {
+        let hand = borrow_global<Session>(session_addr);
         hand.state == STATE__SUCCEEDED
     }
 
-    public fun failed(hand: &Session): bool {
+    public fun failed(session_addr: address): bool acquires Session {
+        let hand = borrow_global<Session>(session_addr);
         hand.state == STATE__FAILED
     }
 
@@ -242,12 +253,14 @@ module poker_game::hand {
         });
     }
 
-    public fun get_ending_chips(hand: &Session): (vector<address>, vector<u64>) {
+    public fun get_ending_chips(hand_addr: address): (vector<address>, vector<u64>) acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         assert!(hand.state == STATE__SUCCEEDED, 184544);
         (hand.players, hand.chips_in_hand)
     }
 
-    public fun get_culprits(hand: &Session): vector<address> {
+    public fun get_culprits(hand_addr: address): vector<address> acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         assert!(hand.state == STATE__FAILED, 184545);
         let culprit_idxs = vector::range(0, hand.num_players).filter(|player_idx| hand.blames[*player_idx]);
         culprit_idxs.map(|idx| hand.players[idx])
@@ -260,7 +273,8 @@ module poker_game::hand {
     }
 
     /// Anyone can call this to trigger state transitions for the given hand.
-    public fun state_update(hand: &mut Session) {
+    public entry fun state_update(session_addr: address) acquires Session {
+        let hand = borrow_global_mut<Session>(session_addr);
         let now_secs = timestamp::now_seconds();
         if (hand.state == STATE__DEALING_PRIVATE_CARDS) {
             let num_dealings = hand.num_players * 2;
@@ -268,13 +282,13 @@ module poker_game::hand {
             let num_failures = 0;
             let blames = vector::range(0, hand.num_players).map(|_| false);
             vector::range(0, num_dealings).for_each(|dealing_idx| {
-                let deal_session = &mut hand.private_dealing_sessions[dealing_idx];
-                reencryption::state_update(deal_session);
-                if (reencryption::succeeded(deal_session)) {
+                let deal_session_addr = hand.private_dealing_sessions[dealing_idx];
+                reencryption::state_update(deal_session_addr);
+                if (reencryption::succeeded(deal_session_addr)) {
                     num_successes += 1;
-                } else if (reencryption::failed(deal_session)) {
+                } else if (reencryption::failed(deal_session_addr)) {
                     num_failures += 1;
-                    reencryption::get_culprits(deal_session).for_each_reverse(|culprit| {
+                    reencryption::culprits(deal_session_addr).for_each_reverse(|culprit| {
                         let (player_found, player_idx) = hand.players.index_of(&culprit);
                         assert!(player_found, 261052);
                         blames[player_idx] = true;
@@ -308,9 +322,9 @@ module poker_game::hand {
                     hand.completed_action_is_raise = false;
                 } else {
                     // Can skip pre-flop betting.
-                    initiate_public_card_opening(hand, now_secs + INF);
-                    initiate_public_card_opening(hand, now_secs + INF);
-                    initiate_public_card_opening(hand, now_secs + INF);
+                    initiate_public_card_opening(session_addr, hand, now_secs + INF);
+                    initiate_public_card_opening(session_addr, hand, now_secs + INF);
+                    initiate_public_card_opening(session_addr, hand, now_secs + INF);
                     hand.state = STATE__OPENING_COMMUNITY_CARDS;
                 }
             } else if (num_failures == num_dealings) {
@@ -351,10 +365,10 @@ module poker_game::hand {
                     hand.state = STATE__SHOWDOWN;
                     hand.current_action_deadline = now_secs + INF;
                 } else {
-                    initiate_public_card_opening(hand, now_secs + INF);
+                    initiate_public_card_opening(session_addr, hand, now_secs + INF);
                     if (0 == num_public_cards_opened) {
-                        initiate_public_card_opening(hand, now_secs + INF);
-                        initiate_public_card_opening(hand, now_secs + INF);
+                        initiate_public_card_opening(session_addr, hand, now_secs + INF);
+                        initiate_public_card_opening(session_addr, hand,now_secs + INF);
                     };
                     hand.state = STATE__OPENING_COMMUNITY_CARDS;
                 }
@@ -371,14 +385,13 @@ module poker_game::hand {
             let num_failures = 0;
             let blames = vector::range(0, hand.num_players).map(|_| false);
             vector::range(opening_idx_begin, opening_idx_end).for_each(|opening_idx| {
-                let cur_opening_session =
-                    &mut hand.public_opening_sessions[opening_idx];
+                let cur_opening_session = hand.public_opening_sessions[opening_idx];
                 threshold_scalar_mul::state_update(cur_opening_session);
                 if (threshold_scalar_mul::succeeded(cur_opening_session)) {
                     num_successes += 1;
                 } else if (threshold_scalar_mul::failed(cur_opening_session)) {
                     num_failures += 1;
-                    threshold_scalar_mul::get_culprits(cur_opening_session).for_each(|culprit| {
+                    threshold_scalar_mul::culprits(cur_opening_session).for_each(|culprit| {
                         let (found, player_idx) = hand.players.index_of(&culprit);
                         assert!(found, 272424);
                         blames[player_idx] = true;
@@ -392,9 +405,7 @@ module poker_game::hand {
                 // Compute the publicly revealed cards and store them.
                 vector::range(opening_idx_begin, opening_idx_end).for_each(|opening_idx| {
                     let scalar_mul_result =
-                        threshold_scalar_mul::get_result(
-                            &hand.public_opening_sessions[opening_idx]
-                        );
+                        threshold_scalar_mul::result(hand.public_opening_sessions[opening_idx]);
                     let (_, _, c_1) =
                         elgamal::unpack_ciphertext(
                             hand.shuffled_deck[hand.num_players * 2 + opening_idx]
@@ -423,7 +434,7 @@ module poker_game::hand {
                     hand.state = STATE__SHOWDOWN;
                 } else {
                     // Another community card opening should follow.
-                    initiate_public_card_opening(hand, now_secs + INF);
+                    initiate_public_card_opening(session_addr, hand, now_secs + INF);
                 };
             } else if (num_successes + num_failures
                 == opening_idx_end - opening_idx_begin) {
@@ -447,72 +458,33 @@ module poker_game::hand {
         }
     }
 
-    fun initiate_public_card_opening(hand: &mut Session, deadline: u64) {
+    fun initiate_public_card_opening(hand_address: address, hand: &mut Session, deadline: u64) {
         let card_idx = hand.num_players * 2
             + hand.public_opening_sessions.length();
         let card_to_open = hand.shuffled_deck[card_idx];
         let (_, c_0, _) = elgamal::unpack_ciphertext(card_to_open);
-        let opening_session =
-            threshold_scalar_mul::new_session(
-                c_0, hand.secret_info, hand.players, deadline
-            );
+        let opening_session = threshold_scalar_mul::new_session(hand_address, c_0, hand.secret_info, hand.players, deadline);
         hand.public_opening_sessions.push_back(opening_session);
         hand.state = STATE__OPENING_COMMUNITY_CARDS;
     }
 
-    public fun process_private_dealing_reencryption(
-        player: &signer,
-        hand: &mut Session,
-        card_idx: u64,
-        reencryption: reencryption::VerifiableReencrpytion
-    ) {
-        assert!(hand.state == STATE__DEALING_PRIVATE_CARDS, 262030);
-        assert!(card_idx < hand.num_players * 2, 262031);
-        reencryption::process_reencryption(
-            player, &mut hand.private_dealing_sessions[card_idx], reencryption
-        );
-    }
-
-    public fun process_private_dealing_contribution(
-        player: &signer,
-        hand: &mut Session,
-        dealing_idx: u64,
-        contribution: threshold_scalar_mul::VerifiableContribution
-    ) {
-        assert!(hand.state == STATE__DEALING_PRIVATE_CARDS, 262030);
-        assert!(dealing_idx < hand.num_players * 2, 262031);
-        reencryption::process_scalar_mul_share(
-            player, &mut hand.private_dealing_sessions[dealing_idx], contribution
-        );
-    }
-
-    public fun process_public_opening_contribution(
-        player: &signer,
-        hand: &mut Session,
-        opening_idx: u64,
-        contribution: threshold_scalar_mul::VerifiableContribution
-    ) {
-        threshold_scalar_mul::process_contribution(
-            player, &mut hand.public_opening_sessions[opening_idx], contribution
-        );
-    }
-
-    public fun process_bet_action(
-        player: &signer, hand: &mut Session, new_invest: u64
-    ) {
+    public entry fun process_bet_action(player: &signer, hand_addr: address, new_invest: u64) acquires Session {
+        let hand = borrow_global_mut<Session>(hand_addr);
         let player_idx = get_player_idx_or_abort(hand, player);
         process_bet_action_internal(player_idx, hand, new_invest);
     }
 
-    public fun process_showdown_reveal(
+    public entry fun process_showdown_reveal(
         player: &signer,
-        hand: &mut Session,
+        hand_addr: address,
         dealing_idx: u64,
-        reenc_private_state: RecipientPrivateState
-    ) {
+        reenc_private_state_bytes: vector<u8>,
+    ) acquires Session {
+        let hand = borrow_global_mut<Session>(hand_addr);
         let _player_idx = get_player_idx_or_abort(hand, player);
-        let session = hand.private_dealing_sessions[dealing_idx];
-        let card_repr = reencryption::reveal(&session, reenc_private_state);
+        let reenc_addr = hand.private_dealing_sessions[dealing_idx];
+        let reenc_private_state = decode_private_state(&mut bcs_stream::new(reenc_private_state_bytes));
+        let card_repr = reencryption::reveal(reenc_addr, reenc_private_state);
         let (found, card) = hand.card_reprs.index_of(&card_repr);
         assert!(found, 104629);
         hand.revealed_private_cards[dealing_idx] = card;
@@ -623,83 +595,143 @@ module poker_game::hand {
         hand.no_more_action_needed[player_idx] = false;
     }
 
+    struct SessionBrief has drop, store {
+        addr: address,
+        players: vector<address>,
+        secret_info: dkg_v0::SharedSecretPublicInfo,
+        expected_small_blind: u64,
+        expected_big_blind: u64,
+        card_reprs: vector<group::Element>,
+        shuffled_deck: vector<elgamal::Ciphertext>,
+        chips_in_hand: vector<u64>,
+        bets: vector<u64>,
+        fold_statuses: vector<bool>,
+        min_raise_step: u64,
+        revealed_private_cards: vector<u64>,
+        state: u64,
+        current_action_player_idx: u64,
+        current_action_deadline: u64,
+        current_action_completed: bool,
+        completed_action_is_raise: bool,
+        private_dealing_sessions: vector<reencryption::SessionBrief>,
+        public_opening_sessions: vector<threshold_scalar_mul::SessionBrief>,
+        publicly_opened_cards: vector<u64>
+    }
+
+    #[view]
+    public fun brief(hand_addr: address): SessionBrief acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
+        SessionBrief {
+            addr: hand_addr,
+            players: hand.players,
+            secret_info: hand.secret_info,
+            expected_big_blind: hand.expected_big_blind,
+            expected_small_blind: hand.expected_small_blind,
+            card_reprs: hand.card_reprs,
+            shuffled_deck: hand.shuffled_deck,
+            chips_in_hand: hand.chips_in_hand,
+            bets: hand.bets,
+            fold_statuses: hand.fold_statuses,
+            min_raise_step: hand.min_raise_step,
+            revealed_private_cards: hand.revealed_private_cards,
+            state: hand.state,
+            current_action_player_idx: hand.current_action_player_idx,
+            current_action_deadline: hand.current_action_deadline,
+            current_action_completed: hand.current_action_completed,
+            completed_action_is_raise: hand.completed_action_is_raise,
+            private_dealing_sessions: hand.private_dealing_sessions.map(|addr|reencryption::brief(addr)),
+            public_opening_sessions: hand.public_opening_sessions.map(|addr|threshold_scalar_mul::brief(addr)),
+            publicly_opened_cards: hand.publicly_opened_cards,
+        }
+    }
+
     #[test_only]
-    public fun get_public_card(hand: &Session, public_card_idx: u64): u64 {
+    public fun get_public_card(hand_addr: address, public_card_idx: u64): u64 acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         hand.publicly_opened_cards[public_card_idx]
     }
 
     #[test_only]
-    public fun get_bets(hand: &Session): vector<u64> {
+    public fun get_bets(hand_addr: address): vector<u64> acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         hand.bets
     }
 
     #[test_only]
-    public fun get_fold_statuses(hand: &Session): vector<bool> {
+    public fun get_fold_statuses(hand_addr: address): vector<bool> acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         hand.fold_statuses
     }
 
     #[test_only]
-    public fun is_dealing_community_cards(hand: &Session): bool {
+    public fun is_dealing_community_cards(hand_addr: address): bool acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         hand.state == STATE__OPENING_COMMUNITY_CARDS
             && 3 == hand.public_opening_sessions.length()
     }
 
     #[test_only]
-    public fun is_opening_4th_community_card(hand: &Session): bool {
+    public fun is_opening_4th_community_card(hand_addr: address): bool acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         hand.state == STATE__OPENING_COMMUNITY_CARDS
             && 4 == hand.public_opening_sessions.length()
     }
 
     #[test_only]
-    public fun is_opening_5th_community_card(hand: &Session): bool {
+    public fun is_opening_5th_community_card(hand_addr: address): bool acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         hand.state == STATE__OPENING_COMMUNITY_CARDS
             && 5 == hand.public_opening_sessions.length()
     }
 
     #[test_only]
-    public fun is_at_showdown(hand: &Session): bool {
+    public fun is_at_showdown(hand_addr: address): bool acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         hand.state == STATE__SHOWDOWN
     }
 
     #[test_only]
-    public fun is_phase_1_betting(hand: &Session, whose_turn: address): bool {
+    public fun is_phase_1_betting(hand_addr: address, whose_turn: address): bool acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         hand.state == STATE__PLAYER_BETTING
             && 0 == hand.public_opening_sessions.length()
             && whose_turn == hand.players[hand.current_action_player_idx]
     }
 
     #[test_only]
-    public fun is_phase_2_betting(hand: &Session, whose_turn: address): bool {
+    public fun is_phase_2_betting(hand_addr: address, whose_turn: address): bool acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         hand.state == STATE__PLAYER_BETTING
             && 3 == hand.public_opening_sessions.length()
             && whose_turn == hand.players[hand.current_action_player_idx]
     }
 
     #[test_only]
-    public fun is_phase_3_betting(hand: &Session, whose_turn: address): bool {
+    public fun is_phase_3_betting(hand_addr: address, whose_turn: address): bool acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         hand.state == STATE__PLAYER_BETTING
             && 4 == hand.public_opening_sessions.length()
             && whose_turn == hand.players[hand.current_action_player_idx]
     }
 
     #[test_only]
-    public fun is_phase_4_betting(hand: &Session, whose_turn: address): bool {
+    public fun is_phase_4_betting(hand_addr: address, whose_turn: address): bool acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
         hand.state == STATE__PLAYER_BETTING
             && 5 == hand.public_opening_sessions.length()
             && whose_turn == hand.players[hand.current_action_player_idx]
     }
 
     #[test_only]
-    public fun borrow_private_dealing_session(hand: &Session, idx: u64):
-        &reencryption::Session {
-        &hand.private_dealing_sessions[idx]
+    public fun private_dealing_session_addr(hand_addr: address, idx: u64): address acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
+        hand.private_dealing_sessions[idx]
     }
 
     #[test_only]
-    public fun borrow_public_opening_session(
-        hand: &Session, idx: u64
-    ): &threshold_scalar_mul::Session {
-        &hand.public_opening_sessions[idx]
+    public fun borrow_public_opening_session(hand_addr: address, idx: u64): address acquires Session {
+        let hand = borrow_global<Session>(hand_addr);
+        hand.public_opening_sessions[idx]
     }
 
     fun get_player_idx_or_abort(hand: &Session, player: &signer): u64 {
@@ -712,14 +744,12 @@ module poker_game::hand {
     #[test_only]
     public fun reveal_dealed_card_locally(
         player: &signer,
-        session: &Session,
+        session_addr: address,
         deal_idx: u64,
         player_private_state: reencryption::RecipientPrivateState
-    ): u64 {
-        let plaintext =
-            reencryption::reveal(
-                &session.private_dealing_sessions[deal_idx], player_private_state
-            );
+    ): u64 acquires Session {
+        let session = borrow_global<Session>(session_addr);
+        let plaintext = reencryption::reveal(session.private_dealing_sessions[deal_idx], player_private_state);
         let (found, card_val) = session.card_reprs.index_of(&plaintext);
         assert!(found, 310350);
         card_val

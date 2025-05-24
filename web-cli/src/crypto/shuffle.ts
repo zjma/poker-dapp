@@ -52,42 +52,32 @@ export class VerifiableContribution {
 }
 
 
-export class Session {
+export class SessionBrief {
+    addr: AccountAddress;
     encKey: Elgamal.EncKey;
     pedersenCtxt: PedersenCommitment.Context;
-    initialCiphertexts: Elgamal.Ciphertext[];
     allowedContributors: AccountAddress[];
-    numContributionsExpected: number;
     deadlines: number[];
     status: number;
     expectedContributorIdx: number;
-    contributions: VerifiableContribution[];
-    culprit: AccountAddress | null;
+    lastCiphertexts: Elgamal.Ciphertext[];
 
-    constructor(encKey: Elgamal.EncKey, pedersenCtxt: PedersenCommitment.Context, initialCiphertexts: Elgamal.Ciphertext[], allowedContributors: AccountAddress[], numContributionsExpected: number, deadlines: number[], status: number, expectedContributorIdx: number, contributions: VerifiableContribution[], culprit: AccountAddress | null) {
+    constructor(addr: AccountAddress, encKey: Elgamal.EncKey, pedersenCtxt: PedersenCommitment.Context, allowedContributors: AccountAddress[], deadlines: number[], status: number, expectedContributorIdx: number, lastCiphertexts: Elgamal.Ciphertext[]) {
+        this.addr = addr;
         this.encKey = encKey;
         this.pedersenCtxt = pedersenCtxt;
-        this.initialCiphertexts = initialCiphertexts;
         this.allowedContributors = allowedContributors;
-        this.numContributionsExpected = numContributionsExpected;
         this.deadlines = deadlines;
         this.status = status;
         this.expectedContributorIdx = expectedContributorIdx;
-        this.contributions = contributions;
-        this.culprit = culprit;
+        this.lastCiphertexts = lastCiphertexts;
     }
 
-    static decode(deserializer: Deserializer): Session {
+    static decode(deserializer: Deserializer): SessionBrief {
+        const addr = deserializer.deserialize(AccountAddress);
         const encKey = Elgamal.EncKey.decode(deserializer);
         const pedersenCtxt = PedersenCommitment.Context.decode(deserializer);
-        const numInitialCiphertexts = deserializer.deserializeUleb128AsU32();
-        const initialCiphertexts = new Array<Elgamal.Ciphertext>(numInitialCiphertexts);
-        for (let i = 0; i < numInitialCiphertexts; i++) {
-            initialCiphertexts[i] = Elgamal.Ciphertext.decode(deserializer);
-        }
         const allowedContributors = deserializer.deserializeVector(AccountAddress);
-
-        const numContributionsExpected = Number(deserializer.deserializeU64());
 
         const numDeadlines = deserializer.deserializeUleb128AsU32();
         const deadlines = new Array<number>(numDeadlines);
@@ -98,25 +88,21 @@ export class Session {
         const status = Number(deserializer.deserializeU64());
         const expectedContributorIdx = Number(deserializer.deserializeU64());
 
-        const numContributions = deserializer.deserializeUleb128AsU32();
-        const contributions = new Array<VerifiableContribution>(numContributions);
-        for (let i = 0; i < numContributions; i++) {
-            contributions[i] = VerifiableContribution.decode(deserializer);
+        const numLastCiphertexts = deserializer.deserializeUleb128AsU32();
+        const lastCiphertexts = new Array<Elgamal.Ciphertext>(numLastCiphertexts);
+        for (let i = 0; i < numLastCiphertexts; i++) {
+            lastCiphertexts[i] = Elgamal.Ciphertext.decode(deserializer);
         }
 
-        const culprit = deserializer.deserializeOption(AccountAddress) ?? null;
-
-        return new Session(encKey, pedersenCtxt, initialCiphertexts, allowedContributors, numContributionsExpected, deadlines, status, expectedContributorIdx, contributions, culprit);
+        return new SessionBrief(addr, encKey, pedersenCtxt, allowedContributors, deadlines, status, expectedContributorIdx, lastCiphertexts);
     }
 
     nextToContribute(): AccountAddress {
-        const numContributionsReceived = this.contributions.length;
-        return this.allowedContributors[numContributionsReceived];
+        return this.allowedContributors[this.expectedContributorIdx];
     }
 
     generateContribution(): VerifiableContribution {
-        const curCiphs = this.expectedContributorIdx == 0 ? this.initialCiphertexts : this.contributions[this.contributions.length - 1].newCiphertexts;
-        const n = curCiphs.length;
+        const n = this.lastCiphertexts.length;
 
         // Random permutation.
         const permutation = Array.from({ length: n }, (_, i) => i);
@@ -132,7 +118,7 @@ export class Session {
 
         const newCiphs = Array.from({ length: n }, (_, i) => {
             let blinder = Elgamal.enc(this.encKey, rerandomizers[i], Group.Element.groupIdentity());
-            return curCiphs[permutation[i]].add(blinder);
+            return this.lastCiphertexts[permutation[i]].add(blinder);
         });
 
         // const trx = new Transcript();

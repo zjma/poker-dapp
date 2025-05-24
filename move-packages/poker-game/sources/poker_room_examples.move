@@ -1,26 +1,17 @@
 #[test_only]
 module poker_game::poker_room_examples {
     use std::bcs;
+    use poker_game::poker_room::{cur_dkg_addr, cur_deckgen_addr, cur_hand_addr};
     use poker_game::deck_gen;
     #[test_only]
     use poker_game::poker_room::{
-        get_room_brief,
+        brief,
         state_update,
-        process_shuffle_contribution,
-        process_dkg_contribution,
         join,
         create,
-        cur_hand,
-        process_private_dealing_reencryption,
-        process_private_dealing_contribution,
-        process_public_opening_contribution,
-        process_new_bet,
-        cur_dkg,
-        cur_deckgen,
         is_in_dkg,
         is_in_deckgen,
         is_in_the_middle_of_a_hand,
-        process_showdown_reveal
     };
 
     #[test_only]
@@ -89,18 +80,17 @@ module poker_game::poker_room_examples {
         state_update(room_addr);
 
         print(&utf8(b"Anyone sees we now need to do DKG 0."));
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         assert!(is_in_dkg(&room, 0), 999);
 
         state_update(room_addr);
-
+        let dkg_0_addr = cur_dkg_addr(room_addr);
         print(&utf8(b"Eric contributes to DKG 0."));
         let (dkg_0_eric_secret_share, dkg_0_eric_contribution) =
-            dkg_v0::generate_contribution(cur_dkg(&room));
-        process_dkg_contribution(
+            dkg_v0::generate_contribution(dkg_0_addr);
+        dkg_v0::process_contribution(
             &eric,
-            room_addr,
-            0,
+            dkg_0_addr,
             bcs::to_bytes(&dkg_0_eric_contribution)
         );
 
@@ -108,11 +98,10 @@ module poker_game::poker_room_examples {
 
         print(&utf8(b"Alice contributes to DKG 0."));
         let (dkg_0_alice_secret_share, dkg_0_alice_contribution) =
-            dkg_v0::generate_contribution(cur_dkg(&room));
-        process_dkg_contribution(
+            dkg_v0::generate_contribution(dkg_0_addr);
+        dkg_v0::process_contribution(
             &alice,
-            room_addr,
-            0,
+            dkg_0_addr,
             bcs::to_bytes(&dkg_0_alice_contribution)
         );
 
@@ -120,11 +109,10 @@ module poker_game::poker_room_examples {
 
         print(&utf8(b"Bob contributes to DKG 0."));
         let (dkg_0_bob_secret_share, dkg_0_bob_contribution) =
-            dkg_v0::generate_contribution(cur_dkg(&room));
-        process_dkg_contribution(
+            dkg_v0::generate_contribution(dkg_0_addr);
+        dkg_v0::process_contribution(
             &bob,
-            room_addr,
-            0,
+            dkg_0_addr,
             bcs::to_bytes(&dkg_0_bob_contribution)
         );
 
@@ -133,196 +121,144 @@ module poker_game::poker_room_examples {
         state_update(room_addr);
         state_update(room_addr);
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         print(&utf8(b"Anyone sees that DKG 0 finished and deckgen 0 started."));
         assert!(is_in_deckgen(&room, 0), 999);
-        let cur_deckgen = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
-        assert!(shuffle::is_waiting_for_contribution(cur_deckgen, alice_addr), 999);
+        let deckgen_0_addr = cur_deckgen_addr(room_addr);
+        let deckgen_0_shuffle_0_addr = deck_gen::cur_shuffle_addr(deckgen_0_addr);
+        assert!(shuffle::is_waiting_for_contribution(deckgen_0_shuffle_0_addr, alice_addr), 999);
 
         print(&utf8(b"Alice contributes to shuffle 0."));
-        let game_0_alice_shuffle_contri =
-            shuffle::generate_contribution_locally(&alice, cur_deckgen);
-        process_shuffle_contribution(
+        let hand_0_alice_shuffle_contri =
+            shuffle::generate_contribution_locally(&alice, deckgen_0_shuffle_0_addr);
+        shuffle::process_contribution(
             &alice,
-            room_addr,
-            0,
-            bcs::to_bytes(&game_0_alice_shuffle_contri)
+            deckgen_0_shuffle_0_addr,
+            bcs::to_bytes(&hand_0_alice_shuffle_contri)
         );
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
 
         print(&utf8(b"Bob contributes to shuffle 0."));
         assert!(is_in_deckgen(&room, 0), 999);
-        let cur_shuffle = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
-        assert!(shuffle::is_waiting_for_contribution(cur_shuffle, bob_addr), 999);
-        let game_0_bob_shuffle_contri =
-            shuffle::generate_contribution_locally(&bob, cur_shuffle);
-        process_shuffle_contribution(
+        assert!(shuffle::is_waiting_for_contribution(deckgen_0_shuffle_0_addr, bob_addr), 999);
+        let hand_0_bob_shuffle_contri =
+            shuffle::generate_contribution_locally(&bob, deckgen_0_shuffle_0_addr);
+        shuffle::process_contribution(
             &bob,
-            room_addr,
-            0,
-            bcs::to_bytes(&game_0_bob_shuffle_contri)
+            deckgen_0_shuffle_0_addr,
+            bcs::to_bytes(&hand_0_bob_shuffle_contri)
         );
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
 
         print(&utf8(b"Eric contributes to shuffle 0."));
         assert!(is_in_deckgen(&room, 0), 999);
-        let cur_shuffle = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
-        assert!(shuffle::is_waiting_for_contribution(cur_shuffle, eric_addr), 999);
-        let game_0_eric_shuffle_contri =
-            shuffle::generate_contribution_locally(&eric, cur_shuffle);
-        process_shuffle_contribution(
+        assert!(shuffle::is_waiting_for_contribution(deckgen_0_shuffle_0_addr, eric_addr), 999);
+        let hand_0_eric_shuffle_contri =
+            shuffle::generate_contribution_locally(&eric, deckgen_0_shuffle_0_addr);
+        shuffle::process_contribution(
             &eric,
-            room_addr,
-            0,
-            bcs::to_bytes(&game_0_eric_shuffle_contri)
+            deckgen_0_shuffle_0_addr,
+            bcs::to_bytes(&hand_0_eric_shuffle_contri)
         );
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         print(&utf8(b"Game 0 officially starts. So does shuffle 1."));
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
-        let cur_game = cur_hand(&room);
-        assert!(hand::is_dealing_private_cards(cur_game), 999);
-
+        let hand_0_addr = cur_hand_addr(room_addr);
+        assert!(hand::is_dealing_private_cards(hand_0_addr), 999);
+        let hand_0_dealing_addrs = range(0, 6).map(|i| hand::private_dealing_session_addr(hand_0_addr, i));
         print(&utf8(b"Initiate 6 private card dealings in parallel."));
-        let (game_0_deal_0_alice_secret, game_0_deal_0_alice_reenc) =
-            reencryption::reencrypt(
-                &alice, hand::borrow_private_dealing_session(cur_game, 0)
-            );
-        let (game_0_deal_1_alice_secret, game_0_deal_1_alice_reenc) =
-            reencryption::reencrypt(
-                &alice, hand::borrow_private_dealing_session(cur_game, 1)
-            );
-        let (game_0_deal_2_bob_secret, game_0_deal_2_bob_reenc) =
-            reencryption::reencrypt(
-                &bob, hand::borrow_private_dealing_session(cur_game, 2)
-            );
-        let (game_0_deal_3_bob_secret, game_0_deal_3_bob_reenc) =
-            reencryption::reencrypt(
-                &bob, hand::borrow_private_dealing_session(cur_game, 3)
-            );
-        let (game_0_deal_4_eric_secret, game_0_deal_4_eric_reenc) =
-            reencryption::reencrypt(
-                &eric, hand::borrow_private_dealing_session(cur_game, 4)
-            );
-        let (game_0_deal_5_eric_secret, game_0_deal_5_eric_reenc) =
-            reencryption::reencrypt(
-                &eric, hand::borrow_private_dealing_session(cur_game, 5)
-            );
-        process_private_dealing_reencryption(
+        let (hand_0_deal_0_alice_secret, hand_0_deal_0_alice_reenc) = reencryption::reencrypt(&alice, hand_0_dealing_addrs[0]);
+        let (hand_0_deal_1_alice_secret, hand_0_deal_1_alice_reenc) = reencryption::reencrypt(&alice, hand_0_dealing_addrs[1]);
+        let (hand_0_deal_2_bob_secret, hand_0_deal_2_bob_reenc) = reencryption::reencrypt(&bob, hand_0_dealing_addrs[2]);
+        let (hand_0_deal_3_bob_secret, hand_0_deal_3_bob_reenc) = reencryption::reencrypt(&bob, hand_0_dealing_addrs[3]);
+        let (hand_0_deal_4_eric_secret, hand_0_deal_4_eric_reenc) = reencryption::reencrypt(&eric, hand_0_dealing_addrs[4]);
+        let (hand_0_deal_5_eric_secret, hand_0_deal_5_eric_reenc) = reencryption::reencrypt(&eric, hand_0_dealing_addrs[5]);
+        reencryption::process_reencryption(
             &alice,
-            room_addr,
-            0,
-            0,
-            bcs::to_bytes(&game_0_deal_0_alice_reenc)
+            hand_0_dealing_addrs[0],
+            bcs::to_bytes(&hand_0_deal_0_alice_reenc)
         );
-        process_private_dealing_reencryption(
+        reencryption::process_reencryption(
             &alice,
-            room_addr,
-            0,
-            1,
-            bcs::to_bytes(&game_0_deal_1_alice_reenc)
+            hand_0_dealing_addrs[1],
+            bcs::to_bytes(&hand_0_deal_1_alice_reenc)
         );
-        process_private_dealing_reencryption(
+        reencryption::process_reencryption(
             &bob,
-            room_addr,
-            0,
-            2,
-            bcs::to_bytes(&game_0_deal_2_bob_reenc)
+            hand_0_dealing_addrs[2],
+            bcs::to_bytes(&hand_0_deal_2_bob_reenc)
         );
-        process_private_dealing_reencryption(
+        reencryption::process_reencryption(
             &bob,
-            room_addr,
-            0,
-            3,
-            bcs::to_bytes(&game_0_deal_3_bob_reenc)
+            hand_0_dealing_addrs[3],
+            bcs::to_bytes(&hand_0_deal_3_bob_reenc)
         );
-        process_private_dealing_reencryption(
+        reencryption::process_reencryption(
             &eric,
-            room_addr,
-            0,
-            4,
-            bcs::to_bytes(&game_0_deal_4_eric_reenc)
+            hand_0_dealing_addrs[4],
+            bcs::to_bytes(&hand_0_deal_4_eric_reenc)
         );
-        process_private_dealing_reencryption(
+        reencryption::process_reencryption(
             &eric,
-            room_addr,
-            0,
-            5,
-            bcs::to_bytes(&game_0_deal_5_eric_reenc)
+            hand_0_dealing_addrs[5],
+            bcs::to_bytes(&hand_0_deal_5_eric_reenc)
         );
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
 
         print(&utf8(b"Everyone does its card dealing duties."));
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
-        let cur_game = cur_hand(&room);
-        assert!(hand::is_dealing_private_cards(cur_game), 999);
+        assert!(hand::is_dealing_private_cards(hand_0_addr), 999);
+        let hand_0_deal_x_scalar_mul_session_addrs = range(0, 6).map(|x| reencryption::scalar_mul_session_addr(hand::private_dealing_session_addr(hand_0_addr, x)));
         range(0, 6).for_each(|i| {
-            let game_0_deal_i_scalar_mul_session =
-                reencryption::borrow_scalar_mul_session(
-                    hand::borrow_private_dealing_session(cur_game, i)
-                );
-            let game_0_deal_i_player_share =
+            let hand_0_deal_x_player_share =
                 threshold_scalar_mul::generate_contribution(
                     &alice,
-                    game_0_deal_i_scalar_mul_session,
+                    hand_0_deal_x_scalar_mul_session_addrs[i],
                     &dkg_0_alice_secret_share
                 );
-            process_private_dealing_contribution(
+            threshold_scalar_mul::process_contribution(
                 &alice,
-                room_addr,
-                0,
-                i,
-                bcs::to_bytes(&game_0_deal_i_player_share)
+                hand_0_deal_x_scalar_mul_session_addrs[i],
+                bcs::to_bytes(&hand_0_deal_x_player_share)
             );
         });
         range(0, 6).for_each(|i| {
-            let game_0_deal_i_scalar_mul_session =
-                reencryption::borrow_scalar_mul_session(
-                    hand::borrow_private_dealing_session(cur_game, i)
-                );
-            let game_0_deal_i_player_share =
+            let hand_0_deal_x_player_share =
                 threshold_scalar_mul::generate_contribution(
                     &bob,
-                    game_0_deal_i_scalar_mul_session,
+                    hand_0_deal_x_scalar_mul_session_addrs[i],
                     &dkg_0_bob_secret_share
                 );
-            process_private_dealing_contribution(
+            threshold_scalar_mul::process_contribution(
                 &bob,
-                room_addr,
-                0,
-                i,
-                bcs::to_bytes(&game_0_deal_i_player_share)
+                hand_0_deal_x_scalar_mul_session_addrs[i],
+                bcs::to_bytes(&hand_0_deal_x_player_share)
             );
         });
         range(0, 6).for_each(|i| {
-            let game_0_deal_i_scalar_mul_session =
-                reencryption::borrow_scalar_mul_session(
-                    hand::borrow_private_dealing_session(cur_game, i)
-                );
-            let game_0_deal_i_player_share =
+            let hand_0_deal_x_player_share =
                 threshold_scalar_mul::generate_contribution(
                     &eric,
-                    game_0_deal_i_scalar_mul_session,
+                    hand_0_deal_x_scalar_mul_session_addrs[i],
                     &dkg_0_eric_secret_share
                 );
-            process_private_dealing_contribution(
+            threshold_scalar_mul::process_contribution(
                 &eric,
-                room_addr,
-                0,
-                i,
-                bcs::to_bytes(&game_0_deal_i_player_share)
+                hand_0_deal_x_scalar_mul_session_addrs[i],
+                bcs::to_bytes(&hand_0_deal_x_player_share)
             );
         });
 
         state_update(room_addr);
 
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         print(
             &utf8(
                 b"Assert: Game 0 is still in progress, in phase 1 betting, Alice's turn."
@@ -330,431 +266,377 @@ module poker_game::poker_room_examples {
         );
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
         assert!(
-            vector[false, false, false] == hand::get_fold_statuses(cur_hand(&room)),
+            vector[false, false, false] == hand::get_fold_statuses(hand_0_addr),
             999
         );
-        assert!(hand::is_phase_1_betting(cur_hand(&room), alice_addr), 999);
-        print(&hand::get_bets(cur_hand(&room)));
+        assert!(hand::is_phase_1_betting(hand_0_addr, alice_addr), 999);
+        print(&hand::get_bets(hand_0_addr));
         assert!(
-            vector[0, 125, 250] == hand::get_bets(cur_hand(&room)),
+            vector[0, 125, 250] == hand::get_bets(hand_0_addr),
             999
         );
 
         print(&utf8(b"Alice takes a look at her private cards."));
-        let game_0_alice_card_0 =
+        let hand_0_alice_card_0 =
             hand::reveal_dealed_card_locally(
                 &alice,
-                cur_hand(&room),
+                hand_0_addr,
                 0,
-                game_0_deal_0_alice_secret
+                hand_0_deal_0_alice_secret
             );
-        let game_0_alice_card_1 =
+        let hand_0_alice_card_1 =
             hand::reveal_dealed_card_locally(
                 &alice,
-                cur_hand(&room),
+                hand_0_addr,
                 1,
-                game_0_deal_1_alice_secret
+                hand_0_deal_1_alice_secret
             );
-        print(&utf8(b"game_0_alice_card_0:"));
-        print(&utils::get_card_text(game_0_alice_card_0));
-        print(&utf8(b"game_0_alice_card_1:"));
-        print(&utils::get_card_text(game_0_alice_card_1));
+        print(&utf8(b"hand_0_alice_card_0:"));
+        print(&utils::get_card_text(hand_0_alice_card_0));
+        print(&utf8(b"hand_0_alice_card_1:"));
+        print(&utils::get_card_text(hand_0_alice_card_1));
 
         print(&utf8(b"Bob takes a look at his private cards."));
-        let game_0_bob_card_0 =
+        let hand_0_bob_card_0 =
             hand::reveal_dealed_card_locally(
                 &bob,
-                cur_hand(&room),
+                hand_0_addr,
                 2,
-                game_0_deal_2_bob_secret
+                hand_0_deal_2_bob_secret
             );
-        let game_0_bob_card_1 =
+        let hand_0_bob_card_1 =
             hand::reveal_dealed_card_locally(
                 &bob,
-                cur_hand(&room),
+                hand_0_addr,
                 3,
-                game_0_deal_3_bob_secret
+                hand_0_deal_3_bob_secret
             );
-        print(&utf8(b"game_0_bob_card_0:"));
-        print(&utils::get_card_text(game_0_bob_card_0));
-        print(&utf8(b"game_0_bob_card_1:"));
-        print(&utils::get_card_text(game_0_bob_card_1));
+        print(&utf8(b"hand_0_bob_card_0:"));
+        print(&utils::get_card_text(hand_0_bob_card_0));
+        print(&utf8(b"hand_0_bob_card_1:"));
+        print(&utils::get_card_text(hand_0_bob_card_1));
 
         print(&utf8(b"Eric takes a look at his private cards."));
-        let game_0_eric_card_0 =
+        let hand_0_eric_card_0 =
             hand::reveal_dealed_card_locally(
                 &eric,
-                cur_hand(&room),
+                hand_0_addr,
                 4,
-                game_0_deal_4_eric_secret
+                hand_0_deal_4_eric_secret
             );
-        let game_0_eric_card_1 =
+        let hand_0_eric_card_1 =
             hand::reveal_dealed_card_locally(
                 &eric,
-                cur_hand(&room),
+                hand_0_addr,
                 5,
-                game_0_deal_5_eric_secret
+                hand_0_deal_5_eric_secret
             );
-        print(&utf8(b"game_0_eric_card_0:"));
-        print(&utils::get_card_text(game_0_eric_card_0));
-        print(&utf8(b"game_0_eric_card_1:"));
-        print(&utils::get_card_text(game_0_eric_card_1));
+        print(&utf8(b"hand_0_eric_card_0:"));
+        print(&utils::get_card_text(hand_0_eric_card_0));
+        print(&utf8(b"hand_0_eric_card_1:"));
+        print(&utils::get_card_text(hand_0_eric_card_1));
 
         print(&utf8(b"Alice folds."));
-        process_new_bet(&alice, room_addr, 0, 0);
+        hand::process_bet_action(&alice, hand_0_addr, 0);
 
         state_update(room_addr);
         state_update(room_addr);
         state_update(room_addr);
         state_update(room_addr);
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         print(&utf8(b"They also find some cycles to do shuffle 1."));
         print(&utf8(b"Alice contributes to shuffle 1."));
-        let cur_shuffle = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
+        let deckgen_1_addr = cur_deckgen_addr(room_addr);
+        let deckgen_1_shuffle_0_addr = deck_gen::cur_shuffle_addr(deckgen_1_addr);
         assert!(
-            shuffle::is_waiting_for_contribution(cur_shuffle, alice_addr), 999
+            shuffle::is_waiting_for_contribution(deckgen_1_shuffle_0_addr, alice_addr), 999
         );
-        let game_1_alice_shuffle_contri =
-            shuffle::generate_contribution_locally(&alice, cur_shuffle);
-        process_shuffle_contribution(
+        let deckgen_1_alice_shuffle_contri =
+            shuffle::generate_contribution_locally(&alice, deckgen_1_shuffle_0_addr);
+        shuffle::process_contribution(
             &alice,
-            room_addr,
-            1,
-            bcs::to_bytes(&game_1_alice_shuffle_contri)
+            deckgen_1_shuffle_0_addr,
+            bcs::to_bytes(&deckgen_1_alice_shuffle_contri)
         );
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         print(&utf8(b"Bob contributes to shuffle 1."));
-        let cur_shuffle = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
-        assert!(shuffle::is_waiting_for_contribution(cur_shuffle, bob_addr), 999);
-        let game_1_bob_shuffle_contri =
-            shuffle::generate_contribution_locally(&bob, cur_shuffle);
-        process_shuffle_contribution(
+        assert!(shuffle::is_waiting_for_contribution(deckgen_1_shuffle_0_addr, bob_addr), 999);
+        let deckgen_1_bob_shuffle_contri =
+            shuffle::generate_contribution_locally(&bob, deckgen_1_shuffle_0_addr);
+        shuffle::process_contribution(
             &bob,
-            room_addr,
-            1,
-            bcs::to_bytes(&game_1_bob_shuffle_contri)
+            deckgen_1_shuffle_0_addr,
+            bcs::to_bytes(&deckgen_1_bob_shuffle_contri)
         );
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         print(&utf8(b"Eric contributes to shuffle 1."));
-        let cur_shuffle = deck_gen::borrow_shuffle_session(cur_deckgen(&room));
         assert!(
-            shuffle::is_waiting_for_contribution(cur_shuffle, eric_addr), 999
+            shuffle::is_waiting_for_contribution(deckgen_1_shuffle_0_addr, eric_addr), 999
         );
         let game_1_eric_shuffle_contri =
-            shuffle::generate_contribution_locally(&eric, cur_shuffle);
-        process_shuffle_contribution(
+            shuffle::generate_contribution_locally(&eric, deckgen_1_shuffle_0_addr);
+        shuffle::process_contribution(
             &eric,
-            room_addr,
-            1,
+            deckgen_1_shuffle_0_addr,
             bcs::to_bytes(&game_1_eric_shuffle_contri)
         );
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
         print(&utf8(b"Anyone can see deckgen 1 is done."));
-        assert!(deck_gen::succeeded(cur_deckgen(&room)), 999);
+        assert!(deck_gen::succeeded(deckgen_1_addr), 999);
         assert!(
-            vector[0, 125, 250] == hand::get_bets(cur_hand(&room)),
+            vector[0, 125, 250] == hand::get_bets(hand_0_addr),
             999
         );
         assert!(
-            vector[true, false, false] == hand::get_fold_statuses(cur_hand(&room)),
+            vector[true, false, false] == hand::get_fold_statuses(hand_0_addr),
             999
         );
-        assert!(hand::is_phase_1_betting(cur_hand(&room), bob_addr), 999);
+        assert!(hand::is_phase_1_betting(hand_0_addr, bob_addr), 999);
 
         print(&utf8(b"Bob raises."));
-        process_new_bet(&bob, room_addr, 0, 500);
+        hand::process_bet_action(&bob, hand_0_addr, 500);
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
         assert!(
-            vector[0, 500, 250] == hand::get_bets(cur_hand(&room)),
+            vector[0, 500, 250] == hand::get_bets(hand_0_addr),
             999
         );
         assert!(
-            vector[true, false, false] == hand::get_fold_statuses(cur_hand(&room)),
+            vector[true, false, false] == hand::get_fold_statuses(hand_0_addr),
             999
         );
-        assert!(hand::is_phase_1_betting(cur_hand(&room), eric_addr), 999);
+        assert!(hand::is_phase_1_betting(hand_0_addr, eric_addr), 999);
 
         print(&utf8(b"Eric calls."));
-        process_new_bet(&eric, room_addr, 0, 500);
+        hand::process_bet_action(&eric, hand_0_addr, 500);
 
         state_update(room_addr);
 
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
         assert!(
-            vector[0, 500, 500] == hand::get_bets(cur_hand(&room)),
+            vector[0, 500, 500] == hand::get_bets(hand_0_addr),
             999
         );
         assert!(
-            vector[true, false, false] == hand::get_fold_statuses(cur_hand(&room)),
+            vector[true, false, false] == hand::get_fold_statuses(hand_0_addr),
             999
         );
 
         print(&utf8(b"Time to open 3 community cards."));
-        assert!(hand::is_dealing_community_cards(cur_hand(&room)), 999);
+        assert!(hand::is_dealing_community_cards(hand_0_addr), 999);
 
         print(&utf8(b"Everyone does his card opening duty."));
+        let hand_0_open_x_addrs = range(0, 3).map(|x|hand::borrow_public_opening_session(hand_0_addr, x));
         vector[0, 1, 2].for_each(|opening_idx| {
-            let scalar_mul_session =
-                hand::borrow_public_opening_session(cur_hand(&room), opening_idx);
-            let share =
-                threshold_scalar_mul::generate_contribution(
-                    &bob, scalar_mul_session, &dkg_0_bob_secret_share
-                );
-            process_public_opening_contribution(
-                &bob,
-                room_addr,
-                0,
-                opening_idx,
-                bcs::to_bytes(&share)
-            );
+            let share = threshold_scalar_mul::generate_contribution(&bob, hand_0_open_x_addrs[opening_idx], &dkg_0_bob_secret_share);
+            threshold_scalar_mul::process_contribution(&bob, hand_0_open_x_addrs[opening_idx], bcs::to_bytes(&share));
         });
         vector[0, 1, 2].for_each(|opening_idx| {
-            let scalar_mul_session =
-                hand::borrow_public_opening_session(cur_hand(&room), opening_idx);
-            let share =
-                threshold_scalar_mul::generate_contribution(
-                    &eric, scalar_mul_session, &dkg_0_eric_secret_share
-                );
-            process_public_opening_contribution(
-                &eric,
-                room_addr,
-                0,
-                opening_idx,
-                bcs::to_bytes(&share)
-            );
+            let share = threshold_scalar_mul::generate_contribution(&eric, hand_0_open_x_addrs[opening_idx], &dkg_0_eric_secret_share);
+            threshold_scalar_mul::process_contribution(&eric, hand_0_open_x_addrs[opening_idx], bcs::to_bytes(&share));
         });
         vector[0, 1, 2].for_each(|opening_idx| {
-            let scalar_mul_session =
-                hand::borrow_public_opening_session(cur_hand(&room), opening_idx);
-            let share =
-                threshold_scalar_mul::generate_contribution(
-                    &alice, scalar_mul_session, &dkg_0_alice_secret_share
-                );
-            process_public_opening_contribution(
-                &alice,
-                room_addr,
-                0,
-                opening_idx,
-                bcs::to_bytes(&share)
-            );
+            let share = threshold_scalar_mul::generate_contribution(&alice, hand_0_open_x_addrs[opening_idx], &dkg_0_alice_secret_share);
+            threshold_scalar_mul::process_contribution(&alice, hand_0_open_x_addrs[opening_idx], bcs::to_bytes(&share));
         });
 
         state_update(room_addr);
 
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
-        assert!(hand::is_phase_2_betting(cur_hand(&room), bob_addr), 999);
+        assert!(hand::is_phase_2_betting(hand_0_addr, bob_addr), 999);
         print(&utf8(b"Everyone can see the 3 public cards."));
-        let public_card_0 = hand::get_public_card(cur_hand(&room), 0);
-        let public_card_1 = hand::get_public_card(cur_hand(&room), 1);
-        let public_card_2 = hand::get_public_card(cur_hand(&room), 2);
-        print(&utf8(b"game_0_public_card_0:"));
+        let public_card_0 = hand::get_public_card(hand_0_addr, 0);
+        let public_card_1 = hand::get_public_card(hand_0_addr, 1);
+        let public_card_2 = hand::get_public_card(hand_0_addr, 2);
+        print(&utf8(b"hand_0_public_card_0:"));
         print(&utils::get_card_text(public_card_0));
-        print(&utf8(b"game_0_public_card_1:"));
+        print(&utf8(b"hand_0_public_card_1:"));
         print(&utils::get_card_text(public_card_1));
-        print(&utf8(b"game_0_public_card_2:"));
+        print(&utf8(b"hand_0_public_card_2:"));
         print(&utils::get_card_text(public_card_2));
 
         print(&utf8(b"Game 0 post-flop betting starts."));
         print(&utf8(b"Bob checks."));
-        process_new_bet(&bob, room_addr, 0, 500);
+        hand::process_bet_action(&bob, hand_0_addr, 500);
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
-        assert!(hand::is_phase_2_betting(cur_hand(&room), eric_addr), 999);
+        assert!(hand::is_phase_2_betting(hand_0_addr, eric_addr), 999);
 
         print(&utf8(b"Eric bet 300 more chips."));
-        process_new_bet(&eric, room_addr, 0, 800);
+        hand::process_bet_action(&eric, hand_0_addr, 800);
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
-        let cur_game = cur_hand(&room);
+        let cur_game = hand_0_addr;
         assert!(hand::is_phase_2_betting(cur_game, bob_addr), 999);
 
         print(&utf8(b"Bob calls."));
-        process_new_bet(&bob, room_addr, 0, 800);
+        hand::process_bet_action(&bob, hand_0_addr, 800);
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
-        let cur_game = cur_hand(&room);
+        let cur_game = hand_0_addr;
         assert!(hand::is_opening_4th_community_card(cur_game), 999);
 
         print(&utf8(b"Opening the 4th public card."));
-        let game_0_opening_3 = hand::borrow_public_opening_session(cur_game, 3);
+        let hand_0_open_3_addr = hand::borrow_public_opening_session(cur_game, 3);
 
-        let game_0_opening_3_alice_share =
+        let hand_0_open_3_alice_share =
             threshold_scalar_mul::generate_contribution(
-                &alice, game_0_opening_3, &dkg_0_alice_secret_share
+                &alice, hand_0_open_3_addr, &dkg_0_alice_secret_share
             );
-        process_public_opening_contribution(
+        threshold_scalar_mul::process_contribution(
             &alice,
-            room_addr,
-            0,
-            3,
-            bcs::to_bytes(&game_0_opening_3_alice_share)
+            hand_0_open_3_addr,
+            bcs::to_bytes(&hand_0_open_3_alice_share)
         );
-        let game_0_opening_3_bob_share =
+        let hand_0_open_3_bob_share =
             threshold_scalar_mul::generate_contribution(
-                &bob, game_0_opening_3, &dkg_0_bob_secret_share
+                &bob, hand_0_open_3_addr, &dkg_0_bob_secret_share
             );
-        process_public_opening_contribution(
+        threshold_scalar_mul::process_contribution(
             &bob,
-            room_addr,
-            0,
-            3,
-            bcs::to_bytes(&game_0_opening_3_bob_share)
+            hand_0_open_3_addr,
+            bcs::to_bytes(&hand_0_open_3_bob_share)
         );
-        let game_0_opening_3_eric_share =
+        let hand_0_open_3_eric_share =
             threshold_scalar_mul::generate_contribution(
-                &eric, game_0_opening_3, &dkg_0_eric_secret_share
+                &eric, hand_0_open_3_addr, &dkg_0_eric_secret_share
             );
-        process_public_opening_contribution(
+        threshold_scalar_mul::process_contribution(
             &eric,
-            room_addr,
-            0,
-            3,
-            bcs::to_bytes(&game_0_opening_3_eric_share)
+            hand_0_open_3_addr,
+            bcs::to_bytes(&hand_0_open_3_eric_share)
         );
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
-        let cur_game = cur_hand(&room);
+        let room = brief(room_addr);
+        let cur_game = hand_0_addr;
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
         assert!(hand::is_phase_3_betting(cur_game, bob_addr), 999);
 
         print(&utf8(b"Anyone can see the 4th public card."));
         let public_card_3 = hand::get_public_card(cur_game, 3);
-        print(&utf8(b"game_0_public_card_3:"));
+        print(&utf8(b"hand_0_public_card_3:"));
         print(&utils::get_card_text(public_card_3));
 
         print(&utf8(b"Game 0 post-turn betting starts."));
         print(&utf8(b"Bob raises."));
-        process_new_bet(&bob, room_addr, 0, 20000);
+        hand::process_bet_action(&bob, hand_0_addr, 20000);
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
-        let cur_game = cur_hand(&room);
+        let room = brief(room_addr);
+        let cur_game = hand_0_addr;
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
         assert!(hand::is_phase_3_betting(cur_game, eric_addr), 999);
 
         print(&utf8(b"Eric calls."));
-        process_new_bet(&eric, room_addr, 0, 20000);
+        hand::process_bet_action(&eric, hand_0_addr, 20000);
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
-        let cur_game = cur_hand(&room);
+        let room = brief(room_addr);
+        let cur_game = hand_0_addr;
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
         assert!(hand::is_opening_5th_community_card(cur_game), 999);
 
         print(&utf8(b"Opening the 5th public card."));
-        let game_0_opening_4 = hand::borrow_public_opening_session(cur_game, 4);
+        let hand_0_open_4_addr = hand::borrow_public_opening_session(cur_game, 4);
 
-        let game_0_opening_4_eric_share =
+        let hand_0_open_4_eric_share =
             threshold_scalar_mul::generate_contribution(
-                &eric, game_0_opening_4, &dkg_0_eric_secret_share
+                &eric, hand_0_open_4_addr, &dkg_0_eric_secret_share
             );
-        process_public_opening_contribution(
+        threshold_scalar_mul::process_contribution(
             &eric,
-            room_addr,
-            0,
-            4,
-            bcs::to_bytes(&game_0_opening_4_eric_share)
+            hand_0_open_4_addr,
+            bcs::to_bytes(&hand_0_open_4_eric_share)
         );
-        let game_0_opening_4_alice_share =
+        let hand_0_open_4_alice_share =
             threshold_scalar_mul::generate_contribution(
-                &alice, game_0_opening_4, &dkg_0_alice_secret_share
+                &alice, hand_0_open_4_addr, &dkg_0_alice_secret_share
             );
-        process_public_opening_contribution(
+        threshold_scalar_mul::process_contribution(
             &alice,
-            room_addr,
-            0,
-            4,
-            bcs::to_bytes(&game_0_opening_4_alice_share)
+            hand_0_open_4_addr,
+            bcs::to_bytes(&hand_0_open_4_alice_share)
         );
-        let game_0_opening_4_bob_share =
+        let hand_0_open_4_bob_share =
             threshold_scalar_mul::generate_contribution(
-                &bob, game_0_opening_4, &dkg_0_bob_secret_share
+                &bob, hand_0_open_4_addr, &dkg_0_bob_secret_share
             );
-        process_public_opening_contribution(
+        threshold_scalar_mul::process_contribution(
             &bob,
-            room_addr,
-            0,
-            4,
-            bcs::to_bytes(&game_0_opening_4_bob_share)
+            hand_0_open_4_addr,
+            bcs::to_bytes(&hand_0_open_4_bob_share)
         );
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
-        let cur_game = cur_hand(&room);
+        let room = brief(room_addr);
+        let cur_game = hand_0_addr;
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
         assert!(hand::is_phase_4_betting(cur_game, bob_addr), 999);
 
         print(&utf8(b"Anyone can see the 5th public card."));
         let public_card_4 = hand::get_public_card(cur_game, 4);
 
-        print(&utf8(b"game_0_public_card_4:"));
+        print(&utf8(b"hand_0_public_card_4:"));
         print(&utils::get_card_text(public_card_4));
 
         print(&utf8(b"Game 0 post-river betting starts."));
         print(&utf8(b"Bob checks."));
-        process_new_bet(&bob, room_addr, 0, 20000);
+        hand::process_bet_action(&bob, hand_0_addr, 20000);
         state_update(room_addr);
         print(&utf8(b"Eric checks."));
-        process_new_bet(&eric, room_addr, 0, 20000);
+        hand::process_bet_action(&eric, hand_0_addr, 20000);
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
-        let cur_game = cur_hand(&room);
-        print(&utf8(b"Game 0 showdown."));
-        assert!(hand::is_at_showdown(cur_game), 999);
+        print(&utf8(b"Hand 0 showdown."));
+        assert!(hand::is_at_showdown(hand_0_addr), 999);
 
         print(&utf8(b"Bob and Eric reveal their private cards"));
-        process_showdown_reveal(
+        hand::process_showdown_reveal(
             &eric,
-            room_addr,
-            0,
+            hand_0_addr,
             4,
-            bcs::to_bytes(&game_0_deal_4_eric_secret)
+            bcs::to_bytes(&hand_0_deal_4_eric_secret)
         );
-        process_showdown_reveal(
+        hand::process_showdown_reveal(
             &eric,
-            room_addr,
-            0,
+            hand_0_addr,
             5,
-            bcs::to_bytes(&game_0_deal_5_eric_secret)
+            bcs::to_bytes(&hand_0_deal_5_eric_secret)
         );
-        process_showdown_reveal(
+        hand::process_showdown_reveal(
             &bob,
-            room_addr,
-            0,
+            hand_0_addr,
             3,
-            bcs::to_bytes(&game_0_deal_3_bob_secret)
+            bcs::to_bytes(&hand_0_deal_3_bob_secret)
         );
-        process_showdown_reveal(
+        hand::process_showdown_reveal(
             &bob,
-            room_addr,
-            0,
+            hand_0_addr,
             2,
-            bcs::to_bytes(&game_0_deal_2_bob_secret)
+            bcs::to_bytes(&hand_0_deal_2_bob_secret)
         );
 
         state_update(room_addr);
-        let room = get_room_brief(room_addr);
+        let room = brief(room_addr);
         assert!(is_in_the_middle_of_a_hand(&room, 1), 999);
 
         coin::destroy_burn_cap(burn_cap);

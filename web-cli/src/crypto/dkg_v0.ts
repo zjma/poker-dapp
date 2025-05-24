@@ -10,74 +10,38 @@ export const STATE_IN_PROGRESS = 0;
 export const STATE_SUCCEEDED = 1;
 export const STATE_TIMED_OUT = 2;
 
-export class DKGSession {
+export class SessionBrief {
+    addr: AccountAddress;
     basePoint: Element;
     expectedContributors: AccountAddress[];
     deadline: number;
     state: number;
-    contributions: (VerifiableContribution | null)[];
-    contributionStillNeeded: number;
+    contributionFlags: boolean[];
     aggPublicPoint: Element;
-    culprits: AccountAddress[];
 
-    constructor(basePoint: Element, expectedContributors: AccountAddress[], deadline: number, state: number, contributions: (VerifiableContribution | null)[], contributionStillNeeded: number, aggPublicPoint: Element, culprits: AccountAddress[]) {
+    constructor(addr: AccountAddress, basePoint: Element, expectedContributors: AccountAddress[], deadline: number, state: number, contributionFlags: boolean[], aggPublicPoint: Element) {
+        this.addr = addr;
         this.basePoint = basePoint;
         this.expectedContributors = expectedContributors;
         this.deadline = deadline;
         this.state = state;
-        this.contributions = contributions;
-        this.contributionStillNeeded = contributionStillNeeded;
+        this.contributionFlags = contributionFlags;
         this.aggPublicPoint = aggPublicPoint;
-        this.culprits = culprits;
     }
 
-    static dummy(): DKGSession {
-        return new DKGSession(
-            Group.Element.groupIdentity(),
-            [],
-            0,
-            0,
-            [],
-            0,
-            Group.Element.groupIdentity(),
-            [],
-        );
-    }
-    
-    static decode(deserializer: Deserializer): DKGSession {
+    static decode(deserializer: Deserializer): SessionBrief {
+        const addr = deserializer.deserialize(AccountAddress);
         const basePoint = Group.Element.decode(deserializer);
         const expectedContributors = deserializer.deserializeVector(AccountAddress);
         const deadline = Number(deserializer.deserializeU64());
         const state = Number(deserializer.deserializeU64());
         const numContributions = deserializer.deserializeUleb128AsU32();
-        const contributions = new Array<VerifiableContribution | null>(numContributions);
+        const contributionFlags = new Array<boolean>(numContributions);
         for (let i = 0; i < numContributions; i++) {
-            const isNull = deserializer.deserializeU8() === 0;
-            contributions[i] = isNull ? null : VerifiableContribution.decode(deserializer);
+            contributionFlags[i] = deserializer.deserializeBool();
         }
-        const contributionStillNeeded = Number(deserializer.deserializeU64());
         const aggPublicPoint = Group.Element.decode(deserializer);
-        const culprits = deserializer.deserializeVector(AccountAddress);
-        return new DKGSession(basePoint, expectedContributors, deadline, state, contributions, contributionStillNeeded, aggPublicPoint, culprits);
-    }
-
-    encode(serializer: Serializer): void {
-        this.basePoint.encode(serializer);
-        serializer.serializeVector(this.expectedContributors);
-        serializer.serializeU64(this.deadline);
-        serializer.serializeU64(this.state);
-        serializer.serializeU32AsUleb128(this.contributions.length);
-        for (const contribution of this.contributions) {
-            if (contribution === null) {
-                serializer.serializeU8(0);
-            } else {
-                serializer.serializeU8(1);
-                contribution.encode(serializer);
-            }
-        }
-        serializer.serializeU64(this.contributionStillNeeded);
-        this.aggPublicPoint.encode(serializer);
-        serializer.serializeVector(this.culprits);
+        return new SessionBrief(addr, basePoint, expectedContributors, deadline, state, contributionFlags, aggPublicPoint);
     }
 
     succeeded(): boolean {
@@ -168,21 +132,25 @@ export class SecretShare {
 };
 
 export class SharedSecretPublicInfo {
+    sessionAddr: AccountAddress;
     agg_ek: EncKey;
     ek_shares: EncKey[];
 
-    constructor(agg_ek: EncKey, ek_shares: EncKey[]) {
+    constructor(sessionAddr: AccountAddress, agg_ek: EncKey, ek_shares: EncKey[]) {
+        this.sessionAddr = sessionAddr;
         this.agg_ek = agg_ek;
         this.ek_shares = ek_shares;
     }
 
     static decode(deserializer: Deserializer): SharedSecretPublicInfo {
+        const sessionAddr = deserializer.deserialize(AccountAddress);
         const agg_ek = EncKey.decode(deserializer);
         const ek_shares = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => EncKey.decode(deserializer));
-        return new SharedSecretPublicInfo(agg_ek, ek_shares);
+        return new SharedSecretPublicInfo(sessionAddr, agg_ek, ek_shares);
     }
 
     encode(serializer: Serializer): void {
+        serializer.serialize(this.sessionAddr);
         this.agg_ek.encode(serializer);
         serializer.serializeU32AsUleb128(this.ek_shares.length);
         for (const ek of this.ek_shares) {

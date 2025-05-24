@@ -1,13 +1,8 @@
 /// Utils for Fiat-Shamir transformation.
 module crypto_core::fiat_shamir_transform {
     use std::bcs;
-    use std::vector::range;
-    use aptos_std::aptos_hash::sha3_512;
-    use aptos_std::debug::print;
     use aptos_std::ristretto255;
     use crypto_core::group;
-    #[test_only]
-    use aptos_framework::randomness;
 
     struct Transcript has copy, drop {
         recorded: vector<u8>

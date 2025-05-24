@@ -1,8 +1,6 @@
 /// Protocol to prove knowledge of scalar `s` such that `s*B0==P0, s*B1==P1` for public elements `B0, B1, P0, P1`.
 module crypto_core::sigma_dlog_eq {
-    use std::bcs;
     use aptos_std::bcs_stream::BCSStream;
-    use aptos_std::debug::print;
     use crypto_core::fiat_shamir_transform;
     use crypto_core::group;
     #[test_only]
@@ -69,9 +67,7 @@ module crypto_core::sigma_dlog_eq {
         fiat_shamir_transform::append_group_element(trx, p1);
         fiat_shamir_transform::append_group_element(trx, &proof.t0);
         fiat_shamir_transform::append_group_element(trx, &proof.t1);
-        print(trx);
         let c = fiat_shamir_transform::hash_to_scalar(trx);
-        print(&bcs::to_bytes(&c));
         let ret = true;
         ret =
             ret
