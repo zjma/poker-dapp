@@ -148,7 +148,7 @@ module poker_game::poker_room {
         let room = borrow_global_mut<Session>(room_addr);
         if (room.state == STATE__WAITING_FOR_PLAYERS) {
             if (room.player_livenesses.all(|liveness| *liveness)) {
-                start_dkg(room_addr);
+                start_dkg_or_close_room_on_active_player_set_change(room_addr);
             }
         } else if (room.state == STATE__DKG_IN_PROGRESS) {
             let cur_dkg_addr = *room.dkg_sessions.borrow(room.num_dkgs_done);
@@ -159,7 +159,7 @@ module poker_game::poker_room {
             } else if (dkg_v0::failed(cur_dkg_addr)) {
                 punish_culprits(room, dkg_v0::get_culprits(cur_dkg_addr));
                 room.num_dkgs_done += 1;
-                start_dkg(room_addr);
+                start_dkg_or_close_room_on_active_player_set_change(room_addr);
             } else {
                 // DKG is still in progress...
             }
@@ -173,7 +173,7 @@ module poker_game::poker_room {
                 let culprit = deck_gen::culprit(cur_deckgen_addr);
                 punish_culprits(room, vector[culprit]);
                 room.num_deckgens_done += 1;
-                start_dkg(room_addr);
+                start_dkg_or_close_room_on_active_player_set_change(room_addr);
             } else {
                 // Deck-gen still in progress...
             }
@@ -186,20 +186,29 @@ module poker_game::poker_room {
                 // Apply the hand result.
                 let (players, new_chip_amounts) = hand::get_ending_chips(cur_hand_addr);
                 let n = players.length();
+                let someone_was_knocked_out = false;
                 vector::range(0, n).for_each(|i| {
                     let (found, player_idx) = room.expected_player_addresses.index_of(&players[i]);
                     assert!(found, 192724);
                     room.player_chips[player_idx] = new_chip_amounts[i];
+                    if (new_chip_amounts[i] == 0) {
+                        someone_was_knocked_out = true;
+                    }
                 });
                 room.num_hands_done += 1;
-                if (deck_gen::succeeded(cur_deckgen_addr)) {
+                if (someone_was_knocked_out) {
+                    if (deck_gen::in_progress(cur_deckgen_addr)) {
+                        room.num_deckgens_done += 1;
+                    };
+                    start_dkg_or_close_room_on_active_player_set_change(room_addr);
+                } else if (deck_gen::succeeded(cur_deckgen_addr)) {
                     room.num_deckgens_done += 1;
                     start_hand_and_deckgen_together(room_addr);
                 } else if (deck_gen::failed(cur_deckgen_addr)) {
                     room.num_deckgens_done += 1;
                     let culprit = deck_gen::culprit(cur_deckgen_addr);
                     punish_culprits(room, vector[culprit]);
-                    start_dkg(room_addr);
+                    start_dkg_or_close_room_on_active_player_set_change(room_addr);
                 } else {
                     room.state = STATE__DECKGEN_IN_PROGRESS;
                 }
@@ -208,7 +217,7 @@ module poker_game::poker_room {
                 room.num_deckgens_done += 1;
                 punish_culprits(room, hand::get_culprits(cur_hand_addr));
                 room.num_hands_done += 1;
-                start_dkg(room_addr);
+                start_dkg_or_close_room_on_active_player_set_change(room_addr);
             } else {
                 // Hand is in progress...
                 // We worry about the deckgen later, even if it has succeeded.
@@ -293,11 +302,23 @@ module poker_game::poker_room {
     // //
     //
 
-    fun start_dkg(room_addr: address) acquires Session {
+    fun active_players(room_addr: address): vector<address> acquires Session {
         let room = borrow_global_mut<Session>(room_addr);
         let alive_player_idxs = vector::range(0, room.num_players).filter(
             |idx| room.player_livenesses[*idx] && room.player_chips[*idx] > 0
         );
+        alive_player_idxs.map(|idx| room.expected_player_addresses[idx])
+    }
+
+    fun start_dkg_or_close_room_on_active_player_set_change(room_addr: address) acquires Session {
+        let room = borrow_global_mut<Session>(room_addr);
+        let alive_player_idxs = vector::range(0, room.num_players).filter(
+            |idx| room.player_livenesses[*idx] && room.player_chips[*idx] > 0
+        );
+        if (alive_player_idxs.length() <= 1) {
+            room.state = STATE__CLOSED;
+            return;
+        };
         let alive_players = alive_player_idxs.map(|idx| room.expected_player_addresses[idx]);
         if (room.num_dkgs_done >= 1) {
             let last_dkg = *room.dkg_sessions.borrow(room.num_dkgs_done - 1);

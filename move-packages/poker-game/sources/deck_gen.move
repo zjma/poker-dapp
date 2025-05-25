@@ -68,6 +68,11 @@ module poker_game::deck_gen {
         shuffle::failed(session.shuffle_addr)
     }
 
+    public fun in_progress(session_addr: address): bool acquires Session {
+        let session = borrow_global<Session>(session_addr);
+        shuffle::in_progress(session.shuffle_addr)
+    }
+
     public fun culprit(session_addr: address): address acquires Session {
         let session = borrow_global<Session>(session_addr);
         shuffle::get_culprit(session.shuffle_addr)

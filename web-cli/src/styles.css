@@ -1096,7 +1096,7 @@ body {
     height: 120px;
 }
 
-.dkg-or-shuffle-in-progress-flag {
+#finalized-flag, #dkg-or-shuffle-in-progress-flag, #waiting-for-players-flag {
     position: absolute;
     top: 350px;
     left: 350px;

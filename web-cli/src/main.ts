@@ -1,5 +1,5 @@
 import './styles.css';
-import { Aptos, AptosConfig, Network, Account, AccountAddress, Ed25519PrivateKey, Deserializer, Serializer, ClientConfig } from "@aptos-labs/ts-sdk";
+import { Aptos, AptosConfig, Network, Account, AccountAddress, Ed25519PrivateKey, Deserializer, ClientConfig } from "@aptos-labs/ts-sdk";
 import { hexToBytes } from '@noble/hashes/utils';
 import { STATE_IN_PROGRESS } from './crypto/dkg_v0';
 import * as Hand from './hand';
@@ -17,8 +17,8 @@ const clientConfig: ClientConfig = {
 
 const config = new AptosConfig({ network: Network.DEVNET, clientConfig });
 const aptos = new Aptos(config);
-const PKG_0_ADDRESS = '0xfd20cef653ef1c17fb9f2a1a3d0510994baac0f2a1492a7b358730160d10c16d';
-const PKG_1_ADDRESS = '0xb12477a6ef226311d708c55444afc27826a97fb14b832619a83e37fc3725a059';
+const PKG_0_ADDRESS = '0xd209996a76fa1370bce1ff037bbe7ba3eefccd83ef1a9fddc53372367b3c4ed3';
+const PKG_1_ADDRESS = '0x1ac4b9b5a15a252eb1568b46dc64961528ec98824624f54a5154bb31e2356ad7';
 
 interface SavedAccount {
     address: string;
@@ -55,10 +55,11 @@ class GameApp {
     private allowedBetAmounts: number[] = [0, 100];
     private betBtn: HTMLButtonElement | null;
     private foldBtn: HTMLButtonElement | null;
-    private refreshBtn: HTMLButtonElement | null;
-    // private stepBtn: HTMLButtonElement | null;
+    private autoRefresh: boolean = false;
     private loadingSpinner: HTMLElement | null = null;
     private mySitBtn: HTMLButtonElement | null;
+    private lastActionContext: string = '';
+    private leaveBtn: HTMLButtonElement | null;
 
     constructor() {
         // Initialize UI.
@@ -90,6 +91,8 @@ class GameApp {
         this.cancelHostBtn!.addEventListener('click', () => this.hideHostDialog());
         this.allowedAddressesInput = document.getElementById('allowed-addresses') as HTMLTextAreaElement;
         this.client = aptos;
+        this.leaveBtn = document.getElementById('leave-btn') as HTMLButtonElement;
+        this.leaveBtn!.addEventListener('click', () => this.handleLeaveBtn());
         
         this.betBtn = document.getElementById('my-bet-btn') as HTMLButtonElement;
         this.betBtn!.addEventListener('click', () => this.handleBetBtn());
@@ -98,9 +101,6 @@ class GameApp {
         this.myBetAmount = document.getElementById('my-bet-amount') as HTMLInputElement;
         this.myBetAmount!.addEventListener('input', () => this.handleMyBetAmountChange(parseInt(this.myBetAmount!.value)));
         
-        this.refreshBtn = document.getElementById('refresh-btn') as HTMLButtonElement;
-        this.refreshBtn!.addEventListener('click', () => this.handleRefreshBtn());
-
         this.loadingSpinner = document.getElementById('loading-spinner');
         this.mySitBtn = document.getElementById('my-sit-button') as HTMLButtonElement;
         this.mySitBtn!.addEventListener('click', () => this.handleMySit());
@@ -128,7 +128,11 @@ class GameApp {
         this.startContractPingLoop();
         this.setDisplayNoneForAllGameContentVariants();
         this.loginDialog!.style.display = 'flex';
-
+    }
+    private async handleLeaveBtn() {
+        this.autoRefresh = false;
+        this.tableView!.style.display = 'none';
+        this.lobbyView!.style.display = 'flex';
     }
     async handleFoldBtn() {
         const curHand = this.tableBrief!.curHand!;
@@ -235,37 +239,42 @@ class GameApp {
             transaction: txn
         });
 
-        var committedTxn: any;
         try {
-            committedTxn = await this.client.transaction.submit.simple({
+            const committedTxn = await this.client.transaction.submit.simple({
                 transaction: txn,
                 senderAuthenticator: signedTxn
             });
+
+            // Wait for transaction
+            const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
+            if (!txnResponse.success) {
+                alert('Error submitting state update transaction: ' + txnResponse.vm_status);
+                return;
+            } else {
+                console.log('State updated.');
+            }
+
+            // Fetch the latest room status
+            const roomBrief = await this.fetchRoomStatus();
+
+            // Update UI
+            this.tableBrief = roomBrief;
+            this.updateTableViews(roomBrief);
+            this.loadingSpinner!.style.display = 'none';
+
+            // Schedule next task
+            await this.performCurHandBackgroundActions(roomBrief.curHand);
+            await this.performDKGActions(roomBrief.curDKGSession);
+            await this.performDeckgenActions(roomBrief.curDeckgenSession);
         } catch (e) {
-            alert('Error submitting create room transaction: ' + e);
-            console.error('Error submitting create room transaction:', e);
-            return;
+            console.error(`Error refreshing room status: ${e}`);
+        } finally {
+            if (this.autoRefresh) {
+                setTimeout(async () => {
+                    await this.refreshRoomStatus();
+                }, 3000);
+            }    
         }
-
-        // Wait for transaction
-        const txnResponse = await this.client.waitForTransaction({ transactionHash: committedTxn.hash });
-        if (!txnResponse.success) {
-            alert('Error submitting state update transaction: ' + txnResponse.vm_status);
-            return;
-        }
-        
-        // Fetch the latest room status
-        const roomBrief = await this.fetchRoomStatus();
-
-        // Update UI
-        this.tableBrief = roomBrief;
-        this.updateTableViews(roomBrief);
-        this.loadingSpinner!.style.display = 'none';
-
-        // Schedule next task
-        await this.performCurHandBackgroundActions(roomBrief.curHand);
-        await this.performDKGActions(roomBrief.curDKGSession);
-        await this.performDeckgenActions(roomBrief.curDeckgenSession);
     }
     
     private async performCurHandBackgroundActions(curHand: Hand.SessionBrief | null) {
@@ -386,10 +395,6 @@ class GameApp {
         } else {
             console.log(`nothing to do for threshold scalar mul ${session.addr.toString()}`);
         }
-    }
-
-    private async handleRefreshBtn() {
-        await this.refreshRoomStatus();
     }
 
     private handleMyBetAmountChange(targetAmount: number): any {
@@ -693,10 +698,13 @@ class GameApp {
                     const minToAdd = Math.min(maxBetOnTable - myBet, myChipsInHand);
                     amountInput!.min = minToAdd.toString();
                     amountInput!.max = myChipsInHand.toString();
-                    amountInput!.value = minToAdd.toString();
                     const minRaiseStep = roomBrief.curHand!.minRaiseStep;
                     this.allowedBetAmounts = Array.from({length: myChipsInHand - minToAdd + 1}, (_, i) => minToAdd + i).filter((amount) => amount == minToAdd || amount == myChipsInHand || amount >= minToAdd + minRaiseStep);
-                    this.handleMyBetAmountChange(minToAdd);
+                    let currentActionContext = roomBrief.curHand!.toHex();
+                    if (currentActionContext != this.lastActionContext) {
+                        this.lastActionContext = currentActionContext;
+                        this.handleMyBetAmountChange(minToAdd);
+                    }
                 } else {
                     betControls!.style.display = 'none';
                 }
@@ -710,21 +718,27 @@ class GameApp {
             }    
 
         }
-        const inHandPublicInfo = document.getElementById('in-hand-public-info');
-        const dkgOrShuffleInProgressFlag = document.getElementById('dkg-or-shuffle-in-progress-flag');
+        const inHandPublicInfo = document.getElementById('in-hand-public-info')!;
+        const dkgOrShuffleInProgressFlag = document.getElementById('dkg-or-shuffle-in-progress-flag')!;
+        const finalizedFlag = document.getElementById('finalized-flag')!;
+        const waitingForPlayersFlag = document.getElementById('waiting-for-players-flag')!;
+        inHandPublicInfo.style.display = 'none';
+        dkgOrShuffleInProgressFlag.style.display = 'none';
+        finalizedFlag.style.display = 'none';
+        waitingForPlayersFlag.style.display = 'none';
+        
         if (roomBrief.state == PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS) {
-            dkgOrShuffleInProgressFlag!.style.display = 'none';
             inHandPublicInfo!.style.display = 'flex';
             document.getElementById('total-in-pot-value')!.textContent = roomBrief.curHand!.bets.reduce((sum: number, bet: number) => sum + bet, 0).toString();
             for (let i = 0; i < 5; i++) {
                 this.updateCardSlot(`community-card-${i}`, roomBrief.curHand!.publiclyOpenedCards[i] ?? null);
             }
         } else if (roomBrief.state == PokerRoom.STATE__WAITING_FOR_PLAYERS) {
-            inHandPublicInfo!.style.display = 'none';
-            dkgOrShuffleInProgressFlag!.style.display = 'none';
+            waitingForPlayersFlag.style.display = 'flex';
+        } else if (roomBrief.state == PokerRoom.STATE__CLOSED) {
+            finalizedFlag.style.display = 'flex';
         } else {
-            inHandPublicInfo!.style.display = 'none';
-            dkgOrShuffleInProgressFlag!.style.display = 'flex';
+            dkgOrShuffleInProgressFlag.style.display = 'flex';
         }
         
     }
@@ -785,7 +799,7 @@ class GameApp {
             this.setDisplayNoneForAllGameContentVariants();
             this.tableView!.style.display = 'block';
         });
-
+        this.autoRefresh = true;
     }
 
     private setDisplayNoneForAllGameContentVariants() {

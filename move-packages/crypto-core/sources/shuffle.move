@@ -173,6 +173,11 @@ module crypto_core::shuffle {
         session.status == STATE__FAILED
     }
 
+    public fun in_progress(session_addr: address): bool acquires Session {
+        let session = borrow_global<Session>(session_addr);
+        session.status == STATE__ACCEPTING_CONTRIBUTION
+    }
+
     public fun get_culprit(session_addr: address): address acquires Session {
         let session = borrow_global<Session>(session_addr);
         assert!(session.status == STATE__FAILED, 175225);

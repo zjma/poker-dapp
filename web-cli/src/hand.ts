@@ -1,9 +1,10 @@
-import { AccountAddress, Deserializer } from "@aptos-labs/ts-sdk";
+import { AccountAddress, Deserializer, Serializer } from "@aptos-labs/ts-sdk";
 import * as DKG from "./crypto/dkg_v0";
 import * as ThresholdScalarMul from "./crypto/threshold_scalar_mul";
 import * as Reencryption from "./crypto/reencryption";
 import * as Group from "./crypto/group";
 import * as ElGamal from "./crypto/elgamal";
+import { bytesToHex } from "@noble/hashes/utils";
 
 export const STATE__DEALING_PRIVATE_CARDS: number = 140658;
 export const STATE__PLAYER_BETTING: number = 140855;
@@ -80,5 +81,66 @@ export class SessionBrief {
         const publicOpeningSessions = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => ThresholdScalarMul.SessionBrief.decode(deserializer));
         const publiclyOpenedCards = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Number(deserializer.deserializeU64()));
         return new SessionBrief(addr, players, secretInfo, expectedSmallBlind, expectedBigBlind, cardReprs, shuffledDeck, chipsInHand, bets, foldStatuses, minRaiseStep, revealedPrivateCards, state, currentActionPlayerIdx, currentActionDeadline, currentActionCompleted, completedActionIsRaise, privateDealingSessions, publicOpeningSessions, publiclyOpenedCards);
+    }
+
+    
+    encode(serializer: Serializer) {
+        serializer.serialize(this.addr);
+        serializer.serializeVector(this.players);
+        this.secretInfo.encode(serializer);
+        serializer.serializeU64(this.expectedSmallBlind);
+        serializer.serializeU64(this.expectedBigBlind);
+        serializer.serializeU32AsUleb128(this.cardReprs.length);
+        for (const cardRepr of this.cardReprs) {
+            cardRepr.encode(serializer);
+        }
+        serializer.serializeU32AsUleb128(this.shuffledDeck.length);
+        for (const ciphertext of this.shuffledDeck) {
+            ciphertext.encode(serializer);
+        }
+        serializer.serializeU32AsUleb128(this.chipsInHand.length);
+        for (const chip of this.chipsInHand) {
+            serializer.serializeU64(chip);
+        }
+        serializer.serializeU32AsUleb128(this.bets.length);
+        for (const bet of this.bets) {
+            serializer.serializeU64(bet);
+        }
+        serializer.serializeU32AsUleb128(this.foldStatuses.length);
+        for (const foldStatus of this.foldStatuses) {
+            serializer.serializeBool(foldStatus);
+        }
+        serializer.serializeU64(this.minRaiseStep);
+        serializer.serializeU32AsUleb128(this.revealedPrivateCards.length);
+        for (const card of this.revealedPrivateCards) {
+            serializer.serializeU64(card);
+        }
+        serializer.serializeU64(this.state);
+        serializer.serializeU64(this.currentActionPlayerIdx);
+        serializer.serializeU64(this.currentActionDeadline);
+        serializer.serializeBool(this.currentActionCompleted);
+        serializer.serializeBool(this.completedActionIsRaise);
+        serializer.serializeU32AsUleb128(this.privateDealingSessions.length);
+        for (const session of this.privateDealingSessions) {
+            session.encode(serializer);
+        }
+        serializer.serializeU32AsUleb128(this.publicOpeningSessions.length);
+        for (const session of this.publicOpeningSessions) {
+            session.encode(serializer);
+        }
+        serializer.serializeU32AsUleb128(this.publiclyOpenedCards.length);
+        for (const card of this.publiclyOpenedCards) {
+            serializer.serializeU64(card);
+        }
+    }
+
+    toBytes(): Uint8Array {
+        const serializer = new Serializer();
+        this.encode(serializer);
+        return serializer.toUint8Array();
+    }
+
+    toHex(): string {
+        return bytesToHex(this.toBytes());
     }
 }
