@@ -15,7 +15,6 @@ module poker_game::poker_room {
     use aptos_framework::object;
     use poker_game::deck_gen;
     use poker_game::hand;
-    use crypto_core::group;
     use crypto_core::dkg_v0;
 
     #[test_only]
@@ -92,7 +91,7 @@ module poker_game::poker_room {
 
     #[view]
     public fun about(): std::string::String {
-        std::string::utf8(b"v0.0.12")
+        std::string::utf8(b"v0.0.13")
     }
 
     #[randomness]

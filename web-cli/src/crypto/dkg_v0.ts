@@ -157,4 +157,10 @@ export class SharedSecretPublicInfo {
             ek.encode(serializer);
         }
     }
+
+    toHex(): string {
+        const serializer = new Serializer();
+        this.encode(serializer);
+        return bytesToHex(serializer.toUint8Array());
+    }
 };

@@ -1,5 +1,5 @@
 import './styles.css';
-import { Aptos, AptosConfig, Network, Account, AccountAddress, Ed25519PrivateKey, Deserializer, Serializer } from "@aptos-labs/ts-sdk";
+import { Aptos, AptosConfig, Network, Account, AccountAddress, Ed25519PrivateKey, Deserializer, Serializer, ClientConfig } from "@aptos-labs/ts-sdk";
 import { hexToBytes } from '@noble/hashes/utils';
 import { STATE_IN_PROGRESS } from './crypto/dkg_v0';
 import * as Hand from './hand';
@@ -11,10 +11,14 @@ import * as PokerRoom from './poker_room';
 import * as Deckgen from './deck_gen';
 
 // Global constants
-const config = new AptosConfig({ network: Network.DEVNET });
+const clientConfig: ClientConfig = {
+    API_KEY: "AG-KRVJDJCRBKS4EPVR6KSCJADPGAY5DECY3"
+};
+
+const config = new AptosConfig({ network: Network.DEVNET, clientConfig });
 const aptos = new Aptos(config);
 const PKG_0_ADDRESS = '0xfd20cef653ef1c17fb9f2a1a3d0510994baac0f2a1492a7b358730160d10c16d';
-const PKG_1_ADDRESS = '0x6af12db6964b62e53e928df110fdb72bc85e84a6cbe2a279a5d989a026fb5012';
+const PKG_1_ADDRESS = '0xb12477a6ef226311d708c55444afc27826a97fb14b832619a83e37fc3725a059';
 
 interface SavedAccount {
     address: string;
@@ -92,7 +96,7 @@ class GameApp {
         this.foldBtn = document.getElementById('my-fold-btn') as HTMLButtonElement;
         this.foldBtn!.addEventListener('click', () => this.handleFoldBtn());
         this.myBetAmount = document.getElementById('my-bet-amount') as HTMLInputElement;
-        this.myBetAmount!.addEventListener('input', () => this.handleMyBetAmountChange());
+        this.myBetAmount!.addEventListener('input', () => this.handleMyBetAmountChange(parseInt(this.myBetAmount!.value)));
         
         this.refreshBtn = document.getElementById('refresh-btn') as HTMLButtonElement;
         this.refreshBtn!.addEventListener('click', () => this.handleRefreshBtn());
@@ -128,6 +132,8 @@ class GameApp {
     }
     async handleFoldBtn() {
         const curHand = this.tableBrief!.curHand!;
+        console.log(curHand.addr.toString());
+        console.log(curHand.secretInfo.toHex());
         const myPlayerIdx = curHand.players.findIndex((player: AccountAddress) => player.toString() == this.currentAccount!.accountAddress.toString());
         if (myPlayerIdx == -1) {
             throw new Error('fold button should not be clickable when it is not your turn');
@@ -386,12 +392,11 @@ class GameApp {
         await this.refreshRoomStatus();
     }
 
-    private handleMyBetAmountChange(): any {
-        const currentValue = parseInt(this.myBetAmount!.value, 10);
+    private handleMyBetAmountChange(targetAmount: number): any {
         const maxPossibleBet = Math.max(...this.allowedBetAmounts);
         const minPossibleBet = Math.min(...this.allowedBetAmounts);
         const closestValue = this.allowedBetAmounts.reduce((prev: number, curr: number) => {
-            return (Math.abs(curr - currentValue) < Math.abs(prev - currentValue) ? curr : prev);
+            return (Math.abs(curr - targetAmount) < Math.abs(prev - targetAmount) ? curr : prev);
         });
         this.myBetAmount!.value = closestValue.toString();
         this.betBtn!.textContent = closestValue == maxPossibleBet ? 'ALL IN' : minPossibleBet == 0 && closestValue == 0 ? 'CHECK' : minPossibleBet == 0 && closestValue > 0 ? `BET ${closestValue}` : minPossibleBet > 0 && closestValue == minPossibleBet ? `CALL ${closestValue}` : `RAISE ${closestValue}`;
@@ -691,6 +696,7 @@ class GameApp {
                     amountInput!.value = minToAdd.toString();
                     const minRaiseStep = roomBrief.curHand!.minRaiseStep;
                     this.allowedBetAmounts = Array.from({length: myChipsInHand - minToAdd + 1}, (_, i) => minToAdd + i).filter((amount) => amount == minToAdd || amount == myChipsInHand || amount >= minToAdd + minRaiseStep);
+                    this.handleMyBetAmountChange(minToAdd);
                 } else {
                     betControls!.style.display = 'none';
                 }

@@ -30,7 +30,6 @@ module poker_game::hand {
     use aptos_std::math64::{min, max};
     use aptos_framework::object;
     use aptos_framework::timestamp;
-    use crypto_core::shuffle;
     use poker_game::deck_gen;
     use crypto_core::reencryption::decode_private_state;
     use crypto_core::group;
@@ -513,6 +512,7 @@ module poker_game::hand {
         if (new_bet < cur_invest) {
             mark_as_fold(hand, player_idx);
             hand.current_action_completed = true;
+            return;
         };
 
         let invest_delta = new_bet - cur_invest;
@@ -520,6 +520,7 @@ module poker_game::hand {
         if (invest_delta > cur_in_hand) {
             mark_as_fold(hand, player_idx);
             hand.current_action_completed = true;
+            return;
         };
 
         if (invest_delta == cur_in_hand) {
