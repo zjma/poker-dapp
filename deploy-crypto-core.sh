@@ -5,4 +5,5 @@ aptos move create-resource-account-and-publish-package \
   --package-dir /tmp/crypto-core \
   --address-name crypto_core \
   --seed $(openssl rand -hex 32) \
-  --profile devnet-user0
+# NOTE: the default profile configured for aptos cli is used.
+# To use a different profile X, add --profile X
