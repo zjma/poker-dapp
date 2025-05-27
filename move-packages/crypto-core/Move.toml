@@ -1,16 +1,11 @@
 [package]
-name = "Poker"
+name = "CryptoCore"
 version = "1.0.0"
-authors = []
 
 [addresses]
-contract_owner = "0xcafe"
-
-[dev-addresses]
+crypto_core = "0x123"
 
 [dependencies.AptosFramework]
 git = "https://github.com/aptos-labs/aptos-framework.git"
 rev = "mainnet"
 subdir = "aptos-framework"
-
-[dev-dependencies]

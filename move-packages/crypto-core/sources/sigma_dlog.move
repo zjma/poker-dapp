@@ -1,14 +1,14 @@
 /// Protocol to prove knowledge of scalar `s` such that `s*B == P` for public group element `B` and `P`.
-module contract_owner::sigma_dlog {
-    use std::vector;
-    use contract_owner::fiat_shamir_transform;
-    use contract_owner::group;
+module crypto_core::sigma_dlog {
+    use aptos_std::bcs_stream::BCSStream;
+    use crypto_core::fiat_shamir_transform;
+    use crypto_core::group;
     #[test_only]
     use aptos_framework::randomness;
 
     struct Proof has copy, drop, store {
         t: group::Element,
-        s: group::Scalar
+        s: group::Scalar,
     }
 
     public fun dummy_proof(): Proof {
@@ -18,26 +18,10 @@ module contract_owner::sigma_dlog {
         }
     }
 
-    public fun encode_proof(proof: &Proof): vector<u8> {
-        let buf = vector[];
-        vector::append(&mut buf, group::encode_element(&proof.t));
-        vector::append(&mut buf, group::encode_scalar(&proof.s));
-        buf
-    }
-
-    public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
-        let (errors, t, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 155052);
-            return (errors, dummy_proof(), buf);
-        };
-        let (errors, s, buf) = group::decode_scalar(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 155053);
-            return (errors, dummy_proof(), buf);
-        };
-        let ret = Proof { t, s };
-        (vector[], ret, buf)
+    public fun decode_proof(stream: &mut BCSStream): Proof {
+        let t = group::decode_element(stream);
+        let s = group::decode_scalar(stream);
+        Proof { t, s }
     }
 
     #[lint::allow_unsafe_randomness]
@@ -59,6 +43,7 @@ module contract_owner::sigma_dlog {
         Proof { t, s }
     }
 
+    /// Gas cost: 5.44
     public fun verify(
         trx: &mut fiat_shamir_transform::Transcript,
         b: &group::Element,

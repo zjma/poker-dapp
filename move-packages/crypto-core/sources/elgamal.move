@@ -1,7 +1,11 @@
 /// ElGamal encryption instantiated with bls12-381 G1.
-module contract_owner::elgamal {
-    use std::vector;
-    use contract_owner::group;
+module crypto_core::elgamal {
+    use aptos_std::bcs_stream::BCSStream;
+    use crypto_core::group;
+    #[test_only]
+    use std::bcs;
+    #[test_only]
+    use aptos_std::bcs_stream;
     #[test_only]
     use aptos_framework::randomness;
 
@@ -10,8 +14,6 @@ module contract_owner::elgamal {
         c_0: group::Element,
         c_1: group::Element
     }
-
-    struct Plaintext has drop, store {}
 
     struct DecKey has copy, drop, store {
         enc_base: group::Element,
@@ -22,28 +24,26 @@ module contract_owner::elgamal {
         enc_base: group::Element,
         public_point: group::Element
     }
-
-    public fun decode_enc_key(buf: vector<u8>): (vector<u64>, EncKey, vector<u8>) {
-        let (errors, enc_base, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 172708);
-            return (errors, dummy_enc_key(), buf);
-        };
-        let (errors, public_point, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 172709);
-            return (errors, dummy_enc_key(), buf);
-        };
-        let ret = EncKey { enc_base, public_point };
-        (vector[], ret, buf)
+    
+    public fun dummy_dec_key(): DecKey {
+        DecKey {
+            enc_base: group::dummy_element(),
+            private_scalar: group::dummy_scalar(),
+        }
     }
 
-    /// NOTE: client needs to implement this.
-    public fun encode_enc_key(ek: &EncKey): vector<u8> {
-        let buf = vector[];
-        vector::append(&mut buf, group::encode_element(&ek.enc_base));
-        vector::append(&mut buf, group::encode_element(&ek.public_point));
-        buf
+    /// Gas cost: 2.10
+    public fun decode_dec_key(stream: &mut BCSStream): DecKey {
+        let enc_base = group::decode_element(stream);
+        let private_scalar = group::decode_scalar(stream);
+        DecKey { enc_base, private_scalar }
+    }
+
+    /// Gas cost: 2.24
+    public fun decode_enc_key(stream: &mut BCSStream): EncKey {
+        let enc_base = group::decode_element(stream);
+        let public_point = group::decode_element(stream);
+        EncKey { enc_base, public_point }
     }
 
     public fun dummy_enc_key(): EncKey {
@@ -65,6 +65,7 @@ module contract_owner::elgamal {
         Ciphertext { enc_base, c_0, c_1 }
     }
 
+    /// Gas cost: 6.20
     public fun enc(
         ek: &EncKey, randomizer: &group::Scalar, ptxt: &group::Element
     ): Ciphertext {
@@ -77,11 +78,13 @@ module contract_owner::elgamal {
         }
     }
 
+    /// Gas cost: 2.94
     public fun dec(dk: &DecKey, ciph: &Ciphertext): group::Element {
         let unblinder = group::scale_element(&ciph.c_0, &dk.private_scalar);
         group::element_sub(&ciph.c_1, &unblinder)
     }
 
+    /// Gas cost: 1.36
     public fun ciphertext_add(a: &Ciphertext, b: &Ciphertext): Ciphertext {
         Ciphertext {
             enc_base: a.enc_base,
@@ -90,6 +93,7 @@ module contract_owner::elgamal {
         }
     }
 
+    /// Gas cost: 4.52
     public fun ciphertext_mul(a: &Ciphertext, s: &group::Scalar): Ciphertext {
         Ciphertext {
             enc_base: a.enc_base,
@@ -98,21 +102,18 @@ module contract_owner::elgamal {
         }
     }
 
+    /// Gas cost: 5.88n
     public fun weird_multi_exp(
         ciphs: &vector<Ciphertext>, scalars: &vector<group::Scalar>
     ): Ciphertext {
         let acc = Ciphertext {
-            enc_base: vector::borrow(ciphs, 0).enc_base,
+            enc_base: ciphs.borrow(0).enc_base,
             c_0: group::group_identity(),
             c_1: group::group_identity()
         };
-        vector::zip_ref(
-            ciphs,
-            scalars,
-            |ciph, scalar| {
-                acc = ciphertext_add(&acc, &ciphertext_mul(ciph, scalar))
-            }
-        );
+        ciphs.zip_ref(scalars, |ciph, scalar| {
+            acc = ciphertext_add(&acc, &ciphertext_mul(ciph, scalar))
+        });
         acc
     }
 
@@ -131,24 +132,12 @@ module contract_owner::elgamal {
         }
     }
 
-    /// NOTE: client needs to implement this.
-    public fun encode_ciphertext(obj: &Ciphertext): vector<u8> {
-        let buf = vector[];
-        vector::append(&mut buf, group::encode_element(&obj.enc_base));
-        vector::append(&mut buf, group::encode_element(&obj.c_0));
-        vector::append(&mut buf, group::encode_element(&obj.c_1));
-        buf
-    }
-
-    public fun decode_ciphertext(buf: vector<u8>): (vector<u64>, Ciphertext, vector<u8>) {
-        let (errors, enc_base, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) return (vector[123129], dummy_ciphertext(), buf);
-        let (errors, c_0, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) return (vector[123129], dummy_ciphertext(), buf);
-        let (errors, c_1, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) return (vector[123129], dummy_ciphertext(), buf);
-        let ret = Ciphertext { enc_base, c_0, c_1 };
-        (vector[], ret, buf)
+    /// Gas cost: 3.96
+    public fun decode_ciphertext(stream: &mut BCSStream): Ciphertext {
+        let enc_base = group::decode_element(stream);
+        let c_0 = group::decode_element(stream);
+        let c_1 = group::decode_element(stream);
+        Ciphertext { enc_base, c_0, c_1 }
     }
 
     public fun derive_ek_from_dk(dk: &DecKey): EncKey {
@@ -170,7 +159,6 @@ module contract_owner::elgamal {
     }
 
     #[lint::allow_unsafe_randomness]
-    #[test_only]
     public fun key_gen(enc_base: group::Element): (DecKey, EncKey) {
         let dk = group::rand_scalar();
         let ek = group::scale_element(&enc_base, &dk);
@@ -185,10 +173,8 @@ module contract_owner::elgamal {
         let plaintext = group::rand_element();
         let r = group::rand_scalar();
         let ciphertext = enc(&ek, &r, &plaintext);
-        let ciph_bytes = encode_ciphertext(&ciphertext);
-        let (errors, ciphertext_another, remainder) = decode_ciphertext(ciph_bytes);
-        assert!(vector::is_empty(&errors), 999);
-        assert!(vector::is_empty(&remainder), 999);
+        let ciph_bytes = bcs::to_bytes(&ciphertext);
+        let ciphertext_another = decode_ciphertext(&mut bcs_stream::new(ciph_bytes));
         assert!(ciphertext_another == ciphertext, 999);
         let plaintext_another = dec(&dk, &ciphertext);
         assert!(plaintext_another == plaintext, 999);

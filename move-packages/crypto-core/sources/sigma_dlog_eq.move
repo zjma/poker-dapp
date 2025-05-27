@@ -1,8 +1,8 @@
 /// Protocol to prove knowledge of scalar `s` such that `s*B0==P0, s*B1==P1` for public elements `B0, B1, P0, P1`.
-module contract_owner::sigma_dlog_eq {
-    use std::vector;
-    use contract_owner::fiat_shamir_transform;
-    use contract_owner::group;
+module crypto_core::sigma_dlog_eq {
+    use aptos_std::bcs_stream::BCSStream;
+    use crypto_core::fiat_shamir_transform;
+    use crypto_core::group;
     #[test_only]
     use aptos_framework::randomness;
 
@@ -20,33 +20,11 @@ module contract_owner::sigma_dlog_eq {
         }
     }
 
-    /// NOTE: client needs to implement this.
-    public fun encode_proof(proof: &Proof): vector<u8> {
-        let buf = vector[];
-        vector::append(&mut buf, group::encode_element(&proof.t0));
-        vector::append(&mut buf, group::encode_element(&proof.t1));
-        vector::append(&mut buf, group::encode_scalar(&proof.s));
-        buf
-    }
-
-    public fun decode_proof(buf: vector<u8>): (vector<u64>, Proof, vector<u8>) {
-        let (errors, t0, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 125705);
-            return (errors, dummy_proof(), buf);
-        };
-        let (errors, t1, buf) = group::decode_element(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 125706);
-            return (errors, dummy_proof(), buf);
-        };
-        let (errors, s, buf) = group::decode_scalar(buf);
-        if (!vector::is_empty(&errors)) {
-            vector::push_back(&mut errors, 125707);
-            return (errors, dummy_proof(), buf);
-        };
-        let ret = Proof { t0, t1, s };
-        (vector[], ret, buf)
+    public fun decode_proof(stream: &mut BCSStream): Proof {
+        let t0 = group::decode_element(stream);
+        let t1 = group::decode_element(stream);
+        let s = group::decode_scalar(stream);
+        Proof { t0, t1, s }
     }
 
     #[lint::allow_unsafe_randomness]
@@ -74,6 +52,7 @@ module contract_owner::sigma_dlog_eq {
         Proof { t0, t1, s }
     }
 
+    /// Gas cost: 10.88
     public fun verify(
         trx: &mut fiat_shamir_transform::Transcript,
         b0: &group::Element,
