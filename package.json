@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "@aptos-labs/ts-sdk": "^1.38.0",
-    "@noble/curves": "^1.9.1"
-  }
-}
