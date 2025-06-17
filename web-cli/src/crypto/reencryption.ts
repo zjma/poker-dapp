@@ -167,7 +167,12 @@ export class SessionBrief {
         const rth = this.card.c0.add(th);
         const urth = rth.scale(u);
         const trx = new Transcript();
+        console.log(`encBase=${this.card.encBase.toHex()}`);
+        console.log(`th=${th.toHex()}`);    
+        console.log(`agg_ek=${this.secretInfo.agg_ek.publicPoint.toHex()}`);
+        console.log(`tsh=${tsh.toHex()}`);
         const proof_t = SigmaDlogEq.prove(trx, this.card.encBase, th, this.secretInfo.agg_ek.publicPoint, tsh, t);
+        console.log(`proof_t=${proof_t.toHex()}`);
         const proof_u = SigmaDlog.prove(trx, rth, urth, u);
         const recipientPrivateState = new RecipientPrivateState(u);
         const verifiableReencryption = new VerifiableReencryption(th, tsh, urth, proof_t, proof_u);

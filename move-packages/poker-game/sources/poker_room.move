@@ -91,7 +91,7 @@ module poker_game::poker_room {
 
     #[view]
     public fun about(): std::string::String {
-        std::string::utf8(b"v0.0.13")
+        std::string::utf8(b"v0.0.15")
     }
 
     #[randomness]
@@ -197,9 +197,9 @@ module poker_game::poker_room {
                 });
                 room.num_hands_done += 1;
                 if (someone_was_knocked_out) {
-                    if (deck_gen::in_progress(cur_deckgen_addr)) {
-                        room.num_deckgens_done += 1;
-                    };
+                    // Active player set changed and we need a new DKG.
+                    // Also discard the most recent deckgen, regardless of its actual status.
+                    room.num_deckgens_done += 1;
                     start_dkg_or_close_room_on_active_player_set_change(room_addr);
                 } else if (deck_gen::succeeded(cur_deckgen_addr)) {
                     room.num_deckgens_done += 1;

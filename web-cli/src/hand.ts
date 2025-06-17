@@ -14,8 +14,20 @@ export const STATE__SUCCEEDED: number = 141628;
 export const STATE__FAILED: number = 141629;
 export const CARD__UNREVEALED: number = 0xffffffff;
 
+const PLAYER_STATE__ACTIVE: number = 614544;
+const PLAYER_STATE__FOLDED: number = 614545;
+const PLAYER_STATE__CHECKED: number = 614546;
+const PLAYER_STATE__CALLED: number = 614547;
+const PLAYER_STATE__BET: number = 614548;
+const PLAYER_STATE__RAISED: number = 614549;
+const PLAYER_STATE__ALL_IN: number = 614550;
+
 export class SessionBrief {
-    addr: AccountAddress;
+    minRaiseStep(): number {
+        return this.nextRaiseThreshold - this.lastRaise;
+    }
+    addr_owner: AccountAddress;
+    addr_self: AccountAddress;
     players: AccountAddress[]; // [btn, sb, bb, ...]
     secretInfo: DKG.SharedSecretPublicInfo;
     expectedSmallBlind: number;
@@ -24,20 +36,20 @@ export class SessionBrief {
     shuffledDeck: ElGamal.Ciphertext[];
     chipsInHand: number[];
     bets: number[];
-    foldStatuses: boolean[];
-    minRaiseStep: number;
+    playerStates: number[];
+    callTarget: number;
+    lastRaise: number;
+    nextRaiseThreshold: number;
     revealedPrivateCards: number[];
     state: number;
-    currentActionPlayerIdx: number;
-    currentActionDeadline: number;
-    currentActionCompleted: boolean;
-    completedActionIsRaise: boolean;
+    expectingActionFrom: number | null;
     privateDealingSessions: Reencryption.SessionBrief[];
     publicOpeningSessions: ThresholdScalarMul.SessionBrief[];
     publiclyOpenedCards: number[];
 
-    constructor(addr: AccountAddress, players: AccountAddress[], secretInfo: DKG.SharedSecretPublicInfo, expectedSmallBlind: number, expectedBigBlind: number, cardReprs: Group.Element[], shuffledDeck: ElGamal.Ciphertext[], chipsInHand: number[], bets: number[], foldStatuses: boolean[], minRaiseStep: number, revealedPrivateCards: number[], state: number, currentActionPlayerIdx: number, currentActionDeadline: number, currentActionCompleted: boolean, completedActionIsRaise: boolean, privateDealingSessions: Reencryption.SessionBrief[], publicOpeningSessions: ThresholdScalarMul.SessionBrief[], publiclyOpenedCards: number[]) {
-        this.addr = addr;
+    constructor(addr_owner: AccountAddress, addr_self: AccountAddress, players: AccountAddress[], secretInfo: DKG.SharedSecretPublicInfo, expectedSmallBlind: number, expectedBigBlind: number, cardReprs: Group.Element[], shuffledDeck: ElGamal.Ciphertext[], chipsInHand: number[], bets: number[], playerStates: number[], callTarget: number, lastRaise: number, nextRaiseThreshold: number, expectingActionFrom: number | null, revealedPrivateCards: number[], state: number, privateDealingSessions: Reencryption.SessionBrief[], publicOpeningSessions: ThresholdScalarMul.SessionBrief[], publiclyOpenedCards: number[]) {
+        this.addr_owner = addr_owner;
+        this.addr_self = addr_self;
         this.players = players;
         this.secretInfo = secretInfo;
         this.expectedSmallBlind = expectedSmallBlind;
@@ -46,21 +58,21 @@ export class SessionBrief {
         this.shuffledDeck = shuffledDeck;
         this.chipsInHand = chipsInHand;
         this.bets = bets;
-        this.foldStatuses = foldStatuses;
-        this.minRaiseStep = minRaiseStep;
+        this.playerStates = playerStates;
+        this.callTarget = callTarget;
+        this.lastRaise = lastRaise;
+        this.nextRaiseThreshold = nextRaiseThreshold;
         this.revealedPrivateCards = revealedPrivateCards;
         this.state = state;
-        this.currentActionPlayerIdx = currentActionPlayerIdx;
-        this.currentActionDeadline = currentActionDeadline;
-        this.currentActionCompleted = currentActionCompleted;
-        this.completedActionIsRaise = completedActionIsRaise;
+        this.expectingActionFrom = expectingActionFrom;
         this.privateDealingSessions = privateDealingSessions;
         this.publicOpeningSessions = publicOpeningSessions;
         this.publiclyOpenedCards = publiclyOpenedCards;
     }
 
     static decode(deserializer: Deserializer): SessionBrief {
-        const addr = deserializer.deserialize(AccountAddress);
+        const addr_owner = deserializer.deserialize(AccountAddress);
+        const addr_self = deserializer.deserialize(AccountAddress);
         const players = deserializer.deserializeVector(AccountAddress);
         const secretInfo = DKG.SharedSecretPublicInfo.decode(deserializer);
         const expectedSmallBlind = Number(deserializer.deserializeU64());
@@ -69,23 +81,23 @@ export class SessionBrief {
         const shuffledDeck = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => ElGamal.Ciphertext.decode(deserializer));
         const chipsInHand = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Number(deserializer.deserializeU64()));
         const bets = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Number(deserializer.deserializeU64()));
-        const foldStatuses = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => deserializer.deserializeBool());
-        const minRaiseStep = Number(deserializer.deserializeU64());
+        const playerStates = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Number(deserializer.deserializeU64()));
+        const callTarget = Number(deserializer.deserializeU64());
+        const lastRaise = Number(deserializer.deserializeU64());
+        const nextRaiseThreshold = Number(deserializer.deserializeU64());
         const revealedPrivateCards = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Number(deserializer.deserializeU64()));
         const state = Number(deserializer.deserializeU64());
-        const currentActionPlayerIdx = Number(deserializer.deserializeU64());
-        const currentActionDeadline = Number(deserializer.deserializeU64());
-        const currentActionCompleted = deserializer.deserializeBool();
-        const completedActionIsRaise = deserializer.deserializeBool();
+        const expectingActionFrom = deserializer.deserializeU8() == 0 ? null : Number(deserializer.deserializeU64());
         const privateDealingSessions = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Reencryption.SessionBrief.decode(deserializer));
         const publicOpeningSessions = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => ThresholdScalarMul.SessionBrief.decode(deserializer));
         const publiclyOpenedCards = Array.from({length: deserializer.deserializeUleb128AsU32()}, (_) => Number(deserializer.deserializeU64()));
-        return new SessionBrief(addr, players, secretInfo, expectedSmallBlind, expectedBigBlind, cardReprs, shuffledDeck, chipsInHand, bets, foldStatuses, minRaiseStep, revealedPrivateCards, state, currentActionPlayerIdx, currentActionDeadline, currentActionCompleted, completedActionIsRaise, privateDealingSessions, publicOpeningSessions, publiclyOpenedCards);
+        return new SessionBrief(addr_owner, addr_self, players, secretInfo, expectedSmallBlind, expectedBigBlind, cardReprs, shuffledDeck, chipsInHand, bets, playerStates, callTarget, lastRaise, nextRaiseThreshold, expectingActionFrom, revealedPrivateCards, state, privateDealingSessions, publicOpeningSessions, publiclyOpenedCards);
     }
 
     
     encode(serializer: Serializer) {
-        serializer.serialize(this.addr);
+        serializer.serialize(this.addr_owner);
+        serializer.serialize(this.addr_self);
         serializer.serializeVector(this.players);
         this.secretInfo.encode(serializer);
         serializer.serializeU64(this.expectedSmallBlind);
@@ -106,20 +118,26 @@ export class SessionBrief {
         for (const bet of this.bets) {
             serializer.serializeU64(bet);
         }
-        serializer.serializeU32AsUleb128(this.foldStatuses.length);
-        for (const foldStatus of this.foldStatuses) {
-            serializer.serializeBool(foldStatus);
+        serializer.serializeU32AsUleb128(this.playerStates.length);
+        for (const playerState of this.playerStates) {
+            serializer.serializeU64(playerState);
         }
-        serializer.serializeU64(this.minRaiseStep);
+        serializer.serializeU64(this.callTarget);
+        serializer.serializeU64(this.lastRaise);
+        serializer.serializeU64(this.nextRaiseThreshold);
+
         serializer.serializeU32AsUleb128(this.revealedPrivateCards.length);
         for (const card of this.revealedPrivateCards) {
             serializer.serializeU64(card);
         }
+
         serializer.serializeU64(this.state);
-        serializer.serializeU64(this.currentActionPlayerIdx);
-        serializer.serializeU64(this.currentActionDeadline);
-        serializer.serializeBool(this.currentActionCompleted);
-        serializer.serializeBool(this.completedActionIsRaise);
+
+        serializer.serializeU8(this.expectingActionFrom == null ? 0 : 1);
+        if (this.expectingActionFrom != null) {
+            serializer.serializeU64(this.expectingActionFrom);
+        }
+
         serializer.serializeU32AsUleb128(this.privateDealingSessions.length);
         for (const session of this.privateDealingSessions) {
             session.encode(serializer);
@@ -142,5 +160,27 @@ export class SessionBrief {
 
     toHex(): string {
         return bytesToHex(this.toBytes());
+    }
+
+    getLastActionText(idxInHand: number): string {
+        if (this.playerStates[idxInHand] == PLAYER_STATE__FOLDED) {
+            return 'Folded';
+        } else if (this.playerStates[idxInHand] == PLAYER_STATE__CHECKED) {
+            return 'Checked';
+        } else if (this.playerStates[idxInHand] == PLAYER_STATE__CALLED) {
+            return 'Called';
+        } else if (this.playerStates[idxInHand] == PLAYER_STATE__BET) {
+            return 'Bet';
+        } else if (this.playerStates[idxInHand] == PLAYER_STATE__RAISED) {
+            return 'Raised';
+        } else if (this.playerStates[idxInHand] == PLAYER_STATE__ALL_IN) {
+            return 'All In';
+        } else {
+            return '';
+        }
+    }
+
+    hasActed(idxInHand: number): boolean {
+        return this.playerStates[idxInHand] != PLAYER_STATE__ACTIVE;
     }
 }

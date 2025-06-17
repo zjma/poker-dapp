@@ -527,7 +527,7 @@ body {
     height: 100%;
 }
 
-.game-details .room-address,
+.game-details,
 .game-details .player-status,
 .game-details .game-actions {
     flex-shrink: 0;
@@ -572,7 +572,7 @@ body {
     margin-right: calc(-50vw + 50%);
 }
 
-.game-action-bar .room-address {
+.game-action-bar {
     font-family: monospace;
     opacity: 0.7;
     white-space: nowrap;
@@ -676,7 +676,7 @@ body {
     width: 260px;
 }
 
-#table-view {
+#room-view {
     background: none;
     width: 100%;
     height: calc(100% - 56px);
@@ -1105,4 +1105,65 @@ body {
     text-align: center;
     justify-content: center;
     align-items: center;
+}
+
+#create-room-btn {
+    position: absolute;
+    top: 200px;
+    left: 350px;
+    width: 300px;
+    height: 100px;
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+}
+
+#find-room-btn {
+    position: absolute;
+    top: 400px;
+    left: 350px;
+    width: 300px;
+    height: 100px;
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+}
+
+#contract-status {
+    position: absolute;
+    left: 50px;
+    width: 100px;
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+}
+
+#cur-account-status {
+    position: absolute;
+    left: 200px;
+    width: 600px;
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+}
+
+#balance-status {
+    position: absolute;
+    left: 850px;
+    width: 100px;
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+}
+
+#faucet-btn {
+    position: absolute;
+    left: 950px;
+    width: 25px;
+}
+
+#shortcut-to-lobby {
+    color: blue;
+    text-decoration: underline;
+    cursor: pointer;
 }

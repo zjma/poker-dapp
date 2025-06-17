@@ -261,7 +261,7 @@ module poker_game::poker_room_examples {
         let room = brief(room_addr);
         print(
             &utf8(
-                b"Assert: Game 0 is still in progress, in phase 1 betting, Alice's turn."
+                b"Assert: Hand 0 is still in progress, in phase 1 betting, Alice's turn."
             )
         );
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
@@ -344,7 +344,6 @@ module poker_game::poker_room_examples {
         state_update(room_addr);
         state_update(room_addr);
         state_update(room_addr);
-        let room = brief(room_addr);
         print(&utf8(b"They also find some cycles to do shuffle 1."));
         print(&utf8(b"Alice contributes to shuffle 1."));
         let deckgen_1_addr = cur_deckgen_addr(room_addr);
@@ -361,7 +360,6 @@ module poker_game::poker_room_examples {
         );
 
         state_update(room_addr);
-        let room = brief(room_addr);
         print(&utf8(b"Bob contributes to shuffle 1."));
         assert!(shuffle::is_waiting_for_contribution(deckgen_1_shuffle_0_addr, bob_addr), 999);
         let deckgen_1_bob_shuffle_contri =
@@ -373,7 +371,6 @@ module poker_game::poker_room_examples {
         );
 
         state_update(room_addr);
-        let room = brief(room_addr);
         print(&utf8(b"Eric contributes to shuffle 1."));
         assert!(
             shuffle::is_waiting_for_contribution(deckgen_1_shuffle_0_addr, eric_addr), 999
@@ -482,8 +479,7 @@ module poker_game::poker_room_examples {
         state_update(room_addr);
         let room = brief(room_addr);
         assert!(is_in_the_middle_of_a_hand(&room, 0), 999);
-        let cur_game = hand_0_addr;
-        assert!(hand::is_phase_2_betting(cur_game, bob_addr), 999);
+        assert!(hand::is_phase_2_betting(hand_0_addr, bob_addr), 999);
 
         print(&utf8(b"Bob calls."));
         hand::process_bet_action(&bob, hand_0_addr, 800);

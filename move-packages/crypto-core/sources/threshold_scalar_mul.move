@@ -47,7 +47,7 @@ module crypto_core::threshold_scalar_mul {
         result: Option<group::Element>
     }
 
-    struct SessionBrief has drop, store {
+    struct SessionBrief has copy, drop, store {
         addr: address,
         to_be_scaled: group::Element,
         secret_info: dkg_v0::SharedSecretPublicInfo,
@@ -214,6 +214,27 @@ module crypto_core::threshold_scalar_mul {
             result,
         }
 
+    }
+
+    public fun decode_session_brief(stream: &mut BCSStream): SessionBrief {
+        let addr = bcs_stream::deserialize_address(stream);
+        let to_be_scaled = group::decode_element(stream);
+        let secret_info = dkg_v0::decode_secret_info(stream);
+        let allowed_contributors = bcs_stream::deserialize_vector(stream, |s|bcs_stream::deserialize_address(s));
+        let state = bcs_stream::deserialize_u64(stream);
+        let deadline = bcs_stream::deserialize_u64(stream);
+        let contributed_flags = bcs_stream::deserialize_vector(stream, |s|bcs_stream::deserialize_bool(s));
+        let result = bcs_stream::deserialize_option(stream, |s|group::decode_element(s));
+        SessionBrief {
+            addr,
+            to_be_scaled,
+            secret_info,
+            allowed_contributors,
+            state,
+            deadline,
+            contributed_flags,
+            result,
+        }
     }
 
     #[lint::allow_unsafe_randomness]

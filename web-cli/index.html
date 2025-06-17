@@ -22,24 +22,26 @@
             </div>
             <!-- Initial State -->
             <div id="lobby-view">
-                <button class="game-button" id="create-table-btn">
+                <button class="game-button" id="create-room-btn">
                     <svg viewBox="0 0 24 24">
                         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
                     </svg>
-                    Create Table
+                    Create Room
                 </button>
-                <button class="game-button" id="find-table-btn">
+                <button class="game-button" id="find-room-btn">
                     <svg viewBox="0 0 24 24">
                         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
                     </svg>
-                    Find Table
+                    Find Room
                 </button>
             </div>
 
             <!-- In-Game State -->
-            <div id="table-view" style="position:absolute; top: 0px; left: 0px; width: 1000px; height: 600px;">
-                <button id="leave-btn" style="position: absolute; top: 80px; left: 50px; width: 50px; height: 50px;">Leave</button>
-                <div id="room-address" style="position: absolute; top: 0px; display: flex; justify-content: center; width: 1000px; height: 100px; align-items: center; font-size: 1.5rem; font-weight: bold; font-family: monospace;">0xffffffff</div>
+            <div id="room-view" style="position:absolute; top: 0px; left: 0px; width: 1000px; height: 600px;">
+                <div id="room-view-header" style="position: absolute; top: 0px; left: 0px; width: 1000px; height: 50px; display: flex; justify-content: center; align-items: center; font-family: monospace;">
+                    <div id="room-addr-label" style="display: flex; justify-content: center; width: 500px; height: 50px; align-items: center; font-family: monospace; background-color: #f0f0f0; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; user-select: none; transition: background-color 0.2s;">0xffffffff</div>
+                    <div id="hand-addr-label" style="display: flex; justify-content: center; width: 500px; height: 50px; align-items: center; font-family: monospace; background-color: #f0f0f0; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; user-select: none; transition: background-color 0.2s;"></div>
+                </div>
                 <div id="rival-1-box" class="player-box" style="position: absolute; top: 340px; left: 40px;">
                     <div id="rival-1-addr" class="player-addr-label">0xaaaa...fff7</div>
                     <div id="rival-1-chips-in-hand" class="chips-in-hand-label">90</div>
@@ -151,7 +153,10 @@
                     <div id="total-in-pot-value" style="position: absolute; height: 40px; width: 100px; top: 400px; left: 450px; text-align: center; justify-content: center; align-items: center;">10000</div>
                 </div>
                 <div id="dkg-or-shuffle-in-progress-flag">Getting table and deck ready...</div>
-                <div id="finalized-flag">Tournament is over.</div>
+                <div id="finalized-flag">
+                    <p>Tournament is over.</p>
+                    <p><span id="shortcut-to-lobby">Return to lobby.</span></p>
+                </div>
                 <div id="waiting-for-players-flag">Waiting for players...</div>
             </div>
         </div>
@@ -159,13 +164,34 @@
             <div id="contract-status">TBD</div>
             <div id="cur-account-status">TBD</div>
             <div id="balance-status">TBD</div>
+            <button id="faucet-btn">+1</button>
         </div>
     </div>
 
+    <!-- Room Info Dialog -->
+    <div id="room-info-dialog" class="dialog-overlay" style="display: none;">
+        <div class="dialog-content">
+            <div class="dialog-actions">
+                <button id="copy-room-addr-btn" class="dialog-button primary">Copy Room Address</button>
+                <button id="room-in-explorer-btn" class="dialog-button primary">Open in Explorer</button>
+                <button id="close-room-info-dialog" class="dialog-button primary">Back</button>
+            </div>
+        </div>
+    </div>    
+
+    <!-- Hand Info Dialog -->
+    <div id="hand-info-dialog" class="dialog-overlay" style="display: none;">
+        <div class="dialog-content">
+            <div class="dialog-actions">
+                <button id="hand-in-explorer-btn" class="dialog-button primary">Open in Explorer</button>
+                <button id="close-hand-info-dialog" class="dialog-button primary">Back</button>
+            </div>
+        </div>
+    </div>    
+    
     <!-- Login Dialog -->
     <div id="login-dialog" class="dialog-overlay" style="display: none;">
         <div class="dialog-content">
-            <h2>Welcome!</h2>
             <div class="dialog-actions">
                 <button id="saved-account-btn" class="dialog-button primary"></button>
                 <button id="new-account-btn" class="dialog-button primary">Create New Account</button>
@@ -173,10 +199,10 @@
         </div>
     </div>
 
-    <!-- Create Table Dialog -->
+    <!-- Create Room Dialog -->
     <div id="host-dialog" class="dialog-overlay" style="display: none;">
         <div class="dialog-content">
-            <h2>Create Table</h2>
+            <h2>Create Room</h2>
             <div class="dialog-form">
                 <div class="form-group">
                     <label for="allowed-addresses">Allowed Accounts (one per line)</label>

@@ -26,6 +26,12 @@ export class Proof {
         this.t1.encode(serializer);
         this.s.encode(serializer);
     }
+
+    toHex(): string {
+        const serializer = new Serializer();
+        this.encode(serializer);
+        return bytesToHex(serializer.toUint8Array());
+    }
 }
 
 export function prove(trx: Transcript, b0: Group.Element, p0: Group.Element, b1: Group.Element, p1: Group.Element, s: Group.Scalar): Proof {

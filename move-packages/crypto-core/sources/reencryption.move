@@ -4,11 +4,13 @@
 /// The group has to have a shared ElGamal decrpyion key `s`.
 /// The ciphertext has to be generated with the ElGamal encryption key corresponding to `s`.
 module crypto_core::reencryption {
+    use std::bcs;
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
     use aptos_std::bcs_stream;
     use aptos_std::bcs_stream::BCSStream;
+    use aptos_std::debug::print;
     use aptos_framework::object;
     use aptos_framework::timestamp;
     use crypto_core::fiat_shamir_transform;
@@ -18,8 +20,6 @@ module crypto_core::reencryption {
     use crypto_core::threshold_scalar_mul;
     use crypto_core::group;
     use crypto_core::elgamal;
-    #[test_only]
-    use std::bcs;
     #[test_only]
     use aptos_framework::randomness;
 
@@ -202,7 +202,7 @@ module crypto_core::reencryption {
         RecipientPrivateState { u }
     }
 
-    struct SessionBrief has drop, store {
+    struct SessionBrief has copy, drop, store {
         addr: address,
         card: elgamal::Ciphertext,
         deal_target: address,
@@ -232,6 +232,38 @@ module crypto_core::reencryption {
         }
     }
 
+    fun decode_brief(stream: &mut BCSStream): SessionBrief {
+        let addr = bcs_stream::deserialize_address(stream);
+        let card = elgamal::decode_ciphertext(stream);
+        let deal_target = bcs_stream::deserialize_address(stream);
+        let scalar_mul_party = bcs_stream::deserialize_vector(stream, |s|bcs_stream::deserialize_address(s));
+        let secret_info = dkg_v0::decode_secret_info(stream);
+        let scalar_mul_deadline = bcs_stream::deserialize_u64(stream);
+        let state = bcs_stream::deserialize_u64(stream);
+        let deadline = bcs_stream::deserialize_u64(stream);
+        let reenc = bcs_stream::deserialize_option(stream, |s|elgamal::decode_ciphertext(s));
+        let thresh_scalar_mul_session = bcs_stream::deserialize_option(stream, |s|threshold_scalar_mul::decode_session_brief(s));
+        SessionBrief {
+            addr, card, deal_target, scalar_mul_party, secret_info, scalar_mul_deadline, state, deadline, reenc, thresh_scalar_mul_session
+        }
+    }
+
+    fun session_from_brief(brief: SessionBrief): Session {
+        assert!(brief.thresh_scalar_mul_session.is_none(), 999);
+        Session {
+            card: brief.card,
+            deal_target: brief.deal_target,
+            scalar_mul_party: brief.scalar_mul_party,
+            secret_info: brief.secret_info,
+            scalar_mul_deadline: brief.scalar_mul_deadline,
+            state: brief.state,
+            deadline: brief.deadline,
+            reenc: brief.reenc,
+            thresh_scalar_mul_session: option::none(),
+            culprits: vector[],
+
+        }
+    }
     #[lint::allow_unsafe_randomness]
     #[test_only]
     /// NOTE: client needs to implement this.
