@@ -15,4 +15,8 @@ export class SessionBrief {
         const shuffle = Shuffle.SessionBrief.decode(deserializer);
         return new SessionBrief(addr, shuffle);
     }
+
+    idxByAddr(addr: AccountAddress): number | null {
+        return this.shuffle.idxByAddr(addr);
+    }
 }

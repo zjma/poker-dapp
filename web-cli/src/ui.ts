@@ -37,7 +37,6 @@ export class UIManager {
     private betBtn: HTMLButtonElement | null;
     private foldBtn: HTMLButtonElement | null;
     private loadingSpinner: HTMLElement | null = null;
-    private mySitBtn: HTMLButtonElement | null;
 
     private lastActionContext: string = '';
 
@@ -76,8 +75,6 @@ export class UIManager {
         this.myBetAmount!.addEventListener('input', () => this.handleMyBetAmountChange(parseInt(this.myBetAmount!.value)));
         
         this.loadingSpinner = document.getElementById('loading-spinner');
-        this.mySitBtn = document.getElementById('my-sit-button') as HTMLButtonElement;
-        this.mySitBtn!.addEventListener('click', () => this.onSitBtnClick());
 
         document.getElementById('room-addr-label')!.addEventListener('click', () => this.onRoomInfoClick());
         document.getElementById('close-room-info-dialog')!.addEventListener('click', () => this.onCloseRoomInfoDialog());
@@ -90,7 +87,8 @@ export class UIManager {
         
         document.getElementById('faucet-btn')!.addEventListener('click', () => this.onFaucetBtnClick());
         document.getElementById('shortcut-to-lobby')!.addEventListener('click', () => this.handleLeaveRoom());
-
+        document.getElementById('you-can-join-link')!.addEventListener('click', () => this.onSitBtnClick());
+        
         this.startContractPingLoop();
         this.initializeToLoginDialog();
     }
@@ -362,6 +360,58 @@ export class UIManager {
         return /^(0x)?[0-9a-fA-F]+$/.test(address);
     }
 
+    private renderMyPhysicalStateBox(playerIdxInRoom: number) {
+        let box = document.getElementById('my-physical-state')!;
+        if (this.roomBrief!.curHand?.idxByAddr(this.currentAccount!.accountAddress) != null) {
+            box.style.display = 'none';
+        } else {
+            box.style.display = 'flex';
+            this.renderAwayLabel(0, playerIdxInRoom);
+            this.renderJoinNowLink();
+        }
+    }
+
+    private renderAwayLabel(seatIdx: number, playerIdxInRoom: number) {
+        const viewPrefix = seatIdx == 0 ? 'my' : `rival-${seatIdx}`;
+        const awayLabel = document.getElementById(`${viewPrefix}-away-flag`);
+        const playerAddr = this.roomBrief!.expectedPlayerAddresses[playerIdxInRoom];
+        if (this.roomBrief!.state == PokerRoom.STATE__WAITING_FOR_PLAYERS) {
+            if (this.roomBrief!.playerLivenesses[playerIdxInRoom]) {
+                awayLabel!.style.display = 'flex';
+                awayLabel!.textContent = 'READY';
+            } else {
+                awayLabel!.style.display = 'flex';
+                awayLabel!.textContent = 'AWAY';
+                }
+        } else if (this.roomBrief!.playerChips[playerIdxInRoom] == 0) {
+            awayLabel!.style.display = 'flex';
+            awayLabel!.textContent = 'Busted';
+        } else if (!this.roomBrief!.playerLivenesses[playerIdxInRoom]) {
+            awayLabel!.style.display = 'flex';
+            awayLabel!.textContent = 'AWAY';
+        } else if (this.roomBrief!.curHand?.idxByAddr(playerAddr) != null || this.roomBrief!.curDKGSession?.idxByAddr(playerAddr) != null || this.roomBrief!.curDeckgenSession?.idxByAddr(playerAddr) != null) {
+            awayLabel!.style.display = 'none';
+        } else {
+            awayLabel!.style.display = 'flex';
+            awayLabel!.textContent = 'Back in next hand';
+        }
+    }
+
+    private renderLastActionLabel(seatIdx: number, playerAddr: AccountAddress) {
+        const viewPrefix = seatIdx == 0 ? 'my' : `rival-${seatIdx}`;
+        const lastActionLabel = document.getElementById(`${viewPrefix}-fold-flag`)!;
+        const idxInHand = this.roomBrief!.curHand?.idxByAddr(playerAddr) ?? null;
+        lastActionLabel.style.display = 'none';
+        if (idxInHand == null) return;
+        if (!this.roomBrief!.curHand!.hasActed(idxInHand)) {
+            if (playerAddr.toString() == this.currentAccount!.accountAddress.toString()) return;
+            if (this.roomBrief!.curHand!.expectingActionFrom != idxInHand) return;
+        }
+
+        lastActionLabel.style.display = 'flex';
+        lastActionLabel.textContent = this.roomBrief!.curHand!.getLastActionText(idxInHand);
+    }
+
     private updateRoomViews(roomBrief: PokerRoom.SessionBrief) {
         let shortRoomAddr = this.roomAddress!.toString().slice(0, 4) + '...' + this.roomAddress!.toString().slice(-4);
         this.roomAddressLabel!.textContent = `Room: ${shortRoomAddr}`;
@@ -383,54 +433,55 @@ export class UIManager {
             const playerIdxInRoom = viewIdxsByIdxInRoom.findIndex(viewIdx => viewIdx == seatIdx);
             const viewPrefix = seatIdx == 0 ? 'my' : `rival-${seatIdx}`;
             const curBox = document.getElementById(`${viewPrefix}-box`);
-            const awayFlag = document.getElementById(`${viewPrefix}-away-flag`);
+            this.renderAwayLabel(seatIdx, playerIdxInRoom);
 
             if (playerIdxInRoom < 0) {
                 // This seat is not used for the current tournament. Hide it.
                 curBox!.style.display = 'none';
-                awayFlag!.style.display = 'none';
                 continue;
             }
 
-            curBox!.style.display = 'block';
-            if (roomBrief.playerLivenesses[playerIdxInRoom]) {
-                curBox!.classList.remove('player-away');
-                curBox!.classList.add('player-at-table');   
-                awayFlag!.style.display = 'none';
-            } else {
-                curBox!.classList.remove('player-at-table');
-                curBox!.classList.add('player-away');
-                awayFlag!.style.display = 'flex';
-            }
             const curPlayerAddr = roomBrief.expectedPlayerAddresses[playerIdxInRoom];
-
             // Try get the idx in the current hand.
             // NOTE: there may not be a current hand!
             // NOTE: the first-person player may not be in the current hand!
-            let idxInHand = roomBrief.curHand ? roomBrief.curHand.players.findIndex(player => player.toString() == curPlayerAddr.toString()) : -1;
+            let idxInHand = roomBrief.curHand?.idxByAddr(curPlayerAddr) ?? null;
+            let idxInDKG = roomBrief.curDKGSession?.idxByAddr(curPlayerAddr) ?? null;
+            let idxInDeckgen = roomBrief.curDeckgenSession?.idxByAddr(curPlayerAddr) ?? null;
+
+            curBox!.style.display = 'flex';
+            if (roomBrief.state == PokerRoom.STATE__WAITING_FOR_PLAYERS && roomBrief.playerLivenesses[playerIdxInRoom]
+                || roomBrief.state == PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS && idxInHand != null
+                || roomBrief.state == PokerRoom.STATE__DECKGEN_IN_PROGRESS && idxInDeckgen != null
+                || roomBrief.state == PokerRoom.STATE__DKG_IN_PROGRESS && idxInDKG != null
+            ) {
+                curBox!.classList.remove('player-away');
+                curBox!.classList.add('player-at-table');
+            } else {
+                curBox!.classList.remove('player-at-table');
+                curBox!.classList.add('player-away');
+            }
             
             document.getElementById(`${viewPrefix}-addr`)!.textContent = seatIdx == 0 ? "You" : curPlayerAddr.toString().slice(0, 4) + '...' + curPlayerAddr.toString().slice(-4);
-            document.getElementById(`${viewPrefix}-chips-in-hand`)!.textContent = '🪙 ' + (idxInHand >= 0 ? roomBrief.curHand!.chipsInHand[idxInHand] : roomBrief.playerChips[playerIdxInRoom]);
-            document.getElementById(`${viewPrefix}-dealer-light`)!.style.display = roomBrief.curHand?.players[0].toString() == curPlayerAddr.toString() ? 'block' : 'none';
-            document.getElementById(`${viewPrefix}-bet`)!.textContent = idxInHand >= 0 ? roomBrief.curHand!.bets[idxInHand].toString() : '';
+            document.getElementById(`${viewPrefix}-chips-in-hand`)!.textContent = '🪙 ' + (idxInHand != null ? roomBrief.curHand!.chipsInHand[idxInHand] : roomBrief.playerChips[playerIdxInRoom]);
+            document.getElementById(`${viewPrefix}-dealer-light`)!.style.display = roomBrief.curHand?.players[0].toString() == curPlayerAddr.toString() ? 'flex' : 'none';
+            document.getElementById(`${viewPrefix}-bet`)!.textContent = idxInHand != null ? roomBrief.curHand!.bets[idxInHand].toString() : '';
             let privateCardsArea = document.getElementById(`${viewPrefix}-private-cards-area`);
-            if (roomBrief.state == PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS && roomBrief.curHand!.state != Hand.STATE__DEALING_PRIVATE_CARDS && idxInHand >= 0) {
+            if (idxInHand != null && (seatIdx == 0 || (roomBrief.curHand!.state == Hand.STATE__SHOWDOWN || roomBrief.curHand!.state == Hand.STATE__SUCCEEDED) && roomBrief.curHand!.playerStates[idxInHand] != Hand.PLAYER_STATE__FOLDED)) {
                 privateCardsArea!.style.display = 'block';
                 for (let privateCardIdx = 0; privateCardIdx < 2; privateCardIdx++) {
                     const card = roomBrief.curHand!.revealedPrivateCards[idxInHand*2+privateCardIdx];
                     this.updateCardSlot(`${viewPrefix}-card-${privateCardIdx}`, card == Hand.CARD__UNREVEALED ? null : card);
                 }
-                const lastActionLabel = document.getElementById(`${viewPrefix}-fold-flag`)!;
-                lastActionLabel.style.display = roomBrief.curHand!.hasActed(idxInHand) ? 'flex' : 'none';
-                lastActionLabel.textContent = roomBrief.curHand!.getLastActionText(idxInHand);
-                console.log(`Rival ${seatIdx} has private cards: ${roomBrief.curHand!.revealedPrivateCards[idxInHand*2]} ${roomBrief.curHand!.revealedPrivateCards[idxInHand*2+1]}`);
             } else {
                 privateCardsArea!.style.display = 'none';
             }
 
+            this.renderLastActionLabel(seatIdx, curPlayerAddr);
+
             if (seatIdx == 0) {
                 // Self view
-                if (roomBrief.state != PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS || roomBrief.curHand!.state == Hand.STATE__DEALING_PRIVATE_CARDS || idxInHand < 0) {
+                if (roomBrief.state != PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS || roomBrief.curHand!.state == Hand.STATE__DEALING_PRIVATE_CARDS || idxInHand == null) {
                     this.updateCardSlot('my-card-0', null);
                     this.updateCardSlot('my-card-1', null);
                     document.getElementById('my-fold-flag')!.style.display = 'none';
@@ -446,17 +497,14 @@ export class UIManager {
                     }
                     this.updateCardSlot('my-card-0', myCard0);
                     this.updateCardSlot('my-card-1', myCard1);
-                    const myLastActionLabel = document.getElementById('my-fold-flag')!;
-                    myLastActionLabel.style.display = this.roomBrief!.curHand!.hasActed(idxInHand) ? 'flex' : 'none';
-                    myLastActionLabel.textContent = this.roomBrief!.curHand!.getLastActionText(idxInHand);
                 }
                 const betControls = document.getElementById(`${viewPrefix}-bet-decision-inputs`);
-                if (roomBrief.state == PokerRoom.STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS && roomBrief.curHand!.state == Hand.STATE__PLAYER_BETTING && roomBrief.curHand!.expectingActionFrom == idxInHand) {
+                if (idxInHand != null &&roomBrief.curHand!.expectingActionFrom == idxInHand) {
                     betControls!.style.display = 'block';
                     const amountInput = document.getElementById(`${viewPrefix}-bet-amount`) as HTMLInputElement;
                     const maxBetOnTable = roomBrief.curHand!.bets.reduce((max: number, bet: number) => Math.max(max, bet), 0);
-                    const myBet = roomBrief.curHand!.bets[idxInHand];
-                    const myChipsInHand = roomBrief.curHand!.chipsInHand[idxInHand];
+                    const myBet = roomBrief.curHand!.bets[idxInHand!];
+                    const myChipsInHand = roomBrief.curHand!.chipsInHand[idxInHand!];
                     const minToAdd = Math.min(maxBetOnTable - myBet, myChipsInHand);
                     amountInput!.min = minToAdd.toString();
                     amountInput!.max = myChipsInHand.toString();
@@ -471,13 +519,7 @@ export class UIManager {
                 } else {
                     betControls!.style.display = 'none';
                 }
-
-                const mySitBtn = document.getElementById(`my-sit-button`);
-                if (roomBrief.playerLivenesses[playerIdxInRoom]) {
-                    mySitBtn!.style.display = 'none';
-                } else {
-                    mySitBtn!.style.display = 'flex';
-                }
+                this.renderMyPhysicalStateBox(playerIdxInRoom);
             }    
 
         }
@@ -497,13 +539,30 @@ export class UIManager {
                 this.updateCardSlot(`community-card-${i}`, roomBrief.curHand!.publiclyOpenedCards[i] ?? null);
             }
         } else if (roomBrief.state == PokerRoom.STATE__WAITING_FOR_PLAYERS) {
-            waitingForPlayersFlag.style.display = 'flex';
+            if (roomBrief.hasCompetitor(this.currentAccount!.accountAddress)) {
+            } else {
+                waitingForPlayersFlag.style.display = 'flex';
+            }
         } else if (roomBrief.state == PokerRoom.STATE__CLOSED) {
             finalizedFlag.style.display = 'flex';
         } else {
             dkgOrShuffleInProgressFlag.style.display = 'flex';
         }
         
+    }
+
+    private renderJoinNowLink() {
+        const youCanJoinLink = document.getElementById('you-can-join-link')!;
+        if (this.roomBrief!.canJoin(this.currentAccount!.accountAddress)) {
+            youCanJoinLink.style.display = 'flex';
+            if (this.roomBrief!.state == PokerRoom.STATE__WAITING_FOR_PLAYERS) {
+                youCanJoinLink.textContent = "I'm ready.";
+            } else {
+                youCanJoinLink.textContent = "I'm ready for next hand.";
+            }
+        } else {
+            youCanJoinLink.style.display = 'none';
+        }
     }
 
     private updateCardSlot(htmlId: string, cardIdx: number | null) {

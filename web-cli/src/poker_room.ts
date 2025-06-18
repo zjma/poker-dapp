@@ -10,6 +10,18 @@ export const STATE__HAND_AND_NEXT_DECKGEN_IN_PROGRESS: number = 4;
 export const STATE__CLOSED: number = 5;
 
 export class SessionBrief {
+    canJoin(accountAddress: AccountAddress): boolean {
+        const myIdxInRoom = this.expectedPlayerAddresses.findIndex(addr => addr.toString() == accountAddress.toString());
+        if (myIdxInRoom == -1) return false;
+        if (this.playerLivenesses[myIdxInRoom]) return false;
+        if (this.state != STATE__WAITING_FOR_PLAYERS && this.playerChips[myIdxInRoom] == 0) return false;
+        return true;
+    }
+
+    hasCompetitor(accountAddress: AccountAddress): boolean {
+        return this.expectedPlayerAddresses.some(addr => addr.equals(accountAddress));
+    }
+
     addr: AccountAddress;
     expectedPlayerAddresses: AccountAddress[];
     playerLivenesses: boolean[];

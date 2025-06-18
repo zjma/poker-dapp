@@ -60,6 +60,15 @@ export class SessionBrief {
         const contribution = new VerifiableContribution(publicPoint, null); //TODO: Implement proof
         return { secretShare, contribution };
     }
+
+    hasParticipant(addr: AccountAddress): boolean {
+        return this.expectedContributors.some(contributor => contributor.toString() == addr.toString());
+    }
+
+    idxByAddr(addr: AccountAddress): number | null {
+        const idx = this.expectedContributors.findIndex(contributor => contributor.toString() == addr.toString());
+        return idx == -1 ? null : idx;
+    }
 };
 
 export class VerifiableContribution {

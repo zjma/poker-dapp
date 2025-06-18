@@ -14,15 +14,20 @@ export const STATE__SUCCEEDED: number = 141628;
 export const STATE__FAILED: number = 141629;
 export const CARD__UNREVEALED: number = 0xffffffff;
 
-const PLAYER_STATE__ACTIVE: number = 614544;
-const PLAYER_STATE__FOLDED: number = 614545;
-const PLAYER_STATE__CHECKED: number = 614546;
-const PLAYER_STATE__CALLED: number = 614547;
-const PLAYER_STATE__BET: number = 614548;
-const PLAYER_STATE__RAISED: number = 614549;
-const PLAYER_STATE__ALL_IN: number = 614550;
+export const PLAYER_STATE__ACTIVE: number = 614544;
+export const PLAYER_STATE__FOLDED: number = 614545;
+export const PLAYER_STATE__CHECKED: number = 614546;
+export const PLAYER_STATE__CALLED: number = 614547;
+export const PLAYER_STATE__BET: number = 614548;
+export const PLAYER_STATE__RAISED: number = 614549;
+export const PLAYER_STATE__ALL_IN: number = 614550;
 
 export class SessionBrief {
+    idxByAddr(addr: AccountAddress): number | null {
+        const idx = this.players.findIndex(player => player.toString() == addr.toString());
+        return idx == -1 ? null : idx;
+    }
+
     minRaiseStep(): number {
         return this.nextRaiseThreshold - this.lastRaise;
     }
@@ -164,19 +169,19 @@ export class SessionBrief {
 
     getLastActionText(idxInHand: number): string {
         if (this.playerStates[idxInHand] == PLAYER_STATE__FOLDED) {
-            return 'Folded';
+            return 'FOLD';
         } else if (this.playerStates[idxInHand] == PLAYER_STATE__CHECKED) {
-            return 'Checked';
+            return 'CHECK';
         } else if (this.playerStates[idxInHand] == PLAYER_STATE__CALLED) {
-            return 'Called';
+            return 'CALL';
         } else if (this.playerStates[idxInHand] == PLAYER_STATE__BET) {
-            return 'Bet';
+            return 'BET';
         } else if (this.playerStates[idxInHand] == PLAYER_STATE__RAISED) {
-            return 'Raised';
+            return 'RAISE';
         } else if (this.playerStates[idxInHand] == PLAYER_STATE__ALL_IN) {
-            return 'All In';
+            return 'ALL IN';
         } else {
-            return '';
+            return '🤔';
         }
     }
 

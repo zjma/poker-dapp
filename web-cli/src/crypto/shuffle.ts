@@ -125,4 +125,9 @@ export class SessionBrief {
         // const proof = BG12.prove(this.encKey, this.pedersenCtxt, trx, curCiphs, newCiphs, permutation, rerandomizers); // 1.5s
         return new VerifiableContribution(newCiphs, null);
     }
+
+    idxByAddr(addr: AccountAddress): number | null {
+        const idx = this.allowedContributors.findIndex(contributor => contributor.toString() == addr.toString());
+        return idx == -1 ? null : idx;
+    }
 }
