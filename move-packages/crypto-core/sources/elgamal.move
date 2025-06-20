@@ -10,7 +10,6 @@ module crypto_core::elgamal {
     use aptos_framework::randomness;
 
     struct Ciphertext has copy, drop, store {
-        enc_base: group::Element,
         c_0: group::Element,
         c_1: group::Element
     }
@@ -59,18 +58,13 @@ module crypto_core::elgamal {
         EncKey { enc_base, public_point }
     }
 
-    public fun make_ciphertext(
-        enc_base: group::Element, c_0: group::Element, c_1: group::Element
-    ): Ciphertext {
-        Ciphertext { enc_base, c_0, c_1 }
-    }
+    public fun make_ciphertext(c_0: group::Element, c_1: group::Element): Ciphertext { Ciphertext { c_0, c_1 } }
 
     /// Gas cost: 6.20
     public fun enc(
         ek: &EncKey, randomizer: &group::Scalar, ptxt: &group::Element
     ): Ciphertext {
         Ciphertext {
-            enc_base: ek.enc_base,
             c_0: group::scale_element(&ek.enc_base, randomizer),
             c_1: group::element_add(
                 ptxt, &group::scale_element(&ek.public_point, randomizer)
@@ -87,7 +81,6 @@ module crypto_core::elgamal {
     /// Gas cost: 1.36
     public fun ciphertext_add(a: &Ciphertext, b: &Ciphertext): Ciphertext {
         Ciphertext {
-            enc_base: a.enc_base,
             c_0: group::element_add(&a.c_0, &b.c_0),
             c_1: group::element_add(&a.c_1, &b.c_1)
         }
@@ -96,48 +89,36 @@ module crypto_core::elgamal {
     /// Gas cost: 4.52
     public fun ciphertext_mul(a: &Ciphertext, s: &group::Scalar): Ciphertext {
         Ciphertext {
-            enc_base: a.enc_base,
             c_0: group::scale_element(&a.c_0, s),
             c_1: group::scale_element(&a.c_1, s)
         }
     }
 
-    /// Gas cost: 5.88n
-    public fun weird_multi_exp(
-        ciphs: &vector<Ciphertext>, scalars: &vector<group::Scalar>
-    ): Ciphertext {
-        let acc = Ciphertext {
-            enc_base: ciphs.borrow(0).enc_base,
-            c_0: group::group_identity(),
-            c_1: group::group_identity()
-        };
-        ciphs.zip_ref(scalars, |ciph, scalar| {
-            acc = ciphertext_add(&acc, &ciphertext_mul(ciph, scalar))
+    /// Gas cost: 15+1.1n
+    public fun multi_exp(ciphs: &vector<Ciphertext>, scalars: &vector<group::Scalar>): Ciphertext {
+        let c_0_elements = vector[];
+        let c_1_elements = vector[];
+        ciphs.for_each_ref(|ciph|{
+            c_0_elements.push_back(ciph.c_0);
+            c_1_elements.push_back(ciph.c_1);
         });
-        acc
+        let c_0 = group::msm(&c_0_elements, scalars);
+        let c_1 = group::msm(&c_1_elements, scalars);
+        Ciphertext { c_0, c_1 }
     }
 
     public fun unpack_ciphertext(
         ciphertext: Ciphertext
-    ): (group::Element, group::Element, group::Element) {
-        let Ciphertext { enc_base, c_0, c_1 } = ciphertext;
-        (enc_base, c_0, c_1)
-    }
-
-    public fun dummy_ciphertext(): Ciphertext {
-        Ciphertext {
-            enc_base: group::dummy_element(),
-            c_0: group::dummy_element(),
-            c_1: group::dummy_element()
-        }
+    ): (group::Element, group::Element) {
+        let Ciphertext { c_0, c_1 } = ciphertext;
+        (c_0, c_1)
     }
 
     /// Gas cost: 3.96
     public fun decode_ciphertext(stream: &mut BCSStream): Ciphertext {
-        let enc_base = group::decode_element(stream);
         let c_0 = group::decode_element(stream);
         let c_1 = group::decode_element(stream);
-        Ciphertext { enc_base, c_0, c_1 }
+        Ciphertext { c_0, c_1 }
     }
 
     public fun derive_ek_from_dk(dk: &DecKey): EncKey {

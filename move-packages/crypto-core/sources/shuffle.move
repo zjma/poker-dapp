@@ -59,21 +59,6 @@ module crypto_core::shuffle {
         culprit: Option<address>
     }
 
-    public fun dummy_session(): Session {
-        Session {
-            enc_key: elgamal::dummy_enc_key(),
-            pedersen_ctxt: pedersen_commitment::dummy_context(),
-            initial_ciphertexts: vector[],
-            allowed_contributors: vector[],
-            num_contributions_expected: 0,
-            deadlines: vector[],
-            status: 0,
-            expected_contributor_idx: 0,
-            contributions: vector[],
-            culprit: option::none()
-        }
-    }
-
     #[lint::allow_unsafe_randomness]
     public fun new_session(
         owner: address,

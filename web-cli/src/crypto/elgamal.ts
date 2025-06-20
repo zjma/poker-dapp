@@ -2,25 +2,21 @@ import { Deserializer, Serializer } from '@aptos-labs/ts-sdk';
 import { Element, Scalar } from './group';
 
 export class Ciphertext {
-    encBase: Element;
     c0: Element;
     c1: Element;
 
-    constructor(encBase: Element, c0: Element, c1: Element) {
-        this.encBase = encBase;
+    constructor(c0: Element, c1: Element) {
         this.c0 = c0;
         this.c1 = c1;
     }
 
     static decode(deserializer: Deserializer): Ciphertext {
-        const encBase = Element.decode(deserializer);
         const c0 = Element.decode(deserializer);
         const c1 = Element.decode(deserializer);
-        return new Ciphertext(encBase, c0, c1);
+        return new Ciphertext(c0, c1);
     }
 
     encode(serializer: Serializer): void {
-        this.encBase.encode(serializer);
         this.c0.encode(serializer);
         this.c1.encode(serializer);
     }
@@ -32,11 +28,11 @@ export class Ciphertext {
     }
 
     add(other: Ciphertext): Ciphertext {
-        return new Ciphertext(this.encBase, this.c0.add(other.c0), this.c1.add(other.c1));
+        return new Ciphertext(this.c0.add(other.c0), this.c1.add(other.c1));
     }
 
     scale(scalar: Scalar): Ciphertext {
-        return new Ciphertext(this.encBase, this.c0.scale(scalar), this.c1.scale(scalar));
+        return new Ciphertext(this.c0.scale(scalar), this.c1.scale(scalar));
     }
 };
 
@@ -88,7 +84,6 @@ export function enc(
     ptxt: Element
 ): Ciphertext {
     return new Ciphertext(
-        ek.encBase,
         ek.encBase.scale(randomizer),
         ptxt.add(ek.publicPoint.scale(randomizer))
     );
@@ -99,12 +94,11 @@ export function dec(dk: DecKey, ciph: Ciphertext): Element {
     return ciph.c1.sub(unblinder);
 }
 
-export function weirdMultiExp(
+export function multiExp(
     ciphs: Ciphertext[],
     scalars: Scalar[]
 ): Ciphertext {
     let acc = new Ciphertext(
-        ciphs[0].encBase,
         Element.groupIdentity(),
         Element.groupIdentity(),
     );

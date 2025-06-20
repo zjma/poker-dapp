@@ -162,17 +162,13 @@ export class SessionBrief {
     reencrypt(): {recipientPrivateState: RecipientPrivateState, verifiableReencryption: VerifiableReencryption} {
         const t = Group.Scalar.rand();
         const u = Group.Scalar.rand();
-        const th = this.card.encBase.scale(t);
+        const encBase = this.secretInfo.agg_ek.encBase;
+        const th = encBase.scale(t);
         const tsh = this.secretInfo.agg_ek.publicPoint.scale(t);
         const rth = this.card.c0.add(th);
         const urth = rth.scale(u);
         const trx = new Transcript();
-        console.log(`encBase=${this.card.encBase.toHex()}`);
-        console.log(`th=${th.toHex()}`);    
-        console.log(`agg_ek=${this.secretInfo.agg_ek.publicPoint.toHex()}`);
-        console.log(`tsh=${tsh.toHex()}`);
-        const proof_t = SigmaDlogEq.prove(trx, this.card.encBase, th, this.secretInfo.agg_ek.publicPoint, tsh, t);
-        console.log(`proof_t=${proof_t.toHex()}`);
+        const proof_t = SigmaDlogEq.prove(trx, encBase, th, this.secretInfo.agg_ek.publicPoint, tsh, t);
         const proof_u = SigmaDlog.prove(trx, rth, urth, u);
         const recipientPrivateState = new RecipientPrivateState(u);
         const verifiableReencryption = new VerifiableReencryption(th, tsh, urth, proof_t, proof_u);

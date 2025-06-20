@@ -4,13 +4,11 @@
 /// The group has to have a shared ElGamal decrpyion key `s`.
 /// The ciphertext has to be generated with the ElGamal encryption key corresponding to `s`.
 module crypto_core::reencryption {
-    use std::bcs;
     use std::option;
     use std::option::Option;
     use std::signer::address_of;
     use aptos_std::bcs_stream;
     use aptos_std::bcs_stream::BCSStream;
-    use aptos_std::debug::print;
     use aptos_framework::object;
     use aptos_framework::timestamp;
     use crypto_core::fiat_shamir_transform;
@@ -20,6 +18,8 @@ module crypto_core::reencryption {
     use crypto_core::threshold_scalar_mul;
     use crypto_core::group;
     use crypto_core::elgamal;
+    #[test_only]
+    use std::bcs;
     #[test_only]
     use aptos_framework::randomness;
 
@@ -122,7 +122,7 @@ module crypto_core::reencryption {
                 104032
             );
         };
-        let (_, rh, old_c1) = elgamal::unpack_ciphertext(session.card);
+        let (rh, old_c1) = elgamal::unpack_ciphertext(session.card);
         let rth = group::element_add(&rh, &th);
         if (proof_u.is_some()) {
             assert!(
@@ -132,7 +132,7 @@ module crypto_core::reencryption {
         };
         let new_c0 = group::element_add(&rh, &th);
         let new_c1 = group::element_sum(vector[old_c1, urth, tsh]);
-        let new_ciph = elgamal::make_ciphertext(enc_base, new_c0, new_c1);
+        let new_ciph = elgamal::make_ciphertext(new_c0, new_c1);
         session.reenc = option::some(new_ciph);
     }
 
@@ -142,7 +142,7 @@ module crypto_core::reencryption {
         if (session.state == STATE__ACCEPTING_REENC) {
             if (session.reenc.is_some()) {
                 let new_ciph = session.reenc.borrow();
-                let (_, new_c0, _) = elgamal::unpack_ciphertext(*new_ciph);
+                let (new_c0, _) = elgamal::unpack_ciphertext(*new_ciph);
                 let sub_session =
                     threshold_scalar_mul::new_session(
                         session_addr,
@@ -275,10 +275,10 @@ module crypto_core::reencryption {
         assert!(addr == session.deal_target, 285206);
 
         let (_, ek, _) = dkg_v0::unpack_shared_secret_public_info(session.secret_info);
-        let (_, old_ek) = elgamal::unpack_enc_key(ek);
+        let (enc_base, old_ek) = elgamal::unpack_enc_key(ek);
         let t = group::rand_scalar();
         let u = group::rand_scalar();
-        let (enc_base, c_0, _) = elgamal::unpack_ciphertext(session.card);
+        let (c_0, _) = elgamal::unpack_ciphertext(session.card);
         let th = group::scale_element(&enc_base, &t);
         let tsh = group::scale_element(&old_ek, &t);
         let rth = group::element_add(&c_0, &th);
@@ -297,7 +297,7 @@ module crypto_core::reencryption {
         let RecipientPrivateState { u } = private_state;
         let srth =
             threshold_scalar_mul::result(*session.thresh_scalar_mul_session.borrow());
-        let (_, new_c0, new_c1) =
+        let (new_c0, new_c1) =
             elgamal::unpack_ciphertext(*session.reenc.borrow());
         let urth = group::scale_element(&new_c0, &u);
         let blinder = group::element_add(&srth, &urth);

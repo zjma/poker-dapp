@@ -96,7 +96,7 @@ export function prove(
         const new_item = vec_rho[i].mul(vec_b[i]);
         rho = rho.add(new_item);
     }
-    const tmp_ciph = ElGamal.weirdMultiExp(original, x_powers);
+    const tmp_ciph = ElGamal.multiExp(original, x_powers);
     const multiexp_proof =
         MultiExpArgument.prove(
             ek,

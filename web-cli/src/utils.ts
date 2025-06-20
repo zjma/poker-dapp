@@ -4,8 +4,8 @@ import * as DKG from './crypto/dkg_v0';
 import * as Reencryption from './crypto/reencryption';
 import * as Shuffle from './crypto/shuffle';
 import * as PokerRoom from './poker_room';
-export const PKG_0_ADDRESS = '0x378e6cca3f73cf78e7ec8046b91f6402b547678fe3eda777a21acfc4b77449eb';
-export const PKG_1_ADDRESS = '0x6b3331e6edc0f34641c39aaaf1a03bcb22b5f8bf76bdf7eca8ab7778bfd62f63';
+export const PKG_0_ADDRESS = '0x4bbd81cdda9d9d2d016ece603b1d81ebdc9d221cc50b9ed1db5c3c51e7e32cc4';
+export const PKG_1_ADDRESS = '0x5cb517de05e012101f7c49dc63e2d1b59accee59c01ee8ac151ade52fc6f73a1';
 
 export function truncatedAddr(addr: string): string {
     return addr.slice(0, 4) + '...' + addr.slice(-4);

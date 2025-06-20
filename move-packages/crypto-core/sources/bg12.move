@@ -17,15 +17,6 @@ module crypto_core::bg12 {
         product_proof: product_argument::Proof
     }
 
-    public fun dummy_proof(): Proof {
-        Proof {
-            vec_a_cmt: group::dummy_element(),
-            vec_b_cmt: group::dummy_element(),
-            multiexp_proof: multiexp_argument::dummy_proof(),
-            product_proof: product_argument::dummy_proof()
-        }
-    }
-
     public fun decode_proof(stream: &mut BCSStream): Proof {
         let vec_a_cmt = group::decode_element(stream);
         let vec_b_cmt = group::decode_element(stream);
@@ -97,7 +88,7 @@ module crypto_core::bg12 {
             let new_item = group::scalar_mul(vec_rho.borrow(i), &vec_b[i]);
             rho = group::scalar_add(&rho, &new_item);
         });
-        let tmp_ciph = elgamal::weird_multi_exp(original, &x_powers);
+        let tmp_ciph = elgamal::multi_exp(original, &x_powers);
         let multiexp_proof =
             multiexp_argument::prove(
                 ek,
@@ -154,7 +145,7 @@ module crypto_core::bg12 {
             tmp_product = group::scalar_mul(&tmp_product, &item);
         });
         let trx_branch = *trx;
-        let tmp_ciph = elgamal::weird_multi_exp(original, &x_powers);
+        let tmp_ciph = elgamal::multi_exp(original, &x_powers);
         product_argument::verify(
             pedersen_ctxt,
             &mut trx_branch,

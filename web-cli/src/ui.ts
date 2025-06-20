@@ -644,8 +644,8 @@ export class UIManager {
         if (shuffle.nextToContribute().toString() != this.currentAccount!.accountAddress.toString()) return;
         console.time('generateContribution');
         const contribution = shuffle.generateContribution();
-        await ContractProxy.submitShuffleContribution(shuffle.addr, contribution);
         console.timeEnd('generateContribution');
+        await ContractProxy.submitShuffleContribution(shuffle.addr, contribution);
     }
 
     private async performDKGActions(dkgSession: DKG.SessionBrief | null) {

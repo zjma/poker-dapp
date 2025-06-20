@@ -52,7 +52,7 @@ module poker_game::deck_gen {
         let session = borrow_global<Session>(session_addr);
         assert!(shuffle::succeeded(session.shuffle_addr), 192012);
         let reprs = shuffle::input_cloned(session.shuffle_addr).map(|ciph|{
-            let (_, _, c1) = elgamal::unpack_ciphertext(ciph);
+            let (_, c1) = elgamal::unpack_ciphertext(ciph);
             c1
         });
         (reprs, shuffle::result_cloned(session.shuffle_addr))

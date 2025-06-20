@@ -375,7 +375,7 @@ module poker_game::hand {
             vector::range(opening_idx_begin, opening_idx_end).for_each(|opening_idx| {
                 let scalar_mul_result =
                     threshold_scalar_mul::result(hand.public_opening_sessions[opening_idx]);
-                let (_, _, c_1) = elgamal::unpack_ciphertext(hand.shuffled_deck[hand.num_players * 2 + opening_idx]);
+                let (_, c_1) = elgamal::unpack_ciphertext(hand.shuffled_deck[hand.num_players * 2 + opening_idx]);
                 let revealed_card_repr = group::element_sub(&c_1, &scalar_mul_result);
                 let (found, card) = hand.card_reprs.index_of(&revealed_card_repr);
                 assert!(found, 143939);
@@ -420,7 +420,7 @@ module poker_game::hand {
     fun initiate_public_card_opening(hand: &mut Session, deadline: u64) {
         let card_idx = hand.num_players * 2 + hand.public_opening_sessions.length();
         let card_to_open = hand.shuffled_deck[card_idx];
-        let (_, c_0, _) = elgamal::unpack_ciphertext(card_to_open);
+        let (c_0, _) = elgamal::unpack_ciphertext(card_to_open);
         let opening_session = threshold_scalar_mul::new_session(hand.addr_self, c_0, hand.secret_info, hand.players, deadline);
         hand.public_opening_sessions.push_back(opening_session);
         hand.state = STATE__OPENING_COMMUNITY_CARDS;

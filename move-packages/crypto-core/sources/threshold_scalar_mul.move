@@ -73,13 +73,6 @@ module crypto_core::threshold_scalar_mul {
         }
     }
 
-    public fun dummy_contribution(): VerifiableContribution {
-        VerifiableContribution {
-            payload: group::dummy_element(),
-            proof: option::none(),
-        }
-    }
-
     public fun new_session(
         owner_addr: address,
         to_be_scaled: group::Element,

@@ -24,21 +24,6 @@ module crypto_core::multiexp_argument {
         tau: group::Scalar
     }
 
-    public fun dummy_proof(): Proof {
-        Proof {
-            cmt_a0: group::dummy_element(),
-            b_cmt_0: group::dummy_element(),
-            b_cmt_1: group::dummy_element(),
-            e_0: elgamal::dummy_ciphertext(),
-            e_1: elgamal::dummy_ciphertext(),
-            a_vec: vector[],
-            r: group::dummy_scalar(),
-            b: group::dummy_scalar(),
-            s: group::dummy_scalar(),
-            tau: group::dummy_scalar()
-        }
-    }
-
     /// Gas cost: 13+n
     public fun decode_proof(stream: &mut BCSStream): Proof {
         let cmt_a0 = group::decode_element(stream);
@@ -83,9 +68,9 @@ module crypto_core::multiexp_argument {
             let chunk0 = elgamal::enc(ek, &tau_vec[k], &msg);
             let chunk1 =
                 if (k == 0) {
-                    elgamal::weird_multi_exp(vec_c, &vec_a_0)
+                    elgamal::multi_exp(vec_c, &vec_a_0)
                 } else {
-                    elgamal::weird_multi_exp(vec_c, vec_a)
+                    elgamal::multi_exp(vec_c, vec_a)
                 };
             elgamal::ciphertext_add(&chunk0, &chunk1)
         });
@@ -173,7 +158,7 @@ module crypto_core::multiexp_argument {
                 &proof.tau,
                 &group::scale_element(&enc_base, &proof.b)
             ),
-            &elgamal::weird_multi_exp(vec_c, &proof.a_vec)
+            &elgamal::multi_exp(vec_c, &proof.a_vec)
         ))
             return false;
 
@@ -201,7 +186,7 @@ module crypto_core::multiexp_argument {
         let c =
             elgamal::ciphertext_add(
                 &elgamal::enc(&ek, &rho, &group::group_identity()),
-                &elgamal::weird_multi_exp(&vec_c, &vec_a)
+                &elgamal::multi_exp(&vec_c, &vec_a)
             );
         let trx_prover = fiat_shamir_transform::new_transcript();
         fiat_shamir_transform::append_raw_bytes(&mut trx_prover, b"SOME_RANDOM_PREFIX");

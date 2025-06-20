@@ -83,7 +83,7 @@ export function prove(
     let e_vec = Array.from({length: 2}, (_, k) => {
         const msg = ek.encBase.scale(b_vec[k]);
         let chunk0 = ElGamal.enc(ek, tau_vec[k], msg);
-        let chunk1 = k == 0 ? ElGamal.weirdMultiExp(vec_c, vec_a_0) : ElGamal.weirdMultiExp(vec_c, vec_a);
+        let chunk1 = k == 0 ? ElGamal.multiExp(vec_c, vec_a_0) : ElGamal.multiExp(vec_c, vec_a);
         return chunk0.add(chunk1);
     });
     trx.appendGroupElement(vec_a_0_cmt);

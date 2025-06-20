@@ -4,6 +4,7 @@ import { AccountAddress, Deserializer, Serializer } from '@aptos-labs/ts-sdk';
 import * as Group from './group';
 import { bytesToHex } from '@noble/hashes/utils';
 import * as BG12 from './bg12';
+import * as FiatShamirTransform from './fiat_shamir_transform';
 
 export const STATE__ACCEPTING_CONTRIBUTION: number = 1;
 export const STATE__SUCCEEDED: number = 2;
@@ -97,6 +98,36 @@ export class SessionBrief {
         return new SessionBrief(addr, encKey, pedersenCtxt, allowedContributors, deadlines, status, expectedContributorIdx, lastCiphertexts);
     }
 
+    encode(serializer: Serializer): void {
+        this.addr.serialize(serializer);
+        this.encKey.encode(serializer);
+        this.pedersenCtxt.encode(serializer);
+        serializer.serializeVector(this.allowedContributors);
+
+        serializer.serializeU32AsUleb128(this.deadlines.length);
+        for (let i = 0; i < this.deadlines.length; i++) {
+            serializer.serializeU64(this.deadlines[i]);
+        }
+
+        serializer.serializeU64(this.status);
+        serializer.serializeU64(this.expectedContributorIdx);
+
+        serializer.serializeU32AsUleb128(this.lastCiphertexts.length);
+        for (let i = 0; i < this.lastCiphertexts.length; i++) {
+            this.lastCiphertexts[i].encode(serializer);
+        }
+    }
+
+    toBytes(): Uint8Array {
+        const serializer = new Serializer();
+        this.encode(serializer);
+        return serializer.toUint8Array();
+    }
+
+    toHex(): string {
+        return bytesToHex(this.toBytes());
+    }
+
     nextToContribute(): AccountAddress {
         return this.allowedContributors[this.expectedContributorIdx];
     }
@@ -121,9 +152,9 @@ export class SessionBrief {
             return this.lastCiphertexts[permutation[i]].add(blinder);
         });
 
-        // const trx = new Transcript();
-        // const proof = BG12.prove(this.encKey, this.pedersenCtxt, trx, curCiphs, newCiphs, permutation, rerandomizers); // 1.5s
-        return new VerifiableContribution(newCiphs, null);
+        const trx = new FiatShamirTransform.Transcript();
+        const proof = BG12.prove(this.encKey, this.pedersenCtxt, trx, this.lastCiphertexts, newCiphs, permutation, rerandomizers); // 1.5s
+        return new VerifiableContribution(newCiphs, proof);
     }
 
     idxByAddr(addr: AccountAddress): number | null {
